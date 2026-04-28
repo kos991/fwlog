@@ -73,6 +73,7 @@ jobs:
           update: true
           install: >-
             mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-tools
 
       - name: Expose MSYS2 toolchain
         if: matrix.goos == 'windows'
@@ -86,6 +87,24 @@ jobs:
           $mingwPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           & "$mingwPath\gcc.exe" --version
           & "$mingwPath\g++.exe" --version
+
+      - name: Prepare DuckDB shared library (Windows)
+        if: matrix.goos == 'windows'
+        shell: pwsh
+        run: |
+          $duckdbDir = Join-Path $PWD 'third_party\duckdb\windows-amd64'
+          $zipPath = Join-Path $duckdbDir 'libduckdb-windows-amd64.zip'
+
+          New-Item -ItemType Directory -Force -Path $duckdbDir | Out-Null
+          Invoke-WebRequest -UseBasicParsing 'https://github.com/duckdb/duckdb/releases/download/v0.10.2/libduckdb-windows-amd64.zip' -OutFile $zipPath
+          Expand-Archive -LiteralPath $zipPath -DestinationPath $duckdbDir -Force
+
+          Push-Location $duckdbDir
+          gendef duckdb.dll
+          dlltool -d duckdb.def -l libduckdb.dll.a -D duckdb.dll
+          Pop-Location
+
+          Get-ChildItem $duckdbDir | Select-Object Name,Length | Format-Table -AutoSize
 
       - name: Verify required release files
         shell: bash
@@ -131,13 +150,16 @@ jobs:
           CGO_ENABLED: "1"
           CC: gcc
           CXX: g++
+          CGO_CFLAGS: -I${{ github.workspace }}\third_party\duckdb\windows-amd64
+          CGO_LDFLAGS: -L${{ github.workspace }}\third_party\duckdb\windows-amd64
         run: |
           New-Item -ItemType Directory -Force -Path release | Out-Null
           $assetName = "nat-query-service_windows_amd64_debug.exe"
-          go build -trimpath -o "release/$assetName" main.go
+          go build -trimpath -tags=duckdb_use_lib -o "release/$assetName" main.go
           if (-not (Test-Path "release/$assetName")) {
             throw "Expected build output not found: release/$assetName"
           }
+          Copy-Item 'third_party\duckdb\windows-amd64\duckdb.dll' 'release\duckdb.dll' -Force
 
       - name: Package Linux deployment archive
         if: matrix.goos == 'linux'
