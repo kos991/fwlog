@@ -155,11 +155,20 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path release | Out-Null
           $assetName = "nat-query-service_windows_amd64_debug.exe"
-          go build -trimpath -tags=duckdb_use_lib -o "release/$assetName" main.go
-          if (-not (Test-Path "release/$assetName")) {
-            throw "Expected build output not found: release/$assetName"
+          $zipName = "nat-query-service_windows_amd64_debug.zip"
+          $packageDir = Join-Path $PWD 'pkg_temp\windows-amd64-debug'
+
+          New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
+          go build -trimpath -tags=duckdb_use_lib -o "$packageDir/$assetName" main.go
+          if (-not (Test-Path "$packageDir/$assetName")) {
+            throw "Expected build output not found: $packageDir/$assetName"
           }
-          Copy-Item 'third_party\duckdb\windows-amd64\duckdb.dll' 'release\duckdb.dll' -Force
+          Copy-Item 'third_party\duckdb\windows-amd64\duckdb.dll' "$packageDir\duckdb.dll" -Force
+
+          Compress-Archive -Path "$packageDir\*" -DestinationPath "release\$zipName" -Force
+          if (-not (Test-Path "release\$zipName")) {
+            throw "Expected zip output not found: release\$zipName"
+          }
 
       - name: Package Linux deployment archive
         if: matrix.goos == 'linux'
