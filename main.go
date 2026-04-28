@@ -298,7 +298,7 @@ func buildIndex() error {
 
 	log.Printf("找到 %d 个日志文件", len(files))
 
-	_, err := db.Exec(`
+	_, err = db.Exec(`
 		DROP TABLE IF EXISTS nat_logs_next;
 		CREATE TABLE nat_logs_next (
 			timestamp VARCHAR,
