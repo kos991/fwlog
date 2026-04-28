@@ -82,7 +82,8 @@ jobs:
           set -euo pipefail
           go mod download
 
-      - name: Build Go service
+      - name: Build Go service (Linux)
+        if: matrix.goos == 'linux'
         shell: bash
         env:
           GOOS: ${{ matrix.goos }}
@@ -105,4 +106,20 @@ jobs:
           [[ -f "$output" ]] || {
             echo "Expected build output not found: $output" >&2
             exit 1
+          }
+
+      - name: Build Go service (Windows)
+        if: matrix.goos == 'windows'
+        shell: pwsh
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "1"
+          CC: gcc
+          CXX: g++
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          go build -trimpath -o "dist/nat-query-service.exe" main.go
+          if (-not (Test-Path "dist/nat-query-service.exe")) {
+            throw "Expected build output not found: dist/nat-query-service.exe"
           }
