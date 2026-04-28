@@ -2,8 +2,6 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
   pull_request:
     branches:
       - main
@@ -100,6 +98,19 @@ jobs:
         run: |
           set -euo pipefail
           go mod download
+
+      - name: Run Go tests (Linux)
+        if: matrix.goos == 'linux'
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "1"
+          CC: gcc
+          CXX: g++
+        run: |
+          set -euo pipefail
+          go test ./...
 
       - name: Build Go service (Linux)
         if: matrix.goos == 'linux'

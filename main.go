@@ -101,6 +101,17 @@ type RebuildState struct {
 	Error      string
 }
 
+type LogFileSnapshot struct {
+	Path string
+	Size int64
+}
+
+type LogFileRange struct {
+	Path  string
+	Start int64
+	End   int64
+}
+
 const (
 	defaultLogDir      = "/data/sangfor_fw_log"
 	defaultDBFile      = "/data/index/nat_logs.duckdb"
@@ -288,15 +299,15 @@ func buildIndex() error {
 	startTime := time.Now()
 	cfg := currentConfig()
 
-	files, err := filepath.Glob(filepath.Join(cfg.LogDir, "*.log"))
+	snapshots, err := snapshotLogFiles(cfg.LogDir)
 	if err != nil {
 		return err
 	}
-	if len(files) == 0 {
+	if len(snapshots) == 0 {
 		return fmt.Errorf("未找到日志文件")
 	}
 
-	log.Printf("找到 %d 个日志文件", len(files))
+	log.Printf("找到 %d 个日志文件", len(snapshots))
 
 	_, err = db.Exec(`
 		DROP TABLE IF EXISTS nat_logs_next;
@@ -326,10 +337,10 @@ func buildIndex() error {
 	writer := bufio.NewWriter(csvFile)
 	totalLines := 0
 
-	for _, file := range files {
-		log.Printf("处理: %s", filepath.Base(file))
-		if err := processLogFile(file, writer, &totalLines); err != nil {
-			log.Printf("处理文件失败 %s: %v", file, err)
+	for _, snapshot := range snapshots {
+		log.Printf("处理: %s", filepath.Base(snapshot.Path))
+		if err := processLogFileRange(snapshot.Path, 0, snapshot.Size, writer, &totalLines); err != nil {
+			log.Printf("处理文件失败 %s: %v", snapshot.Path, err)
 			continue
 		}
 	}
@@ -359,6 +370,15 @@ func buildIndex() error {
 	}
 
 	log.Println("创建索引...")
+	currentSnapshots, err := snapshotLogFiles(cfg.LogDir)
+	if err != nil {
+		return err
+	}
+	catchUpRanges := discoverCatchUpRanges(snapshots, currentSnapshots)
+	if err := appendCatchUpData(catchUpRanges, cfg.DBFile, &totalLines); err != nil {
+		return err
+	}
+
 	db.Exec("CREATE INDEX idx_src_ip ON nat_logs(src_ip)")
 	db.Exec("CREATE INDEX idx_dst_ip ON nat_logs(dst_ip)")
 	db.Exec("CREATE INDEX idx_nat_ip ON nat_logs(nat_ip)")
@@ -373,6 +393,92 @@ func buildIndex() error {
 	return nil
 }
 
+func snapshotLogFiles(logDir string) ([]LogFileSnapshot, error) {
+	files, err := filepath.Glob(filepath.Join(logDir, "*.log"))
+	if err != nil {
+		return nil, err
+	}
+
+	snapshots := make([]LogFileSnapshot, 0, len(files))
+	for _, file := range files {
+		info, err := os.Stat(file)
+		if err != nil {
+			return nil, err
+		}
+		if info.IsDir() {
+			continue
+		}
+		snapshots = append(snapshots, LogFileSnapshot{
+			Path: file,
+			Size: info.Size(),
+		})
+	}
+
+	return snapshots, nil
+}
+
+func discoverCatchUpRanges(initial []LogFileSnapshot, current []LogFileSnapshot) []LogFileRange {
+	initialByPath := make(map[string]int64, len(initial))
+	for _, snapshot := range initial {
+		initialByPath[snapshot.Path] = snapshot.Size
+	}
+
+	ranges := make([]LogFileRange, 0)
+	for _, snapshot := range current {
+		start, ok := initialByPath[snapshot.Path]
+		if !ok {
+			if snapshot.Size > 0 {
+				ranges = append(ranges, LogFileRange{Path: snapshot.Path, Start: 0, End: snapshot.Size})
+			}
+			continue
+		}
+		if snapshot.Size > start {
+			ranges = append(ranges, LogFileRange{Path: snapshot.Path, Start: start, End: snapshot.Size})
+		}
+	}
+
+	return ranges
+}
+
+func appendCatchUpData(ranges []LogFileRange, dbFile string, totalLines *int) error {
+	if len(ranges) == 0 {
+		return nil
+	}
+
+	tmpCSV := filepath.Join(filepath.Dir(dbFile), "tmp_import_catchup.csv")
+	csvFile, err := os.Create(tmpCSV)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmpCSV)
+
+	writer := bufio.NewWriter(csvFile)
+	addedLines := 0
+	for _, fileRange := range ranges {
+		if err := processLogFileRange(fileRange.Path, fileRange.Start, fileRange.End, writer, &addedLines); err != nil {
+			return err
+		}
+	}
+
+	if err := writer.Flush(); err != nil {
+		return err
+	}
+	if err := csvFile.Close(); err != nil {
+		return err
+	}
+	if addedLines == 0 {
+		return nil
+	}
+
+	_, err = db.Exec(fmt.Sprintf("COPY nat_logs FROM '%s' (DELIMITER '|', HEADER false);", strings.ReplaceAll(tmpCSV, "\\", "/")))
+	if err != nil {
+		return fmt.Errorf("补扫增量导入失败: %v", err)
+	}
+
+	*totalLines += addedLines
+	return nil
+}
+
 func processLogFile(filePath string, writer io.Writer, totalLines *int) error {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -380,7 +486,39 @@ func processLogFile(filePath string, writer io.Writer, totalLines *int) error {
 	}
 	defer file.Close()
 
-	scanner := bufio.NewScanner(file)
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+
+	return processLogReaderWithLimit(file, info.Size(), writer, totalLines)
+}
+
+func processLogFileRange(filePath string, startOffset, endOffset int64, writer io.Writer, totalLines *int) error {
+	if endOffset <= startOffset {
+		return nil
+	}
+
+	file, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	if _, err := file.Seek(startOffset, io.SeekStart); err != nil {
+		return err
+	}
+
+	return processLogReaderWithLimit(file, endOffset-startOffset, writer, totalLines)
+}
+
+func processLogReaderWithLimit(reader io.Reader, limit int64, writer io.Writer, totalLines *int) error {
+	limitedReader := reader
+	if limit > 0 {
+		limitedReader = io.LimitReader(reader, limit)
+	}
+
+	scanner := bufio.NewScanner(limitedReader)
 	buf := make([]byte, 1024*1024)
 	scanner.Buffer(buf, 10*1024*1024)
 
