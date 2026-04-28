@@ -1,0 +1,230 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version tag, for example v1.0.0
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build release assets (${{ matrix.name }})
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-amd64
+            runs-on: ubuntu-24.04
+            goos: linux
+            goarch: amd64
+          - name: linux-arm64
+            runs-on: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+          - name: windows-amd64-debug
+            runs-on: windows-2022
+            goos: windows
+            goarch: amd64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            version="${{ inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME}"
+          fi
+
+          [[ "$version" =~ ^v[0-9].* ]] || {
+            echo "Invalid release version: $version" >&2
+            exit 1
+          }
+
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install MinGW toolchain
+        if: matrix.goos == 'windows'
+        shell: pwsh
+        run: |
+          choco install mingw --yes --no-progress
+          $mingwPath = Join-Path $env:ChocolateyInstall 'lib\mingw\tools\install\mingw64\bin'
+          if (-not (Test-Path $mingwPath)) {
+            throw "MinGW path not found: $mingwPath"
+          }
+          $mingwPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & "$mingwPath\gcc.exe" --version
+          & "$mingwPath\g++.exe" --version
+
+      - name: Verify required release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in main.go go.mod nat-query-service.service; do
+            [[ -f "$path" ]] || {
+              echo "Missing required file: $path" >&2
+              exit 1
+            }
+          done
+
+      - name: Download Go modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          go mod download
+
+      - name: Build release binaries
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "1"
+          CC: gcc
+          CXX: g++
+        run: |
+          set -euo pipefail
+          mkdir -p dist release
+
+          if [[ "$GOOS" == "windows" ]]; then
+            asset_name="nat-query-service_windows_amd64_debug.exe"
+            go build -trimpath -o "release/$asset_name" main.go
+          else
+            build_output="dist/nat-query-service"
+            asset_name="nat-query-service_${GOOS}_${GOARCH}"
+            go build -trimpath -ldflags "-s -w" -o "$build_output" main.go
+            cp "$build_output" "release/$asset_name"
+          fi
+
+      - name: Package Linux deployment archive
+        if: matrix.goos == 'linux'
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.value }}"
+          package_root="pkg_temp/nat-query-service_${GOOS}_${GOARCH}"
+
+          rm -rf "$package_root"
+          mkdir -p "$package_root"
+
+          cp dist/nat-query-service "$package_root/nat-query-service"
+          cp nat-query-service.service "$package_root/"
+
+          cat > "$package_root/README_RELEASE.md" <<EOF
+          NAT Query Service
+          Release: $version
+          Target: ${GOOS}/${GOARCH}
+
+          Contents:
+          - nat-query-service
+          - nat-query-service.service
+
+          Deploy:
+          1. Copy nat-query-service to /opt/nat-query/
+          2. Copy nat-query-service.service to /etc/systemd/system/
+          3. Run systemctl daemon-reload
+          4. Run systemctl enable --now nat-query-service
+          EOF
+
+          tar -C "$package_root" -czf "release/nat-query-service_${GOOS}_${GOARCH}.tar.gz" .
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.name }}
+          path: release/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    runs-on: ubuntu-24.04
+    needs:
+      - build
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            version="${{ inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME}"
+          fi
+
+          [[ "$version" =~ ^v[0-9].* ]] || {
+            echo "Invalid release version: $version" >&2
+            exit 1
+          }
+
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      - name: List assembled assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          find release-assets -maxdepth 1 -type f | sort
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.value }}"
+
+          if gh release view "$version" >/dev/null 2>&1; then
+            echo "Release $version already exists."
+          else
+            gh release create "$version" \
+              --title "$version" \
+              --target "${GITHUB_SHA}" \
+              --notes "Automated release for $version"
+          fi
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.value }}"
+
+          mapfile -t assets < <(find release-assets -maxdepth 1 -type f | sort)
+          [[ "${#assets[@]}" -gt 0 ]] || {
+            echo "No release assets found." >&2
+            exit 1
+          }
+
+          gh release upload "$version" "${assets[@]}" --clobber
