@@ -1,0 +1,14 @@
+.claude/
+.fw_log_config
+.tmp/cache/
+.tmp/work/
+.tmp/reports/
+build/
+data/
+*.log
+*.gz
+*.zip
+*.tar.gz
+*.deb
+test_report_*.log
+tinycdb-*.tar.gz
