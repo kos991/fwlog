@@ -20,10 +20,12 @@ import (
 )
 
 type Config struct {
-	LogDir  string
-	DBFile  string
-	Port    int
-	Workers int
+	LogDir              string
+	DBFile              string
+	Port                int
+	Workers             int
+	AutoScanEnabled     bool
+	AutoScanIntervalSec int
 }
 
 type LogEntry struct {
@@ -73,18 +75,30 @@ type SearchFilters struct {
 	PageSize  int    `json:"page_size"`
 }
 
-type LogDirRequest struct {
-	LogDir string `json:"log_dir"`
+type SettingsUpdateRequest struct {
+	LogDir              string `json:"log_dir"`
+	AutoScanEnabled     *bool  `json:"auto_scan_enabled"`
+	AutoScanIntervalSec int    `json:"auto_scan_interval_sec"`
 }
 
 type SettingsResponse struct {
-	LogDir            string `json:"log_dir"`
-	DBFile            string `json:"db_file"`
-	ExportDir         string `json:"export_dir"`
-	RebuildStatus     string `json:"rebuild_status"`
-	RebuildStartedAt  string `json:"rebuild_started_at"`
-	RebuildFinishedAt string `json:"rebuild_finished_at"`
-	RebuildError      string `json:"rebuild_error"`
+	LogDir             string `json:"log_dir"`
+	DBFile             string `json:"db_file"`
+	ExportDir          string `json:"export_dir"`
+	AutoScanEnabled    bool   `json:"auto_scan_enabled"`
+	AutoScanInterval   int    `json:"auto_scan_interval_sec"`
+	RebuildStatus      string `json:"rebuild_status"`
+	RebuildStartedAt   string `json:"rebuild_started_at"`
+	RebuildFinishedAt  string `json:"rebuild_finished_at"`
+	RebuildError       string `json:"rebuild_error"`
+	RebuildMode        string `json:"rebuild_mode"`
+	RebuildCurrentFile string `json:"rebuild_current_file"`
+	RebuildFilesTotal  int    `json:"rebuild_files_total"`
+	RebuildFilesDone   int    `json:"rebuild_files_done"`
+	RebuildBytesTotal  int64  `json:"rebuild_bytes_total"`
+	RebuildBytesDone   int64  `json:"rebuild_bytes_done"`
+	RebuildElapsedSec  int64  `json:"rebuild_elapsed_sec"`
+	RebuildEtaSec      int64  `json:"rebuild_eta_sec"`
 }
 
 type ExportResponse struct {
@@ -95,10 +109,16 @@ type ExportResponse struct {
 }
 
 type RebuildState struct {
-	Status     string
-	StartedAt  time.Time
-	FinishedAt time.Time
-	Error      string
+	Status      string
+	Mode        string
+	StartedAt   time.Time
+	FinishedAt  time.Time
+	Error       string
+	CurrentFile string
+	FilesTotal  int
+	FilesDone   int
+	BytesTotal  int64
+	BytesDone   int64
 }
 
 type LogFileSnapshot struct {
@@ -119,6 +139,7 @@ const (
 	defaultLocalDBFile = "./data/index/nat_logs.duckdb"
 	defaultPort        = 8080
 	defaultWorkers     = 4
+	defaultAutoScanSec = 30
 
 	defaultPageSize = 25
 	maxPageSize     = 200
@@ -157,14 +178,23 @@ func main() {
 	db.Exec("SET memory_limit='2GB'")
 	db.Exec(fmt.Sprintf("SET threads=%d", currentConfig().Workers))
 
+	if err := ensureRuntimeTables(); err != nil {
+		log.Fatalf("初始化运行时数据表失败: %v", err)
+	}
+	if err := loadPersistedSettings(); err != nil {
+		log.Printf("加载持久化设置失败，继续使用当前配置: %v", err)
+	}
+
 	if !tableExists() {
-		setRebuildRunning()
+		setRebuildRunning("full_rebuild")
 		if err := buildIndex(); err != nil {
 			setRebuildFinished(err)
 			log.Fatalf("构建索引失败: %v", err)
 		}
 		setRebuildFinished(nil)
 	}
+
+	go autoSyncLoop()
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
@@ -176,6 +206,7 @@ func main() {
 	r.GET("/api/settings", handleSettings)
 	r.POST("/api/settings/log-dir", handleSetLogDir)
 	r.POST("/api/rebuild", handleRebuild)
+	r.POST("/api/sync", handleSync)
 	r.POST("/api/export", handleExport)
 	r.GET("/api/exports/*filepath", handleExportDownload)
 
@@ -190,28 +221,34 @@ func loadConfig() Config {
 	defaults := defaultConfig()
 
 	return Config{
-		LogDir:  getEnv("LOG_DIR", defaults.LogDir),
-		DBFile:  getEnv("DB_FILE", defaults.DBFile),
-		Port:    getEnvInt("PORT", defaults.Port),
-		Workers: getEnvInt("WORKERS", defaults.Workers),
+		LogDir:              getEnv("LOG_DIR", defaults.LogDir),
+		DBFile:              getEnv("DB_FILE", defaults.DBFile),
+		Port:                getEnvInt("PORT", defaults.Port),
+		Workers:             getEnvInt("WORKERS", defaults.Workers),
+		AutoScanEnabled:     getEnvBool("AUTO_SCAN_ENABLED", defaults.AutoScanEnabled),
+		AutoScanIntervalSec: getEnvInt("AUTO_SCAN_INTERVAL_SEC", defaults.AutoScanIntervalSec),
 	}
 }
 
 func defaultConfig() Config {
 	if pathExists(defaultLocalLogDir) {
 		return Config{
-			LogDir:  defaultLocalLogDir,
-			DBFile:  defaultLocalDBFile,
-			Port:    defaultPort,
-			Workers: defaultWorkers,
+			LogDir:              defaultLocalLogDir,
+			DBFile:              defaultLocalDBFile,
+			Port:                defaultPort,
+			Workers:             defaultWorkers,
+			AutoScanEnabled:     true,
+			AutoScanIntervalSec: defaultAutoScanSec,
 		}
 	}
 
 	return Config{
-		LogDir:  defaultLogDir,
-		DBFile:  defaultDBFile,
-		Port:    defaultPort,
-		Workers: defaultWorkers,
+		LogDir:              defaultLogDir,
+		DBFile:              defaultDBFile,
+		Port:                defaultPort,
+		Workers:             defaultWorkers,
+		AutoScanEnabled:     true,
+		AutoScanIntervalSec: defaultAutoScanSec,
 	}
 }
 
@@ -225,6 +262,81 @@ func setLogDir(logDir string) {
 	configMux.Lock()
 	defer configMux.Unlock()
 	config.LogDir = logDir
+}
+
+func updateSettings(logDir string, autoScanEnabled bool, autoScanIntervalSec int) {
+	configMux.Lock()
+	defer configMux.Unlock()
+	config.LogDir = logDir
+	config.AutoScanEnabled = autoScanEnabled
+	config.AutoScanIntervalSec = autoScanIntervalSec
+}
+
+func ensureRuntimeTables() error {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS app_settings (
+			key VARCHAR PRIMARY KEY,
+			value VARCHAR
+		);
+		CREATE TABLE IF NOT EXISTS ingest_files (
+			path VARCHAR PRIMARY KEY,
+			size_bytes BIGINT NOT NULL,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+	`)
+	return err
+}
+
+func loadPersistedSettings() error {
+	rows, err := db.Query(`SELECT key, value FROM app_settings WHERE key IN ('log_dir', 'auto_scan_enabled', 'auto_scan_interval_sec')`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	cfg := currentConfig()
+	logDir := cfg.LogDir
+	autoScanEnabled := cfg.AutoScanEnabled
+	autoScanIntervalSec := cfg.AutoScanIntervalSec
+
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			return err
+		}
+		switch key {
+		case "log_dir":
+			if strings.TrimSpace(value) != "" {
+				logDir = value
+			}
+		case "auto_scan_enabled":
+			autoScanEnabled = strings.EqualFold(value, "true") || value == "1"
+		case "auto_scan_interval_sec":
+			if parsed, err := strconv.Atoi(value); err == nil && parsed > 0 {
+				autoScanIntervalSec = parsed
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	updateSettings(logDir, autoScanEnabled, autoScanIntervalSec)
+	return nil
+}
+
+func persistSettings(cfg Config) error {
+	values := map[string]string{
+		"log_dir":                cfg.LogDir,
+		"auto_scan_enabled":      strconv.FormatBool(cfg.AutoScanEnabled),
+		"auto_scan_interval_sec": strconv.Itoa(cfg.AutoScanIntervalSec),
+	}
+	for key, value := range values {
+		if _, err := db.Exec(`INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, value); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func exportBaseDir(cfg Config) string {
@@ -242,11 +354,12 @@ func currentRebuildState() RebuildState {
 	return rebuildState
 }
 
-func setRebuildRunning() {
+func setRebuildRunning(mode string) {
 	rebuildMux.Lock()
 	defer rebuildMux.Unlock()
 	rebuildState = RebuildState{
 		Status:    "running",
+		Mode:      mode,
 		StartedAt: time.Now(),
 	}
 }
@@ -255,6 +368,7 @@ func setRebuildFinished(err error) {
 	rebuildMux.Lock()
 	defer rebuildMux.Unlock()
 	rebuildState.FinishedAt = time.Now()
+	rebuildState.CurrentFile = ""
 	if err != nil {
 		rebuildState.Status = "failed"
 		rebuildState.Error = err.Error()
@@ -262,6 +376,62 @@ func setRebuildFinished(err error) {
 	}
 	rebuildState.Status = "succeeded"
 	rebuildState.Error = ""
+}
+
+func setRebuildTotals(filesTotal int, bytesTotal int64) {
+	rebuildMux.Lock()
+	defer rebuildMux.Unlock()
+	rebuildState.FilesTotal = filesTotal
+	rebuildState.BytesTotal = bytesTotal
+}
+
+func addRebuildTotals(files int, bytes int64) {
+	rebuildMux.Lock()
+	defer rebuildMux.Unlock()
+	rebuildState.FilesTotal += files
+	rebuildState.BytesTotal += bytes
+}
+
+func setRebuildCurrentFile(path string) {
+	rebuildMux.Lock()
+	defer rebuildMux.Unlock()
+	rebuildState.CurrentFile = path
+}
+
+func setRebuildMode(mode string) {
+	rebuildMux.Lock()
+	defer rebuildMux.Unlock()
+	rebuildState.Mode = mode
+}
+
+func advanceRebuildProgress(filesDone int, bytesDone int64) {
+	rebuildMux.Lock()
+	defer rebuildMux.Unlock()
+	rebuildState.FilesDone += filesDone
+	rebuildState.BytesDone += bytesDone
+}
+
+func rebuildStateMetrics(state RebuildState) (int64, int64) {
+	if state.StartedAt.IsZero() {
+		return 0, 0
+	}
+	endTime := time.Now()
+	if !state.FinishedAt.IsZero() {
+		endTime = state.FinishedAt
+	}
+	elapsed := int64(endTime.Sub(state.StartedAt).Seconds())
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	if state.BytesDone <= 0 || state.BytesTotal <= state.BytesDone || elapsed == 0 {
+		return elapsed, 0
+	}
+	remainingBytes := state.BytesTotal - state.BytesDone
+	eta := int64(float64(elapsed) / float64(state.BytesDone) * float64(remainingBytes))
+	if eta < 0 {
+		eta = 0
+	}
+	return elapsed, eta
 }
 
 func startRebuild() error {
@@ -272,6 +442,7 @@ func startRebuild() error {
 	}
 	rebuildState = RebuildState{
 		Status:    "running",
+		Mode:      "full_rebuild",
 		StartedAt: time.Now(),
 	}
 	rebuildMux.Unlock()
@@ -289,6 +460,32 @@ func startRebuild() error {
 	return nil
 }
 
+func startIncrementalSync() error {
+	rebuildMux.Lock()
+	if rebuildState.Status == "running" {
+		rebuildMux.Unlock()
+		return fmt.Errorf("当前已有任务在运行")
+	}
+	rebuildState = RebuildState{
+		Status:    "running",
+		Mode:      "incremental_sync",
+		StartedAt: time.Now(),
+	}
+	rebuildMux.Unlock()
+
+	go func() {
+		err := runIncrementalSync()
+		setRebuildFinished(err)
+		if err != nil {
+			log.Printf("增量同步失败: %v", err)
+			return
+		}
+		log.Printf("增量同步完成")
+	}()
+
+	return nil
+}
+
 func tableExists() bool {
 	var count int
 	err := db.QueryRow("SELECT COUNT(*) FROM information_schema.tables WHERE table_name='nat_logs'").Scan(&count)
@@ -298,6 +495,7 @@ func tableExists() bool {
 func buildIndex() error {
 	startTime := time.Now()
 	cfg := currentConfig()
+	setRebuildMode("full_rebuild")
 
 	snapshots, err := snapshotLogFiles(cfg.LogDir)
 	if err != nil {
@@ -307,6 +505,7 @@ func buildIndex() error {
 		return fmt.Errorf("未找到日志文件")
 	}
 
+	setRebuildTotals(len(snapshots), sumSnapshotBytes(snapshots))
 	log.Printf("找到 %d 个日志文件", len(snapshots))
 
 	_, err = db.Exec(`
@@ -338,11 +537,13 @@ func buildIndex() error {
 	totalLines := 0
 
 	for _, snapshot := range snapshots {
+		setRebuildCurrentFile(snapshot.Path)
 		log.Printf("处理: %s", filepath.Base(snapshot.Path))
 		if err := processLogFileRange(snapshot.Path, 0, snapshot.Size, writer, &totalLines); err != nil {
 			log.Printf("处理文件失败 %s: %v", snapshot.Path, err)
 			continue
 		}
+		advanceRebuildProgress(1, snapshot.Size)
 	}
 
 	if err := writer.Flush(); err != nil {
@@ -375,7 +576,11 @@ func buildIndex() error {
 		return err
 	}
 	catchUpRanges := discoverCatchUpRanges(snapshots, currentSnapshots)
-	if err := appendCatchUpData(catchUpRanges, cfg.DBFile, &totalLines); err != nil {
+	addRebuildTotals(len(catchUpRanges), sumRangeBytes(catchUpRanges))
+	if err := appendCatchUpDataWithProgress(catchUpRanges, cfg.DBFile); err != nil {
+		return err
+	}
+	if err := saveIngestSnapshots(currentSnapshots); err != nil {
 		return err
 	}
 
@@ -440,6 +645,22 @@ func discoverCatchUpRanges(initial []LogFileSnapshot, current []LogFileSnapshot)
 	return ranges
 }
 
+func requiresFullRebuild(stored []LogFileSnapshot, current []LogFileSnapshot) bool {
+	currentByPath := make(map[string]int64, len(current))
+	for _, snapshot := range current {
+		currentByPath[snapshot.Path] = snapshot.Size
+	}
+
+	for _, snapshot := range stored {
+		size, ok := currentByPath[snapshot.Path]
+		if !ok || size < snapshot.Size {
+			return true
+		}
+	}
+
+	return false
+}
+
 func appendCatchUpData(ranges []LogFileRange, dbFile string, totalLines *int) error {
 	if len(ranges) == 0 {
 		return nil
@@ -477,6 +698,156 @@ func appendCatchUpData(ranges []LogFileRange, dbFile string, totalLines *int) er
 
 	*totalLines += addedLines
 	return nil
+}
+
+func sumSnapshotBytes(snapshots []LogFileSnapshot) int64 {
+	var total int64
+	for _, snapshot := range snapshots {
+		total += snapshot.Size
+	}
+	return total
+}
+
+func sumRangeBytes(ranges []LogFileRange) int64 {
+	var total int64
+	for _, fileRange := range ranges {
+		if fileRange.End > fileRange.Start {
+			total += fileRange.End - fileRange.Start
+		}
+	}
+	return total
+}
+
+func loadIngestSnapshots() ([]LogFileSnapshot, error) {
+	rows, err := db.Query(`SELECT path, size_bytes FROM ingest_files ORDER BY path`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	snapshots := make([]LogFileSnapshot, 0)
+	for rows.Next() {
+		var snapshot LogFileSnapshot
+		if err := rows.Scan(&snapshot.Path, &snapshot.Size); err != nil {
+			return nil, err
+		}
+		snapshots = append(snapshots, snapshot)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return snapshots, nil
+}
+
+func saveIngestSnapshots(snapshots []LogFileSnapshot) error {
+	if _, err := db.Exec(`DELETE FROM ingest_files`); err != nil {
+		return err
+	}
+	for _, snapshot := range snapshots {
+		if _, err := db.Exec(`INSERT INTO ingest_files (path, size_bytes, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)`, snapshot.Path, snapshot.Size); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func runIncrementalSync() error {
+	cfg := currentConfig()
+	setRebuildMode("incremental_sync")
+	storedSnapshots, err := loadIngestSnapshots()
+	if err != nil {
+		return err
+	}
+
+	currentSnapshots, err := snapshotLogFiles(cfg.LogDir)
+	if err != nil {
+		return err
+	}
+
+	if len(storedSnapshots) == 0 {
+		if err := saveIngestSnapshots(currentSnapshots); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	if requiresFullRebuild(storedSnapshots, currentSnapshots) {
+		return buildIndex()
+	}
+
+	catchUpRanges := discoverCatchUpRanges(storedSnapshots, currentSnapshots)
+	setRebuildTotals(len(catchUpRanges), sumRangeBytes(catchUpRanges))
+	if err := appendCatchUpDataWithProgress(catchUpRanges, cfg.DBFile); err != nil {
+		return err
+	}
+
+	if err := saveIngestSnapshots(currentSnapshots); err != nil {
+		return err
+	}
+
+	db.Exec("CHECKPOINT")
+	return nil
+}
+
+func appendCatchUpDataWithProgress(ranges []LogFileRange, dbFile string) error {
+	if len(ranges) == 0 {
+		return nil
+	}
+
+	tmpCSV := filepath.Join(filepath.Dir(dbFile), "tmp_import_catchup.csv")
+	csvFile, err := os.Create(tmpCSV)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmpCSV)
+
+	writer := bufio.NewWriter(csvFile)
+	addedLines := 0
+	for _, fileRange := range ranges {
+		setRebuildCurrentFile(fileRange.Path)
+		if err := processLogFileRange(fileRange.Path, fileRange.Start, fileRange.End, writer, &addedLines); err != nil {
+			return err
+		}
+		advanceRebuildProgress(1, fileRange.End-fileRange.Start)
+	}
+
+	if err := writer.Flush(); err != nil {
+		return err
+	}
+	if err := csvFile.Close(); err != nil {
+		return err
+	}
+	if addedLines == 0 {
+		return nil
+	}
+
+	_, err = db.Exec(fmt.Sprintf("COPY nat_logs FROM '%s' (DELIMITER '|', HEADER false);", strings.ReplaceAll(tmpCSV, "\\", "/")))
+	if err != nil {
+		return fmt.Errorf("增量导入失败: %v", err)
+	}
+	return nil
+}
+
+func autoSyncLoop() {
+	for {
+		cfg := currentConfig()
+		interval := cfg.AutoScanIntervalSec
+		if interval <= 0 {
+			interval = defaultAutoScanSec
+		}
+		time.Sleep(time.Duration(interval) * time.Second)
+
+		cfg = currentConfig()
+		if !cfg.AutoScanEnabled {
+			continue
+		}
+		if state := currentRebuildState(); state.Status == "running" {
+			continue
+		}
+		if err := startIncrementalSync(); err != nil {
+			log.Printf("跳过自动增量同步: %v", err)
+		}
+	}
 }
 
 func processLogFile(filePath string, writer io.Writer, totalLines *int) error {
@@ -839,12 +1210,21 @@ func handleSettings(c *gin.Context) {
 	state := currentRebuildState()
 
 	response := SettingsResponse{
-		LogDir:        cfg.LogDir,
-		DBFile:        cfg.DBFile,
-		ExportDir:     exportBaseDir(cfg),
-		RebuildStatus: state.Status,
-		RebuildError:  state.Error,
+		LogDir:             cfg.LogDir,
+		DBFile:             cfg.DBFile,
+		ExportDir:          exportBaseDir(cfg),
+		AutoScanEnabled:    cfg.AutoScanEnabled,
+		AutoScanInterval:   cfg.AutoScanIntervalSec,
+		RebuildStatus:      state.Status,
+		RebuildError:       state.Error,
+		RebuildMode:        state.Mode,
+		RebuildCurrentFile: state.CurrentFile,
+		RebuildFilesTotal:  state.FilesTotal,
+		RebuildFilesDone:   state.FilesDone,
+		RebuildBytesTotal:  state.BytesTotal,
+		RebuildBytesDone:   state.BytesDone,
 	}
+	response.RebuildElapsedSec, response.RebuildEtaSec = rebuildStateMetrics(state)
 	if !state.StartedAt.IsZero() {
 		response.RebuildStartedAt = state.StartedAt.Format("2006-01-02 15:04:05")
 	}
@@ -856,16 +1236,16 @@ func handleSettings(c *gin.Context) {
 }
 
 func handleSetLogDir(c *gin.Context) {
-	var request LogDirRequest
+	var request SettingsUpdateRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(400, gin.H{"error": "请求参数格式错误"})
 		return
 	}
 
+	cfg := currentConfig()
 	logDir := strings.TrimSpace(request.LogDir)
 	if logDir == "" {
-		c.JSON(400, gin.H{"error": "日志路径不能为空"})
-		return
+		logDir = cfg.LogDir
 	}
 
 	info, err := os.Stat(logDir)
@@ -883,20 +1263,43 @@ func handleSetLogDir(c *gin.Context) {
 		return
 	}
 
-	setLogDir(logDir)
+	autoScanEnabled := cfg.AutoScanEnabled
+	if request.AutoScanEnabled != nil {
+		autoScanEnabled = *request.AutoScanEnabled
+	}
+	autoScanIntervalSec := cfg.AutoScanIntervalSec
+	if request.AutoScanIntervalSec > 0 {
+		autoScanIntervalSec = request.AutoScanIntervalSec
+	}
+
+	updateSettings(logDir, autoScanEnabled, autoScanIntervalSec)
+	if err := persistSettings(currentConfig()); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
 	if err := startRebuild(); err != nil {
 		c.JSON(409, gin.H{"error": err.Error()})
 		return
 	}
 
 	c.JSON(202, gin.H{
-		"status":  "started",
-		"log_dir": logDir,
+		"status":                 "started",
+		"log_dir":                logDir,
+		"auto_scan_enabled":      autoScanEnabled,
+		"auto_scan_interval_sec": autoScanIntervalSec,
 	})
 }
 
 func handleRebuild(c *gin.Context) {
 	if err := startRebuild(); err != nil {
+		c.JSON(409, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(202, gin.H{"status": "started"})
+}
+
+func handleSync(c *gin.Context) {
+	if err := startIncrementalSync(); err != nil {
 		c.JSON(409, gin.H{"error": err.Error()})
 		return
 	}
@@ -1091,6 +1494,21 @@ func getEnvInt(key string, fallback int) int {
 	return parsed
 }
 
+func getEnvBool(key string, fallback bool) bool {
+	value := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
+	if value == "" {
+		return fallback
+	}
+	switch value {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
+}
+
 const indexHTML = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -1246,6 +1664,29 @@ const indexHTML = `<!DOCTYPE html>
           <button id="saveLogDirBtn" class="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:text-slate-900">保存并重建</button>
           <button id="manualRebuildBtn" class="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:text-slate-900">仅重建索引</button>
         </div>
+        <div class="mt-4 grid gap-3 lg:grid-cols-[1fr_220px_auto]">
+          <label class="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700">
+            <input id="autoScanEnabledInput" type="checkbox" class="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-400">
+            <span>Enable scheduled incremental sync</span>
+          </label>
+          <div class="rounded-2xl border border-slate-200 px-4 py-3">
+            <label for="autoScanIntervalInput" class="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-400">Sync interval (sec)</label>
+            <input id="autoScanIntervalInput" type="number" min="5" step="5" class="w-full border-0 bg-transparent p-0 text-sm text-slate-900 focus:outline-none" value="30">
+          </div>
+          <button id="manualSyncBtn" class="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:text-slate-900">Run incremental sync</button>
+        </div>
+        <div class="mt-4 rounded-3xl border border-slate-200 bg-slate-50 p-4">
+          <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div class="text-xs font-medium uppercase tracking-wide text-slate-400">Index Progress</div>
+              <div id="rebuildProgressText" class="mt-1 text-sm font-medium text-slate-900">Idle</div>
+            </div>
+            <div id="rebuildProgressMeta" class="text-sm text-slate-500">No active task</div>
+          </div>
+          <div class="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
+            <div id="rebuildProgressBar" class="h-full w-0 rounded-full bg-slate-900 transition-all duration-500"></div>
+          </div>
+        </div>
         <div id="settingsMessage" class="mt-4 hidden rounded-2xl border px-4 py-3 text-sm"></div>
       </section>
 
@@ -1302,6 +1743,74 @@ const indexHTML = `<!DOCTYPE html>
       ].join('');
     }
 
+    function formatDuration(totalSeconds) {
+      const seconds = Math.max(0, Number(totalSeconds || 0));
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      const secs = Math.floor(seconds % 60);
+      if (hours > 0) {
+        return hours + 'h ' + minutes + 'm ' + secs + 's';
+      }
+      if (minutes > 0) {
+        return minutes + 'm ' + secs + 's';
+      }
+      return secs + 's';
+    }
+
+    function formatBytes(value) {
+      const bytes = Math.max(0, Number(value || 0));
+      if (bytes >= 1024 * 1024 * 1024) {
+        return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+      }
+      if (bytes >= 1024 * 1024) {
+        return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+      }
+      if (bytes >= 1024) {
+        return (bytes / 1024).toFixed(1) + ' KB';
+      }
+      return bytes + ' B';
+    }
+
+    function renderRebuildProgress(settings) {
+      const total = Number(settings.rebuild_bytes_total || 0);
+      const done = Number(settings.rebuild_bytes_done || 0);
+      const percent = settings.rebuild_status === 'succeeded'
+        ? 100
+        : (total > 0 ? Math.min(100, Math.round(done / total * 100)) : 0);
+      const progressBar = document.getElementById('rebuildProgressBar');
+      const progressText = document.getElementById('rebuildProgressText');
+      const progressMeta = document.getElementById('rebuildProgressMeta');
+
+      progressBar.style.width = percent + '%';
+      if (settings.rebuild_status === 'running') {
+        progressText.textContent = (settings.rebuild_mode || 'task') + ' · ' + percent + '%';
+      } else if (settings.rebuild_status === 'failed') {
+        progressText.textContent = 'Failed';
+      } else if (settings.rebuild_status === 'succeeded') {
+        progressText.textContent = 'Completed';
+      } else {
+        progressText.textContent = 'Idle';
+      }
+
+      const metaParts = [];
+      if (settings.rebuild_current_file) {
+        metaParts.push(settings.rebuild_current_file.split(/[\\/]/).pop());
+      }
+      if (Number(settings.rebuild_files_total || 0) > 0) {
+        metaParts.push((settings.rebuild_files_done || 0) + '/' + (settings.rebuild_files_total || 0) + ' files');
+      }
+      if (total > 0) {
+        metaParts.push(formatBytes(done) + ' / ' + formatBytes(total));
+      }
+      if (Number(settings.rebuild_elapsed_sec || 0) > 0) {
+        metaParts.push('elapsed ' + formatDuration(settings.rebuild_elapsed_sec));
+      }
+      if (Number(settings.rebuild_eta_sec || 0) > 0 && settings.rebuild_status === 'running') {
+        metaParts.push('eta ' + formatDuration(settings.rebuild_eta_sec));
+      }
+      progressMeta.textContent = metaParts.join(' · ') || 'No active task';
+    }
+
     function setStatus(status, message) {
       currentStatus = status || 'idle';
       const badge = document.getElementById('statusBadge');
@@ -1326,6 +1835,9 @@ const indexHTML = `<!DOCTYPE html>
       document.getElementById('searchBtn').disabled = disabled;
       document.getElementById('saveLogDirBtn').disabled = disabled;
       document.getElementById('manualRebuildBtn').disabled = disabled;
+      document.getElementById('manualSyncBtn').disabled = disabled;
+      document.getElementById('autoScanEnabledInput').disabled = disabled;
+      document.getElementById('autoScanIntervalInput').disabled = disabled;
       document.getElementById('exportBtn').disabled = disabled || !latestResults || !latestResults.records || latestResults.records.length === 0;
     }
 
@@ -1386,16 +1898,24 @@ const indexHTML = `<!DOCTYPE html>
       if (document.activeElement !== document.getElementById('logDirInput')) {
         document.getElementById('logDirInput').value = settings.log_dir || '';
       }
+      document.getElementById('autoScanEnabledInput').checked = !!settings.auto_scan_enabled;
+      if (document.activeElement !== document.getElementById('autoScanIntervalInput')) {
+        document.getElementById('autoScanIntervalInput').value = settings.auto_scan_interval_sec || 30;
+      }
 
       let message = '索引就绪';
       if (settings.rebuild_status === 'running') {
-        message = '索引重建中';
+        message = 'Index rebuilding';
+        if (settings.rebuild_eta_sec) {
+          message += ' · ETA ' + formatDuration(settings.rebuild_eta_sec);
+        }
       } else if (settings.rebuild_status === 'failed') {
         message = settings.rebuild_error ? '索引重建失败：' + settings.rebuild_error : '索引重建失败';
       } else if (settings.rebuild_status === 'succeeded') {
         message = settings.rebuild_finished_at ? '索引已更新 · ' + settings.rebuild_finished_at : '索引已更新';
       }
       setStatus(settings.rebuild_status, message);
+      renderRebuildProgress(settings);
     }
 
     function spinner() {
@@ -1564,10 +2084,16 @@ const indexHTML = `<!DOCTYPE html>
     async function saveLogDir() {
       clearSettingsMessage();
       const logDir = document.getElementById('logDirInput').value.trim();
+      const autoScanEnabled = document.getElementById('autoScanEnabledInput').checked;
+      const autoScanIntervalSec = Number(document.getElementById('autoScanIntervalInput').value || 30);
       const res = await fetch('/api/settings/log-dir', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ log_dir: logDir })
+        body: JSON.stringify({
+          log_dir: logDir,
+          auto_scan_enabled: autoScanEnabled,
+          auto_scan_interval_sec: autoScanIntervalSec
+        })
       });
       const data = await res.json();
       if (!res.ok) {
@@ -1575,6 +2101,18 @@ const indexHTML = `<!DOCTYPE html>
         return;
       }
       showSettingsMessage('info', '新的日志路径已接收，后台正在重建索引。');
+      await loadSettings();
+    }
+
+    async function triggerSync() {
+      clearSettingsMessage();
+      const res = await fetch('/api/sync', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        showSettingsMessage('error', data.error || 'Incremental sync failed');
+        return;
+      }
+      showSettingsMessage('info', 'Incremental sync started.');
       await loadSettings();
     }
 
@@ -1627,6 +2165,7 @@ const indexHTML = `<!DOCTYPE html>
       });
       document.getElementById('saveLogDirBtn').addEventListener('click', saveLogDir);
       document.getElementById('manualRebuildBtn').addEventListener('click', triggerRebuild);
+      document.getElementById('manualSyncBtn').addEventListener('click', triggerSync);
       document.getElementById('exportBtn').addEventListener('click', exportCurrentResults);
       document.getElementById('openHistoryBtn').addEventListener('click', function () { toggleHistory(true); });
       document.getElementById('closeHistoryBtn').addEventListener('click', function () { toggleHistory(false); });

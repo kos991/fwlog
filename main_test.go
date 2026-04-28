@@ -83,3 +83,22 @@ func TestDiscoverCatchUpRangesIncludesAppendedAndNewFiles(t *testing.T) {
 		t.Fatalf("unexpected new file range: %+v", ranges[1])
 	}
 }
+
+func TestRequiresFullRebuildDetectsShrinkAndRemoval(t *testing.T) {
+	stored := []LogFileSnapshot{
+		{Path: "a.log", Size: 100},
+		{Path: "b.log", Size: 200},
+	}
+
+	if !requiresFullRebuild(stored, []LogFileSnapshot{{Path: "a.log", Size: 90}, {Path: "b.log", Size: 200}}) {
+		t.Fatalf("expected shrink to require full rebuild")
+	}
+
+	if !requiresFullRebuild(stored, []LogFileSnapshot{{Path: "a.log", Size: 100}}) {
+		t.Fatalf("expected missing file to require full rebuild")
+	}
+
+	if requiresFullRebuild(stored, []LogFileSnapshot{{Path: "a.log", Size: 120}, {Path: "b.log", Size: 200}}) {
+		t.Fatalf("did not expect append-only changes to require full rebuild")
+	}
+}
