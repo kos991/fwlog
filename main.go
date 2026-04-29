@@ -492,6 +492,17 @@ func tableExists() bool {
 	return err == nil && count > 0
 }
 
+func hasSourceMetadataColumns() bool {
+	var count int
+	err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM information_schema.columns
+		WHERE table_name='nat_logs'
+		  AND column_name IN ('source_file', 'source_offset')
+	`).Scan(&count)
+	return err == nil && count == 2
+}
+
 func buildIndex() error {
 	startTime := time.Now()
 	cfg := currentConfig()
@@ -519,7 +530,9 @@ func buildIndex() error {
 			protocol VARCHAR,
 			nat_ip VARCHAR,
 			nat_port INTEGER,
-			action VARCHAR
+			action VARCHAR,
+			source_file VARCHAR,
+			source_offset BIGINT
 		);
 	`)
 	if err != nil {
@@ -541,7 +554,7 @@ func buildIndex() error {
 		log.Printf("处理: %s", filepath.Base(snapshot.Path))
 		if err := processLogFileRange(snapshot.Path, 0, snapshot.Size, writer, &totalLines); err != nil {
 			log.Printf("处理文件失败 %s: %v", snapshot.Path, err)
-			continue
+			return fmt.Errorf("build snapshot file %s: %w", snapshot.Path, err)
 		}
 		advanceRebuildProgress(1, snapshot.Size)
 	}
@@ -691,12 +704,41 @@ func appendCatchUpData(ranges []LogFileRange, dbFile string, totalLines *int) er
 		return nil
 	}
 
-	_, err = db.Exec(fmt.Sprintf("COPY nat_logs FROM '%s' (DELIMITER '|', HEADER false);", strings.ReplaceAll(tmpCSV, "\\", "/")))
-	if err != nil {
-		return fmt.Errorf("补扫增量导入失败: %v", err)
+	if err := importCatchUpCSV(tmpCSV, ranges); err != nil {
+		return err
 	}
 
 	*totalLines += addedLines
+	return nil
+}
+
+func importCatchUpCSV(tmpCSV string, ranges []LogFileRange) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	for _, fileRange := range ranges {
+		if _, err := tx.Exec(`DELETE FROM nat_logs WHERE source_file = ? AND source_offset >= ? AND source_offset < ?`, fileRange.Path, fileRange.Start, fileRange.End); err != nil {
+			return fmt.Errorf("delete overlapping range %s[%d,%d): %w", fileRange.Path, fileRange.Start, fileRange.End, err)
+		}
+	}
+
+	copyPath := strings.ReplaceAll(tmpCSV, "\\", "/")
+	if _, err := tx.Exec(fmt.Sprintf("COPY nat_logs FROM '%s' (DELIMITER '|', HEADER false);", copyPath)); err != nil {
+		return fmt.Errorf("copy catch-up data: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	committed = true
 	return nil
 }
 
@@ -764,11 +806,12 @@ func runIncrementalSync() error {
 		return err
 	}
 
+	if !hasSourceMetadataColumns() {
+		return buildIndex()
+	}
+
 	if len(storedSnapshots) == 0 {
-		if err := saveIngestSnapshots(currentSnapshots); err != nil {
-			return err
-		}
-		return nil
+		return buildIndex()
 	}
 
 	if requiresFullRebuild(storedSnapshots, currentSnapshots) {
@@ -821,11 +864,7 @@ func appendCatchUpDataWithProgress(ranges []LogFileRange, dbFile string) error {
 		return nil
 	}
 
-	_, err = db.Exec(fmt.Sprintf("COPY nat_logs FROM '%s' (DELIMITER '|', HEADER false);", strings.ReplaceAll(tmpCSV, "\\", "/")))
-	if err != nil {
-		return fmt.Errorf("增量导入失败: %v", err)
-	}
-	return nil
+	return importCatchUpCSV(tmpCSV, ranges)
 }
 
 func autoSyncLoop() {
@@ -862,7 +901,7 @@ func processLogFile(filePath string, writer io.Writer, totalLines *int) error {
 		return err
 	}
 
-	return processLogReaderWithLimit(file, info.Size(), writer, totalLines)
+	return processLogReaderWithOffsets(filePath, file, 0, info.Size(), writer, totalLines)
 }
 
 func processLogFileRange(filePath string, startOffset, endOffset int64, writer io.Writer, totalLines *int) error {
@@ -880,7 +919,7 @@ func processLogFileRange(filePath string, startOffset, endOffset int64, writer i
 		return err
 	}
 
-	return processLogReaderWithLimit(file, endOffset-startOffset, writer, totalLines)
+	return processLogReaderWithOffsets(filePath, file, startOffset, endOffset-startOffset, writer, totalLines)
 }
 
 func processLogReaderWithLimit(reader io.Reader, limit int64, writer io.Writer, totalLines *int) error {
@@ -915,6 +954,48 @@ func processLogReaderWithLimit(reader io.Reader, limit int64, writer io.Writer, 
 	}
 
 	return scanner.Err()
+}
+
+func processLogReaderWithOffsets(filePath string, reader io.Reader, baseOffset int64, limit int64, writer io.Writer, totalLines *int) error {
+	limitedReader := reader
+	if limit > 0 {
+		limitedReader = io.LimitReader(reader, limit)
+	}
+
+	buffered := bufio.NewReaderSize(limitedReader, 1024*1024)
+	currentOffset := baseOffset
+
+	for {
+		line, err := buffered.ReadString('\n')
+		if len(line) > 0 {
+			recordOffset := currentOffset
+			currentOffset += int64(len(line))
+
+			trimmed := strings.TrimRight(line, "\r\n")
+			matches := natRegex.FindStringSubmatch(trimmed)
+			if len(matches) >= 8 {
+				timestamp := extractTimestamp(trimmed)
+				protocol := mapProtocol(matches[5])
+				action := "ACCEPT"
+
+				fmt.Fprintf(writer, "%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%d\n",
+					timestamp, matches[1], matches[2], matches[3], matches[4],
+					protocol, matches[6], matches[7], action, filePath, recordOffset)
+
+				*totalLines++
+				if *totalLines%100000 == 0 {
+					log.Printf("processed %d lines", *totalLines)
+				}
+			}
+		}
+
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+	}
 }
 
 func extractTimestamp(line string) string {
@@ -1238,7 +1319,7 @@ func handleSettings(c *gin.Context) {
 func handleSetLogDir(c *gin.Context) {
 	var request SettingsUpdateRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(400, gin.H{"error": "请求参数格式错误"})
+		c.JSON(400, gin.H{"error": "invalid request payload"})
 		return
 	}
 
@@ -1248,18 +1329,21 @@ func handleSetLogDir(c *gin.Context) {
 		logDir = cfg.LogDir
 	}
 
-	info, err := os.Stat(logDir)
-	if err != nil {
-		c.JSON(400, gin.H{"error": "日志路径不存在"})
-		return
-	}
-	if !info.IsDir() {
-		c.JSON(400, gin.H{"error": "日志路径必须是目录"})
-		return
+	pathChanged := logDir != cfg.LogDir
+	if pathChanged {
+		info, err := os.Stat(logDir)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "log path does not exist"})
+			return
+		}
+		if !info.IsDir() {
+			c.JSON(400, gin.H{"error": "log path must be a directory"})
+			return
+		}
 	}
 
 	if state := currentRebuildState(); state.Status == "running" {
-		c.JSON(409, gin.H{"error": "索引正在重建中，请稍后再试"})
+		c.JSON(409, gin.H{"error": "index rebuild is running, please try again later"})
 		return
 	}
 
@@ -1275,6 +1359,15 @@ func handleSetLogDir(c *gin.Context) {
 	updateSettings(logDir, autoScanEnabled, autoScanIntervalSec)
 	if err := persistSettings(currentConfig()); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	if !pathChanged {
+		c.JSON(200, gin.H{
+			"status":                 "updated",
+			"log_dir":                logDir,
+			"auto_scan_enabled":      autoScanEnabled,
+			"auto_scan_interval_sec": autoScanIntervalSec,
+		})
 		return
 	}
 	if err := startRebuild(); err != nil {

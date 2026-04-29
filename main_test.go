@@ -42,7 +42,7 @@ func TestProcessLogFileReadsOnlySnapshotSize(t *testing.T) {
 	}
 	defer file.Close()
 
-	if err := processLogReaderWithLimit(file, snapshotSize, &out, &totalLines); err != nil {
+	if err := processLogReaderWithOffsets(path, file, 0, snapshotSize, &out, &totalLines); err != nil {
 		t.Fatalf("process log file: %v", err)
 	}
 
@@ -57,6 +57,17 @@ func TestProcessLogFileReadsOnlySnapshotSize(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "2.55.81.95") {
 		t.Fatalf("expected first line in output: %q", out.String())
+	}
+
+	fields := strings.Split(strings.TrimSpace(out.String()), "|")
+	if len(fields) != 11 {
+		t.Fatalf("expected 11 output fields including source metadata, got %d: %q", len(fields), out.String())
+	}
+	if fields[9] != path {
+		t.Fatalf("expected source file %q, got %q", path, fields[9])
+	}
+	if fields[10] != "0" {
+		t.Fatalf("expected source offset 0, got %q", fields[10])
 	}
 }
 
