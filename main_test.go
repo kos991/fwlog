@@ -80,11 +80,21 @@ func TestServeIndexServesRefactoredPage(t *testing.T) {
 	if !strings.Contains(body, "/api/dashboard") {
 		t.Fatal("expected dashboard API integration in refactored page")
 	}
-	if strings.Contains(body, "cdn.jsdelivr.net") {
-		t.Fatal("expected offline vendor assets, found CDN reference")
+	for _, endpoint := range []string{"/api/settings", "/api/rebuild", "/api/sync", "/api/export"} {
+		if !strings.Contains(body, endpoint) {
+			t.Fatalf("expected complete operations UI to integrate %s", endpoint)
+		}
+	}
+	for _, externalRef := range []string{"https://", "http://", "cdn."} {
+		if strings.Contains(body, externalRef) {
+			t.Fatalf("expected offline vendor assets, found external reference %s", externalRef)
+		}
 	}
 	if !strings.Contains(body, "/assets/vendor/vue/vue.global.prod.js") {
 		t.Fatal("expected local Vue vendor asset")
+	}
+	if !strings.Contains(body, "搜索设置") || !strings.Contains(body, "增量同步") {
+		t.Fatal("expected settings and incremental sync controls in refactored page")
 	}
 }
 
