@@ -64,6 +64,20 @@ func (e *IPEngine) LoadGeoDB(filePath string) error {
 	return nil
 }
 
+func (e *IPEngine) LoadGeoDBBytes(data []byte) error {
+	db, err := geoip2.FromBytes(data)
+	if err != nil {
+		return err
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.geoDB != nil {
+		e.geoDB.Close()
+	}
+	e.geoDB = db
+	return nil
+}
+
 func (e *IPEngine) GetTag(ipStr string) IPTag {
 	e.mu.RLock()
 	defer e.mu.RUnlock()

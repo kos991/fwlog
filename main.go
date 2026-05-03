@@ -7,6 +7,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -21,7 +22,7 @@ import (
 	_ "github.com/marcboeker/go-duckdb"
 )
 
-//go:embed assets/*
+//go:embed assets
 var assets embed.FS
 
 type Config struct {
@@ -196,7 +197,14 @@ func main() {
 	if err := ipEngine.LoadGeoDB(geoDB); err == nil {
 		log.Printf("加载 GeoIP 数据库: %s", geoDB)
 	} else {
-		log.Printf("未加载离线 GeoIP 数据库 (GeoLite2-City.mmdb): %v", err)
+		embeddedGeoDB, readErr := assets.ReadFile("assets/vendor/GeoLite2-City.mmdb")
+		if readErr != nil {
+			log.Printf("未加载离线 GeoIP 数据库 (GeoLite2-City.mmdb): %v", err)
+		} else if loadErr := ipEngine.LoadGeoDBBytes(embeddedGeoDB); loadErr != nil {
+			log.Printf("加载内置 GeoIP 数据库失败: %v", loadErr)
+		} else {
+			log.Printf("加载内置 GeoIP 数据库: assets/vendor/GeoLite2-City.mmdb")
+		}
 	}
 
 	log.Printf("NAT日志查询系统启动中...")
@@ -237,9 +245,13 @@ func main() {
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
+	staticAssets, err := fs.Sub(assets, "assets")
+	if err != nil {
+		log.Fatalf("初始化静态资源失败: %v", err)
+	}
 
 	r.GET("/", serveIndex)
-	r.StaticFS("/assets", http.FS(assets))
+	r.StaticFS("/assets", http.FS(staticAssets))
 	r.GET("/api/query", handleQuery)
 	r.GET("/api/stats", handleStats)
 	r.GET("/api/top-ips", handleTopIPs)

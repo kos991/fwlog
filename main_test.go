@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -78,5 +79,32 @@ func TestServeIndexServesRefactoredPage(t *testing.T) {
 	}
 	if !strings.Contains(body, "/api/dashboard") {
 		t.Fatal("expected dashboard API integration in refactored page")
+	}
+	if strings.Contains(body, "cdn.jsdelivr.net") {
+		t.Fatal("expected offline vendor assets, found CDN reference")
+	}
+	if !strings.Contains(body, "/assets/vendor/vue/vue.global.prod.js") {
+		t.Fatal("expected local Vue vendor asset")
+	}
+}
+
+func TestEmbeddedVendorAssetsAvailable(t *testing.T) {
+	staticAssets, err := fs.Sub(assets, "assets")
+	if err != nil {
+		t.Fatalf("create static asset fs: %v", err)
+	}
+
+	for _, path := range []string{
+		"vendor/vue/vue.global.prod.js",
+		"vendor/echarts/echarts.min.js",
+		"vendor/element-plus/index.css",
+		"vendor/element-plus/index.full.js",
+		"vendor/GeoLite2-City.mmdb",
+	} {
+		file, err := staticAssets.Open(path)
+		if err != nil {
+			t.Fatalf("open embedded vendor asset %s: %v", path, err)
+		}
+		_ = file.Close()
 	}
 }
