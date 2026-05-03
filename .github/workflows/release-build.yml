@@ -132,3 +132,105 @@ jobs:
           version="${{ inputs.version }}"
           gh release view "$version" --repo "$GH_REPO" >/dev/null
           gh release upload "$version" release/* --repo "$GH_REPO" --clobber
+
+  build-kylin:
+    name: Build Kylin V10 SP1 ${{ matrix.arch-name }}
+    runs-on: ${{ matrix.runs-on }}
+    container:
+      image: ${{ matrix.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch-name: x86_64
+            runs-on: ubuntu-24.04
+            container: quay.io/pypa/manylinux_2_28_x86_64
+            goarch: amd64
+            asset-arch: x86_64
+          - arch-name: aarch64
+            runs-on: ubuntu-24.04-arm
+            container: quay.io/pypa/manylinux_2_28_aarch64
+            goarch: arm64
+            asset-arch: aarch64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Show compatibility baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -a
+          ldd --version | head -n 1
+          gcc --version | head -n 1
+
+      - name: Build Kylin compatible package
+        shell: bash
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "1"
+          CC: gcc
+          CXX: g++
+          ASSET_ARCH: ${{ matrix.asset-arch }}
+        run: |
+          set -euo pipefail
+          mkdir -p release "pkg_temp/kylin-v10-sp1-${ASSET_ARCH}"
+
+          package_dir="pkg_temp/kylin-v10-sp1-${ASSET_ARCH}"
+          binary="nat-query-service"
+          asset="nat-query-service_kylin-v10-sp1_${ASSET_ARCH}.tar.gz"
+
+          go build -trimpath -ldflags "-s -w" -o "${package_dir}/${binary}" main.go ip_engine.go
+          cp nat-query-service.service "${package_dir}/"
+
+          cat > "${package_dir}/README_KYLIN_V10_SP1.txt" <<'EOF'
+          NAT Query Service - Kylin V10 SP1
+
+          Target:
+          - Kylin Linux Advanced Server V10 SP1
+          - glibc 2.28 compatible build
+          - systemd deployment
+
+          Install:
+          1. install -d /opt/nat-query
+          2. install -m 0755 nat-query-service /opt/nat-query/nat-query-service
+          3. install -m 0644 nat-query-service.service /etc/systemd/system/nat-query-service.service
+          4. systemctl daemon-reload
+          5. systemctl enable --now nat-query-service
+
+          Default access:
+          - http://SERVER_IP:8080
+
+          Runtime data:
+          - /data/logs
+          - /data/index/nat_logs.duckdb
+          - /data/exports
+          EOF
+
+          max_glibc="$(readelf -V "${package_dir}/${binary}" | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -n 1 || true)"
+          echo "Max GLIBC symbol: ${max_glibc:-not detected}"
+          if [[ -n "$max_glibc" && "$max_glibc" != "GLIBC_2.28" && "$max_glibc" > "GLIBC_2.28" ]]; then
+            echo "Unexpected GLIBC baseline: $max_glibc" >&2
+            exit 1
+          fi
+
+          tar -C "$package_dir" -czf "release/$asset" .
+
+      - name: Upload Kylin release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ inputs.version }}"
+          gh release view "$version" --repo "$GH_REPO" >/dev/null
+          gh release upload "$version" release/* --repo "$GH_REPO" --clobber
