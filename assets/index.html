@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FWLOG SOC - 专业版</title>
+    <link rel="stylesheet" href="/assets/vendor/element-plus/index.css">
+    <style>
+        :root {
+            --primary: #3b82f6;
+            --bg: #f8fafc;
+            --border: #e2e8f0;
+        }
+        body { font-family: sans-serif; background-color: var(--bg); margin: 0; overflow: hidden; }
+        #app { display: flex; height: 100vh; }
+        .sidebar { width: 260px; background: #fff; border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+        .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .header { height: 72px; background: #fff; border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 32px; justify-content: space-between; }
+        .content { flex: 1; padding: 32px; overflow-y: auto; }
+        .card { background: #fff; border-radius: 12px; padding: 24px; border: 1px solid var(--border); margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .tag-gov { background: #fee2e2; color: #b91c1c; padding: 2px 6px; border-radius: 4px; font-size: 11px; margin-left: 8px; font-weight: bold; border: 1px solid #fecaca; }
+        .ip-badge { background: #eff6ff; color: var(--primary); padding: 2px 8px; border-radius: 4px; font-family: monospace; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <aside class="sidebar">
+            <div style="padding: 32px 24px; font-size: 1.25rem; font-weight: 700; color: var(--primary);">FWLOG PRO</div>
+            <el-menu default-active="1" class="el-menu-vertical">
+                <el-menu-item index="1" @click="currentTab = 'dashboard'">
+                    <span>监控大屏</span>
+                </el-menu-item>
+                <el-menu-item index="2" @click="currentTab = 'query'">
+                    <span>深度溯源</span>
+                </el-menu-item>
+            </el-menu>
+        </aside>
+
+        <main class="main">
+            <header class="header">
+                <div style="font-weight: 600; font-size: 18px;">{{ currentTab === 'dashboard' ? '监控大屏' : '深度溯源' }}</div>
+                <div><el-tag type="success">系统就绪</el-tag></div>
+            </header>
+
+            <div class="content">
+                <!-- 大屏 -->
+                <div v-if="currentTab === 'dashboard'">
+                    <el-row :gutter="20">
+                        <el-col :span="4" v-for="k in kpis" :key="k.label">
+                            <div class="card">
+                                <div style="color: #64748b; font-size: 13px;">{{ k.label }}</div>
+                                <div style="font-size: 20px; font-weight: 700; margin-top: 8px;">{{ k.value }}</div>
+                            </div>
+                        </el-col>
+                        <el-col :span="8">
+                            <div class="card" style="background: linear-gradient(135deg, #eff6ff 0%, #fff 100%); border-color: #bfdbfe;">
+                                <div style="color: #1e40af; font-size: 13px; font-weight: bold;">政务网流量占比</div>
+                                <div style="font-size: 24px; font-weight: 800; margin-top: 8px; color: #1e40af;">{{ dash.gov_net_pct.toFixed(2) }}%</div>
+                            </div>
+                        </el-col>
+                    </el-row>
+                    <div class="card" style="height: 400px;">
+                        <div style="font-weight: bold; margin-bottom: 20px;">流量趋势 (24h)</div>
+                        <div id="trend-chart" style="height: 320px;"></div>
+                    </div>
+                </div>
+
+                <!-- 溯源 -->
+                <div v-if="currentTab === 'query'">
+                    <div class="card">
+                        <el-form :inline="true">
+                            <el-form-item label="IP 地址">
+                                <el-input v-model="filters.ip" placeholder="搜索 IP..."></el-input>
+                            </el-form-item>
+                            <el-form-item>
+                                <el-button type="primary" @click="doQuery">执行搜索</el-button>
+                            </el-form-item>
+                        </el-form>
+                    </div>
+
+                    <div class="card">
+                        <el-table :data="logs" style="width: 100%" v-loading="loading">
+                            <el-table-column prop="timestamp" label="时间" width="180"></el-table-column>
+                            <el-table-column label="源 IP">
+                                <template #default="scope">
+                                    <span class="ip-badge">{{ scope.row.src_ip }}</span>
+                                    <span v-if="scope.row.src_tag.label === '政务网私有段'" class="tag-gov">政务网</span>
+                                    <div style="font-size: 11px; color: #94a3b8; margin-top: 4px;">{{ scope.row.src_tag.location }}</div>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="src_port" label="端口" width="80"></el-table-column>
+                            <el-table-column label="目的 IP">
+                                <template #default="scope">
+                                    <span class="ip-badge">{{ scope.row.dst_ip }}</span>
+                                    <span v-if="scope.row.dst_tag.label === '政务网私有段'" class="tag-gov">政务网</span>
+                                    <div style="font-size: 11px; color: #94a3b8; margin-top: 4px;">{{ scope.row.dst_tag.location }}</div>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="protocol" label="协议" width="80"></el-table-column>
+                            <el-table-column label="转换(NAT)">
+                                <template #default="scope">
+                                    <div style="font-size: 12px;">{{ scope.row.nat_ip }}:{{ scope.row.nat_port }}</div>
+                                </template>
+                            </el-table-column>
+                        </el-table>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/assets/vendor/vue/vue.global.prod.js"></script>
+    <script src="/assets/vendor/echarts/echarts.min.js"></script>
+    <script src="/assets/vendor/element-plus/index.full.js"></script>
+
+    <script>
+        const { createApp, ref, onMounted, watch } = Vue;
+        createApp({
+            setup() {
+                const currentTab = ref('dashboard');
+                const loading = ref(false);
+                const logs = ref([]);
+                const kpis = ref([
+                    { label: '总记录', value: '0' },
+                    { label: '活跃 IP', value: '0' },
+                    { label: '库体积', value: '0 MB' },
+                    { label: '查询耗时', value: '0 ms' }
+                ]);
+                const dash = ref({ gov_net_pct: 0 });
+                const filters = ref({ ip: '' });
+
+                const fetchStats = async () => {
+                    const r = await fetch('/api/stats');
+                    const d = await r.json();
+                    kpis.value[0].value = d.total_records.toLocaleString();
+                    kpis.value[1].value = d.active_sessions.toLocaleString();
+                    kpis.value[2].value = d.db_size_mb.toFixed(1) + ' MB';
+                };
+
+                const doQuery = async () => {
+                    loading.value = true;
+                    const r = await fetch('/api/query?ip=' + filters.value.ip);
+                    const d = await r.json();
+                    logs.value = d.records;
+                    loading.value = false;
+                };
+
+                const initCharts = async () => {
+                    const r = await fetch('/api/dashboard');
+                    const d = await r.json();
+                    dash.value.gov_net_pct = d.gov_net_pct;
+                    const trend = echarts.init(document.getElementById('trend-chart'));
+                    trend.setOption({
+                        grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+                        xAxis: { type: 'category', data: d.trend.map(item => item.time) },
+                        yAxis: { type: 'value' },
+                        series: [{ 
+                            data: d.trend.map(item => item.count), 
+                            type: 'line', 
+                            smooth: true, 
+                            areaStyle: { color: 'rgba(59, 130, 246, 0.1)' },
+                            itemStyle: { color: '#3b82f6' }
+                        }]
+                    });
+                };
+
+                onMounted(() => {
+                    fetchStats();
+                    if (currentTab.value === 'dashboard') setTimeout(initCharts, 200);
+                });
+
+                watch(currentTab, (val) => {
+                    if (val === 'dashboard') setTimeout(initCharts, 200);
+                });
+
+                return { currentTab, kpis, filters, logs, loading, doQuery };
+            }
+        }).use(ElementPlus).mount('#app');
+    </script>
+</body>
+</html>

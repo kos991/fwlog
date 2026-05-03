@@ -110,7 +110,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for path in main.go go.mod nat-query-service.service; do
+          for path in main.go ip_engine.go go.mod nat-query-service.service; do
             [[ -f "$path" ]] || {
               echo "Missing required file: $path" >&2
               exit 1
@@ -138,7 +138,7 @@ jobs:
 
           build_output="dist/nat-query-service"
           asset_name="nat-query-service_${GOOS}_${GOARCH}"
-          go build -trimpath -ldflags "-s -w" -o "$build_output" main.go
+          go build -trimpath -ldflags "-s -w" -o "$build_output" main.go ip_engine.go
           cp "$build_output" "release/$asset_name"
 
       - name: Build release binaries (Windows)
@@ -159,7 +159,7 @@ jobs:
           $packageDir = Join-Path $PWD 'pkg_temp\windows-amd64-debug'
 
           New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
-          go build -trimpath -tags=duckdb_use_lib -o "$packageDir/$assetName" main.go
+          go build -trimpath -tags=duckdb_use_lib -o "$packageDir/$assetName" main.go ip_engine.go
           if (-not (Test-Path "$packageDir/$assetName")) {
             throw "Expected build output not found: $packageDir/$assetName"
           }

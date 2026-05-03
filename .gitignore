@@ -1,4 +1,5 @@
 .claude/
+.worktrees/
 .fw_log_config
 .tmp/cache/
 .tmp/work/
