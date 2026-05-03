@@ -262,6 +262,7 @@ func main() {
 	r.POST("/api/export", handleExport)
 	r.GET("/api/dashboard", handleDashboardData)
 	r.GET("/api/exports/*filepath", handleExportDownload)
+	r.NoRoute(handleNotFound)
 
 	addr := fmt.Sprintf(":%d", currentConfig().Port)
 	log.Printf("服务已启动: http://0.0.0.0%s", addr)
@@ -1721,6 +1722,18 @@ func serveIndex(c *gin.Context) {
 	}
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	c.String(200, string(content))
+}
+
+func handleNotFound(c *gin.Context) {
+	if c.Request.Method == http.MethodGet && !strings.HasPrefix(c.Request.URL.Path, "/api/") {
+		serveIndex(c)
+		return
+	}
+
+	c.JSON(http.StatusNotFound, gin.H{
+		"success": false,
+		"error":   fmt.Sprintf("Cannot %s %s", c.Request.Method, c.Request.URL.Path),
+	})
 }
 
 func pathExists(path string) bool {
