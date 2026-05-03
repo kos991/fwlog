@@ -1,0 +1,134 @@
+﻿name: Release Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release tag, for example v1.0.0
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-amd64
+            runs-on: ubuntu-24.04
+            goos: linux
+            goarch: amd64
+          - name: linux-arm64
+            runs-on: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+          - name: windows-amd64
+            runs-on: windows-2022
+            goos: windows
+            goarch: amd64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup MSYS2 toolchain
+        if: matrix.goos == 'windows'
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-tools
+
+      - name: Expose MSYS2 toolchain
+        if: matrix.goos == 'windows'
+        shell: pwsh
+        run: |
+          $msysRoot = "${{ steps.msys2.outputs.msys2-location }}"
+          $mingwPath = Join-Path $msysRoot 'ucrt64\bin'
+          if (-not (Test-Path $mingwPath)) {
+            throw "MSYS2 UCRT64 path not found: $mingwPath"
+          }
+          $mingwPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & "$mingwPath\gcc.exe" --version
+          & "$mingwPath\g++.exe" --version
+
+      - name: Prepare DuckDB shared library for Windows
+        if: matrix.goos == 'windows'
+        shell: pwsh
+        run: |
+          $duckdbDir = Join-Path $PWD 'third_party\duckdb\windows-amd64'
+          $zipPath = Join-Path $duckdbDir 'libduckdb-windows-amd64.zip'
+          New-Item -ItemType Directory -Force -Path $duckdbDir | Out-Null
+          Invoke-WebRequest -UseBasicParsing 'https://github.com/duckdb/duckdb/releases/download/v0.10.2/libduckdb-windows-amd64.zip' -OutFile $zipPath
+          Expand-Archive -LiteralPath $zipPath -DestinationPath $duckdbDir -Force
+          Push-Location $duckdbDir
+          gendef duckdb.dll
+          dlltool -d duckdb.def -l libduckdb.dll.a -D duckdb.dll
+          Pop-Location
+
+      - name: Install Linux build dependencies
+        if: matrix.goos == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config
+
+      - name: Build Linux binary
+        if: matrix.goos == 'linux'
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "1"
+          CC: gcc
+          CXX: g++
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          asset="nat-query-service_${GOOS}_${GOARCH}"
+          go build -trimpath -ldflags "-s -w" -o "release/$asset" main.go ip_engine.go
+
+      - name: Build Windows binary package
+        if: matrix.goos == 'windows'
+        shell: pwsh
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "1"
+          CC: gcc
+          CXX: g++
+          CGO_CFLAGS: -I${{ github.workspace }}\third_party\duckdb\windows-amd64
+          CGO_LDFLAGS: -L${{ github.workspace }}\third_party\duckdb\windows-amd64
+        run: |
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          $packageDir = Join-Path $PWD 'pkg_temp\windows-amd64'
+          New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
+          go build -trimpath -tags=duckdb_use_lib -o "$packageDir\nat-query-service_windows_amd64.exe" main.go ip_engine.go
+          Copy-Item 'third_party\duckdb\windows-amd64\duckdb.dll' "$packageDir\duckdb.dll" -Force
+          Compress-Archive -Path "$packageDir\*" -DestinationPath "release\nat-query-service_windows_amd64.zip" -Force
+
+      - name: Upload release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ inputs.version }}"
+          gh release view "$version" --repo "$GH_REPO" >/dev/null
+          gh release upload "$version" release/* --repo "$GH_REPO" --clobber
