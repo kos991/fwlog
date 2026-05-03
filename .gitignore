@@ -4,6 +4,7 @@
 .tmp/cache/
 .tmp/work/
 .tmp/reports/
+.tmp/artifacts/
 build/
 data/
 *.log

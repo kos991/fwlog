@@ -143,7 +143,7 @@ jobs:
           CXX: g++
         run: |
           set -euo pipefail
-          go test -v -run '^$' main.go ip_engine.go
+          go test -v main.go ip_engine.go main_test.go
 
       - name: Build release binaries (Linux)
         if: matrix.goos == 'linux'

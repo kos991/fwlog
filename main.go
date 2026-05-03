@@ -513,7 +513,8 @@ func buildIndex() error {
 		return err
 	}
 	if len(snapshots) == 0 {
-		return fmt.Errorf("未找到日志文件")
+		log.Printf("未找到日志文件，创建空索引表")
+		return createEmptyIndex()
 	}
 
 	setRebuildTotals(len(snapshots), sumSnapshotBytes(snapshots))
@@ -608,6 +609,33 @@ func buildIndex() error {
 	db.Exec("CHECKPOINT")
 
 	log.Printf("索引构建完成: %d 条记录, 总耗时 %.2f 秒", totalLines, time.Since(startTime).Seconds())
+	return nil
+}
+
+func createEmptyIndex() error {
+	setRebuildTotals(0, 0)
+	_, err := db.Exec(`
+		DROP TABLE IF EXISTS nat_logs_next;
+		DROP TABLE IF EXISTS nat_logs;
+		CREATE TABLE nat_logs (
+			timestamp VARCHAR,
+			src_ip VARCHAR,
+			src_port INTEGER,
+			dst_ip VARCHAR,
+			dst_port INTEGER,
+			protocol VARCHAR,
+			nat_ip VARCHAR,
+			nat_port INTEGER,
+			action VARCHAR,
+			source_file VARCHAR,
+			source_offset BIGINT
+		);
+		DELETE FROM ingest_files;
+		CHECKPOINT;
+	`)
+	if err != nil {
+		return fmt.Errorf("创建空索引表失败: %v", err)
+	}
 	return nil
 }
 
