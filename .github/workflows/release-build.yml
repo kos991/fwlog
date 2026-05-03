@@ -232,5 +232,45 @@ jobs:
         run: |
           set -euo pipefail
           version="${{ inputs.version }}"
-          gh release view "$version" --repo "$GH_REPO" >/dev/null
-          gh release upload "$version" release/* --repo "$GH_REPO" --clobber
+          python3 - "$version" <<'PY'
+          import glob
+          import json
+          import mimetypes
+          import os
+          import sys
+          import urllib.parse
+          import urllib.request
+
+          version = sys.argv[1]
+          repo = os.environ["GH_REPO"]
+          token = os.environ["GH_TOKEN"]
+
+          def request(method, url, data=None, content_type="application/json"):
+              headers = {
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {token}",
+                  "User-Agent": "fwlog-release-build",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              }
+              if data is not None:
+                  headers["Content-Type"] = content_type
+              req = urllib.request.Request(url, data=data, headers=headers, method=method)
+              with urllib.request.urlopen(req) as response:
+                  body = response.read()
+                  return json.loads(body.decode("utf-8")) if body else None
+
+          release = request("GET", f"https://api.github.com/repos/{repo}/releases/tags/{version}")
+          upload_base = release["upload_url"].split("{", 1)[0]
+          existing_assets = {asset["name"]: asset["id"] for asset in release.get("assets", [])}
+
+          for path in glob.glob("release/*"):
+              name = os.path.basename(path)
+              if name in existing_assets:
+                  request("DELETE", f"https://api.github.com/repos/{repo}/releases/assets/{existing_assets[name]}")
+              content_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
+              with open(path, "rb") as file:
+                  data = file.read()
+              upload_url = upload_base + "?" + urllib.parse.urlencode({"name": name})
+              request("POST", upload_url, data=data, content_type=content_type)
+              print(f"Uploaded {name} ({len(data)} bytes)")
+          PY
