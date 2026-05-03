@@ -168,8 +168,8 @@ jobs:
         run: |
           set -euo pipefail
           uname -a
-          ldd --version | head -n 1
-          gcc --version | head -n 1
+          ldd --version | sed -n '1p'
+          gcc --version | sed -n '1p'
 
       - name: Build Kylin compatible package
         shell: bash
