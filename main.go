@@ -290,7 +290,7 @@ func defaultConfig() Config {
 			DBFile:              defaultLocalDBFile,
 			Port:                defaultPort,
 			Workers:             defaultWorkers,
-			AutoScanEnabled:     true,
+			AutoScanEnabled:     false,
 			AutoScanIntervalSec: defaultAutoScanSec,
 		}
 	}
@@ -300,7 +300,7 @@ func defaultConfig() Config {
 		DBFile:              defaultDBFile,
 		Port:                defaultPort,
 		Workers:             defaultWorkers,
-		AutoScanEnabled:     true,
+		AutoScanEnabled:     false,
 		AutoScanIntervalSec: defaultAutoScanSec,
 	}
 }

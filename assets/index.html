@@ -140,7 +140,7 @@
     <div class="shell">
         <aside class="sidebar">
             <div class="brand">
-                <div class="brand-title">FWLOG PRO</div>
+                <div class="brand-title">QJKJ Team</div>
                 <div class="brand-subtitle">NAT 日志检索与 SOC 分析控制台</div>
             </div>
             <el-menu class="menu" :default-active="currentTab" @select="switchTab">
@@ -323,7 +323,7 @@
                                 <el-form-item label="自动增量同步">
                                     <el-switch v-model="settingsForm.auto_scan_enabled" active-text="启用" inactive-text="关闭"></el-switch>
                                 </el-form-item>
-                                <el-form-item label="Sync interval (sec)">
+                                <el-form-item label="同步间隔（秒）">
                                     <el-input-number v-model="settingsForm.auto_scan_interval_sec" :min="5" :step="5"></el-input-number>
                                 </el-form-item>
                             </div>
@@ -381,7 +381,7 @@ createApp({
         const stats = reactive({});
         const dashboard = reactive({ trend: [], top_ips: [], protocols: [], gov_net_pct: 0 });
         const settings = reactive({});
-        const settingsForm = reactive({ log_dir: '', auto_scan_enabled: true, auto_scan_interval_sec: 30 });
+        const settingsForm = reactive({ log_dir: '', auto_scan_enabled: false, auto_scan_interval_sec: 30 });
         const filters = reactive({ keyword: '', ip: '', range: '', protocol: '', port: null, port_scope: 'any' });
         const page = ref(1);
         const pageSize = ref(25);
