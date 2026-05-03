@@ -3,10 +3,12 @@ package main
 import (
 	"bufio"
 	"database/sql"
+	"embed"
 	"encoding/csv"
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -18,6 +20,9 @@ import (
 	"github.com/gin-gonic/gin"
 	_ "github.com/marcboeker/go-duckdb"
 )
+
+//go:embed assets/*
+var assets embed.FS
 
 type Config struct {
 	LogDir              string
@@ -38,6 +43,8 @@ type LogEntry struct {
 	NatIP     string `json:"nat_ip"`
 	NatPort   int    `json:"nat_port"`
 	Action    string `json:"action"`
+	SrcTag    IPTag  `json:"src_tag"`
+	DstTag    IPTag  `json:"dst_tag"`
 }
 
 type QueryResult struct {
@@ -57,6 +64,23 @@ type DashboardStats struct {
 	CompressionPct float64 `json:"compression_pct"`
 	LastUpdate     string  `json:"last_update"`
 	AvgQueryTimeMs float64 `json:"avg_query_time_ms"`
+}
+
+type DashboardData struct {
+	Trend     []TrendPoint   `json:"trend"`
+	TopIPs    []IPStats      `json:"top_ips"`
+	Protocols []ProtocolStat `json:"protocols"`
+	GovNetPct float64        `json:"gov_net_pct"`
+}
+
+type TrendPoint struct {
+	Time  string `json:"time"`
+	Count int    `json:"count"`
+}
+
+type ProtocolStat struct {
+	Protocol string `json:"protocol"`
+	Count    int    `json:"count"`
 }
 
 type IPStats struct {
@@ -151,6 +175,8 @@ var (
 
 	db *sql.DB
 
+	ipEngine *IPEngine
+
 	rebuildMux   sync.Mutex
 	rebuildState = RebuildState{Status: "idle"}
 
@@ -159,6 +185,19 @@ var (
 
 func main() {
 	config = loadConfig()
+	ipEngine = NewIPEngine()
+
+	customMap := filepath.Join(filepath.Dir(currentConfig().DBFile), "custom_ip_map.csv")
+	if err := ipEngine.LoadCustomMap(customMap); err == nil {
+		log.Printf("加载自定义 IP 映射: %s", customMap)
+	}
+
+	geoDB := filepath.Join(filepath.Dir(currentConfig().DBFile), "GeoLite2-City.mmdb")
+	if err := ipEngine.LoadGeoDB(geoDB); err == nil {
+		log.Printf("加载 GeoIP 数据库: %s", geoDB)
+	} else {
+		log.Printf("未加载离线 GeoIP 数据库 (GeoLite2-City.mmdb): %v", err)
+	}
 
 	log.Printf("NAT日志查询系统启动中...")
 	log.Printf("日志目录: %s", currentConfig().LogDir)
@@ -200,6 +239,7 @@ func main() {
 	r := gin.Default()
 
 	r.GET("/", serveIndex)
+	r.StaticFS("/assets", http.FS(assets))
 	r.GET("/api/query", handleQuery)
 	r.GET("/api/stats", handleStats)
 	r.GET("/api/top-ips", handleTopIPs)
@@ -208,6 +248,7 @@ func main() {
 	r.POST("/api/rebuild", handleRebuild)
 	r.POST("/api/sync", handleSync)
 	r.POST("/api/export", handleExport)
+	r.GET("/api/dashboard", handleDashboardData)
 	r.GET("/api/exports/*filepath", handleExportDownload)
 
 	addr := fmt.Sprintf(":%d", currentConfig().Port)
@@ -1208,6 +1249,10 @@ func handleQuery(c *gin.Context) {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
+		if ipEngine != nil {
+			record.SrcTag = ipEngine.GetTag(record.SrcIP)
+			record.DstTag = ipEngine.GetTag(record.DstIP)
+		}
 		records = append(records, record)
 	}
 	if err := rows.Err(); err != nil {
@@ -1312,6 +1357,76 @@ func handleTopIPs(c *gin.Context) {
 	}
 
 	c.JSON(200, topIPs)
+}
+
+func handleDashboardData(c *gin.Context) {
+	if state := currentRebuildState(); state.Status == "running" || !tableExists() {
+		c.JSON(200, DashboardData{
+			Trend:     []TrendPoint{},
+			TopIPs:    []IPStats{},
+			Protocols: []ProtocolStat{},
+		})
+		return
+	}
+
+	var data DashboardData
+
+	rows, err := db.Query(`
+		SELECT src_ip, COUNT(*) as cnt
+		FROM nat_logs
+		GROUP BY src_ip
+		ORDER BY cnt DESC
+		LIMIT 10
+	`)
+	if err == nil {
+		for rows.Next() {
+			var ip IPStats
+			_ = rows.Scan(&ip.IP, &ip.Count)
+			data.TopIPs = append(data.TopIPs, ip)
+		}
+		rows.Close()
+	}
+
+	rows, err = db.Query(`
+		SELECT protocol, COUNT(*) as cnt
+		FROM nat_logs
+		GROUP BY protocol
+		ORDER BY cnt DESC
+	`)
+	if err == nil {
+		for rows.Next() {
+			var protocol ProtocolStat
+			_ = rows.Scan(&protocol.Protocol, &protocol.Count)
+			data.Protocols = append(data.Protocols, protocol)
+		}
+		rows.Close()
+	}
+
+	rows, err = db.Query(`
+		SELECT substr(timestamp, 1, 9) as t, COUNT(*) as cnt
+		FROM nat_logs
+		GROUP BY t
+		ORDER BY t ASC
+		LIMIT 24
+	`)
+	if err == nil {
+		for rows.Next() {
+			var trend TrendPoint
+			_ = rows.Scan(&trend.Time, &trend.Count)
+			data.Trend = append(data.Trend, trend)
+		}
+		rows.Close()
+	}
+
+	var govCount int64
+	_ = db.QueryRow("SELECT COUNT(*) FROM nat_logs WHERE src_ip LIKE '172.18.%' OR src_ip LIKE '172.28.%' OR src_ip LIKE '2.%'").Scan(&govCount)
+	var totalRecords int64
+	_ = db.QueryRow("SELECT COUNT(*) FROM nat_logs").Scan(&totalRecords)
+	if totalRecords > 0 {
+		data.GovNetPct = float64(govCount) / float64(totalRecords) * 100
+	}
+
+	c.JSON(200, data)
 }
 
 func handleSettings(c *gin.Context) {
@@ -1587,8 +1702,13 @@ func handleExportDownload(c *gin.Context) {
 }
 
 func serveIndex(c *gin.Context) {
+	content, err := assets.ReadFile("assets/index.html")
+	if err != nil {
+		c.String(500, "Internal Server Error: index.html not found")
+		return
+	}
 	c.Header("Content-Type", "text/html; charset=utf-8")
-	c.String(200, indexHTML)
+	c.String(200, string(content))
 }
 
 func pathExists(path string) bool {

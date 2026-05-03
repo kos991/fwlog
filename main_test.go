@@ -2,9 +2,14 @@ package main
 
 import (
 	"database/sql"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/gin-gonic/gin"
 )
 
 func TestBuildIndexCreatesEmptyTableWhenNoLogFiles(t *testing.T) {
@@ -52,5 +57,26 @@ func TestBuildIndexCreatesEmptyTableWhenNoLogFiles(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("expected empty nat_logs table, got %d rows", count)
+	}
+}
+
+func TestServeIndexServesRefactoredPage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/", serveIndex)
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", response.Code)
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, "FWLOG PRO") {
+		t.Fatalf("expected refactored page content, got body prefix %q", body[:min(len(body), 80)])
+	}
+	if !strings.Contains(body, "/api/dashboard") {
+		t.Fatal("expected dashboard API integration in refactored page")
 	}
 }
