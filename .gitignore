@@ -13,3 +13,4 @@ data/
 *.deb
 test_report_*.log
 tinycdb-*.tar.gz
+main_base.go

@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -100,6 +101,27 @@ jobs:
         run: |
           set -euo pipefail
           go mod download
+
+      - name: Install Linux build dependencies
+        if: matrix.goos == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config
+
+      - name: Test Go service compile path
+        if: matrix.goos == 'linux'
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "1"
+          CC: gcc
+          CXX: g++
+        run: |
+          set -euo pipefail
+          go test -v -run '^$' main.go ip_engine.go
 
       - name: Build Go service (Linux)
         if: matrix.goos == 'linux'
