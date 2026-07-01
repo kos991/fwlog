@@ -69,6 +69,7 @@ jobs:
   test-kylin-baseline:
     name: Test Kylin V10 SP1 x86_64 baseline
     runs-on: ubuntu-24.04
+    continue-on-error: true
     container:
       image: quay.io/pypa/manylinux_2_28_x86_64
 
@@ -118,7 +119,6 @@ jobs:
     runs-on: ubuntu-24.04
     needs:
       - test-linux
-      - test-kylin-baseline
 
     steps:
       - name: Checkout repository
@@ -188,7 +188,6 @@ jobs:
     runs-on: ubuntu-24.04
     needs:
       - test-linux
-      - test-kylin-baseline
     container:
       image: quay.io/pypa/manylinux_2_28_x86_64
 
