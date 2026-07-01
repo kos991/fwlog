@@ -49,6 +49,7 @@ jobs:
           CGO_ENABLED: "1"
           CC: gcc
           CXX: g++
+          CGO_LDFLAGS: "-lstdc++"
         run: |
           set -euo pipefail
           go test ./...
@@ -83,6 +84,7 @@ jobs:
           CGO_ENABLED: "1"
           CC: gcc
           CXX: g++
+          CGO_LDFLAGS: "-lstdc++"
         run: |
           set -euo pipefail
           go test ./...
@@ -127,6 +129,7 @@ jobs:
           CGO_ENABLED: "1"
           CC: gcc
           CXX: g++
+          CGO_LDFLAGS: "-lstdc++"
           ASSET_NAME: nat-query-service_linux-amd64
         run: |
           set -euo pipefail
@@ -178,6 +181,7 @@ jobs:
           CGO_ENABLED: "1"
           CC: gcc
           CXX: g++
+          CGO_LDFLAGS: "-lstdc++"
           ASSET_NAME: nat-query-service_kylin-v10-sp1-x86_64
         run: |
           set -euo pipefail

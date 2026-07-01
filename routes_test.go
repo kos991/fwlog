@@ -12,7 +12,7 @@ func TestSettingsPostRouteIsRegistered(t *testing.T) {
 		t.Fatalf("read main.go: %v", err)
 	}
 
-	if !strings.Contains(string(content), `r.POST("/api/settings", handleSetLogDir)`) {
+	if !strings.Contains(string(content), `api.POST("/settings", handleSetLogDir)`) {
 		t.Fatal("POST /api/settings must be registered for the settings form")
 	}
 }
