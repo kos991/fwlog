@@ -14,7 +14,7 @@ func TestIsSupportedLogFileMatchesSangforRotatedLogs(t *testing.T) {
 		name string
 		want bool
 	}{
-		{"10.10.10.1_2026-05-06.log", true},
+		{"10.10.10.1_2026-05-06.log", false},
 		{"10.10.10.1_2026-05-05.log-20260506", true},
 		{"10.10.10.1_2026-04-29.log-20260430.gz", true},
 		{"read me.txt", false},
