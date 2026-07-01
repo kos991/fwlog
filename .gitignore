@@ -1,0 +1,18 @@
+﻿# Build and packaging outputs
+/pkg_temp/
+/release/
+
+# Locally downloaded native dependencies used for packaging
+/third_party/
+
+# Runtime data generated during local verification
+/data/
+*.duckdb
+*.duckdb.wal
+
+# Local editor and OS metadata
+.DS_Store
+Thumbs.db
+
+# Local git worktrees
+/.worktrees/

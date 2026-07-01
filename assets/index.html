@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FWLOG SOC - 专业版</title>
+    <link rel="stylesheet" href="/assets/vendor/element-plus/index.css">
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-soft: #eff6ff;
+            --success: #16a34a;
+            --warning: #d97706;
+            --danger: #dc2626;
+            --text: #0f172a;
+            --muted: #64748b;
+            --border: #e2e8f0;
+            --bg: #f8fafc;
+            --card: #ffffff;
+        }
+
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            overflow: hidden;
+            color: var(--text);
+            background: var(--bg);
+            font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+        }
+        #app { height: 100vh; }
+        .login-view {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            background: #eef2f7;
+        }
+        .login-panel {
+            width: min(420px, 100%);
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 28px;
+            box-shadow: 0 20px 48px rgba(15, 23, 42, .08);
+        }
+        .login-title { font-size: 22px; font-weight: 800; color: var(--primary); }
+        .login-subtitle { margin: 8px 0 22px; color: var(--muted); font-size: 13px; }
+        .shell { display: flex; height: 100%; min-width: 1180px; }
+        .sidebar {
+            width: 264px;
+            display: flex;
+            flex-direction: column;
+            background: #fff;
+            border-right: 1px solid var(--border);
+        }
+        .brand { padding: 28px 24px 20px; }
+        .brand-title { font-size: 22px; font-weight: 800; letter-spacing: .02em; color: var(--primary); }
+        .brand-subtitle { margin-top: 6px; color: var(--muted); font-size: 12px; }
+        .menu { border-right: 0; padding: 0 12px; }
+        .side-footer {
+            margin-top: auto;
+            padding: 18px 24px 24px;
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.7;
+        }
+        .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+        .header {
+            height: 72px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 24px;
+            padding: 0 32px;
+            background: rgba(255, 255, 255, .92);
+            border-bottom: 1px solid var(--border);
+        }
+        .page-title { font-size: 18px; font-weight: 700; }
+        .page-desc { margin-top: 4px; color: var(--muted); font-size: 12px; }
+        .content { flex: 1; overflow-y: auto; padding: 28px 32px 36px; }
+        .grid { display: grid; gap: 18px; }
+        .kpi-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        .two-col { grid-template-columns: minmax(0, 2fr) minmax(360px, 1fr); }
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            padding: 22px;
+            box-shadow: 0 16px 36px rgba(15, 23, 42, .05);
+        }
+        .card-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 16px;
+            font-size: 15px;
+            font-weight: 700;
+        }
+        .kpi-label { color: var(--muted); font-size: 12px; }
+        .kpi-value { margin-top: 10px; font-size: 28px; font-weight: 800; letter-spacing: -.03em; }
+        .kpi-foot { margin-top: 8px; color: var(--muted); font-size: 12px; }
+        .chart { width: 100%; height: 320px; }
+        .muted { color: var(--muted); }
+        .mono { font-family: "Cascadia Mono", Consolas, "SFMono-Regular", monospace; }
+        .ip-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            border-radius: 999px;
+            color: #1d4ed8;
+            background: var(--primary-soft);
+            font-family: "Cascadia Mono", Consolas, monospace;
+            font-weight: 700;
+        }
+        .tag-gov {
+            display: inline-flex;
+            margin-left: 6px;
+            padding: 1px 7px;
+            border-radius: 999px;
+            color: #b91c1c;
+            background: #fee2e2;
+            border: 1px solid #fecaca;
+            font-size: 11px;
+            font-weight: 700;
+        }
+        .form-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+        .form-row.basic-search { grid-template-columns: minmax(180px, 260px) minmax(260px, 1fr) auto; align-items: center; }
+        .advanced-search {
+            margin-top: 14px;
+            padding-top: 14px;
+            border-top: 1px solid var(--border);
+        }
+        .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+        .progress-meta { margin-top: 10px; color: var(--muted); font-size: 12px; line-height: 1.7; }
+        .path-box {
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: #f8fafc;
+            color: var(--muted);
+            word-break: break-all;
+        }
+        .history-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+        .table-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            margin-top: 16px;
+        }
+        .download-link { color: var(--primary); text-decoration: none; font-weight: 700; }
+        .download-link:hover { text-decoration: underline; }
+        @media (max-width: 1300px) {
+            .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .two-col { grid-template-columns: 1fr; }
+            .form-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .form-row.basic-search { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+    </style>
+</head>
+<body>
+<div id="app">
+    <div v-if="!authenticated" class="login-view">
+        <div class="login-panel">
+            <div class="login-title">QJKJ Team</div>
+            <div class="login-subtitle">登录 NAT 日志检索控制台</div>
+            <el-form label-position="top" @submit.prevent>
+                <el-form-item label="密码">
+                    <el-input v-model="loginForm.password" type="password" show-password placeholder="请输入登录密码" @keyup.enter="login"></el-input>
+                </el-form-item>
+                <el-button type="primary" style="width: 100%;" :loading="loginLoading" @click="login">登录</el-button>
+            </el-form>
+        </div>
+    </div>
+
+    <div v-else class="shell">
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-title">QJKJ Team</div>
+                <div class="brand-subtitle">NAT 日志检索与 SOC 分析控制台</div>
+            </div>
+            <el-menu class="menu" :default-active="currentTab" @select="switchTab">
+                <el-menu-item index="dashboard">监控大屏</el-menu-item>
+                <el-menu-item index="query">深度溯源</el-menu-item>
+                <el-menu-item index="settings">搜索设置</el-menu-item>
+            </el-menu>
+            <div class="side-footer">
+                <div>日志目录</div>
+                <div class="mono">{{ settings.log_dir || '-' }}</div>
+            </div>
+        </aside>
+
+        <main class="main">
+            <header class="header">
+                <div>
+                    <div class="page-title">{{ pageTitle }}</div>
+                    <div class="page-desc">{{ pageDesc }}</div>
+                </div>
+                <div class="actions">
+                    <el-tag type="info">{{ settings.log_tag || '深信服 NAT' }}</el-tag>
+                    <el-tag :type="statusType">{{ statusText }}</el-tag>
+                    <el-button size="small" @click="refreshAll">刷新</el-button>
+                    <el-button size="small" @click="logout">退出</el-button>
+                </div>
+            </header>
+
+            <section class="content">
+                <div v-show="currentTab === 'dashboard'" class="grid">
+                    <div class="grid kpi-grid">
+                        <div class="card" v-for="item in kpis" :key="item.label">
+                            <div class="kpi-label">{{ item.label }}</div>
+                            <div class="kpi-value">{{ item.value }}</div>
+                            <div class="kpi-foot">{{ item.foot }}</div>
+                        </div>
+                    </div>
+
+                    <div class="grid two-col">
+                        <div class="card">
+                            <div class="card-title">
+                                <span>流量趋势</span>
+                                <el-tag type="info">最近 24 桶</el-tag>
+                            </div>
+                            <div id="trend-chart" class="chart"></div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-title">
+                                <span>政务网流量占比</span>
+                                <el-tag type="danger">{{ formatPercent(dashboard.gov_net_pct) }}</el-tag>
+                            </div>
+                            <el-progress :percentage="safePercent(dashboard.gov_net_pct)" :stroke-width="14" />
+                            <div class="progress-meta">按内置政务网段规则统计源地址命中比例。</div>
+                        </div>
+                    </div>
+
+                    <div class="grid two-col">
+                        <div class="card">
+                            <div class="card-title"><span>Top 源 IP</span></div>
+                            <el-table :data="dashboard.top_ips || []" height="300" empty-text="暂无数据">
+                                <el-table-column prop="ip" label="IP"></el-table-column>
+                                <el-table-column prop="count" label="次数" width="140"></el-table-column>
+                            </el-table>
+                        </div>
+                        <div class="card">
+                            <div class="card-title"><span>协议分布</span></div>
+                            <el-table :data="dashboard.protocols || []" height="300" empty-text="暂无数据">
+                                <el-table-column prop="protocol" label="协议"></el-table-column>
+                                <el-table-column prop="count" label="次数" width="140"></el-table-column>
+                            </el-table>
+                        </div>
+                        <div class="card">
+                            <div class="card-title"><span>端口分布</span></div>
+                            <el-table :data="dashboard.ports || []" height="300" empty-text="暂无数据">
+                                <el-table-column prop="label" label="端口"></el-table-column>
+                                <el-table-column prop="count" label="次数" width="140"></el-table-column>
+                            </el-table>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-show="currentTab === 'query'" class="grid">
+                    <div class="card">
+                        <div class="card-title">
+                            <span>检索条件</span>
+                            <span class="muted">常用检索保留时间和 IP，更多条件在高级选项中设置</span>
+                        </div>
+                        <div class="form-row basic-search">
+                            <el-select v-model="filters.range" clearable placeholder="时间范围">
+                                <el-option label="最近 1 小时" value="1h"></el-option>
+                                <el-option label="最近 6 小时" value="6h"></el-option>
+                                <el-option label="最近 24 小时" value="24h"></el-option>
+                                <el-option label="最近 7 天" value="7d"></el-option>
+                                <el-option
+                                    v-for="option in logDateOptions"
+                                    :key="option.value"
+                                    :label="option.label"
+                                    :value="option.value">
+                                </el-option>
+                            </el-select>
+                            <el-input v-model="filters.ip" clearable placeholder="IP 地址"></el-input>
+                            <div class="actions">
+                                <el-button type="primary" @click="search(1)">执行搜索</el-button>
+                                <el-button @click="advancedFiltersVisible = !advancedFiltersVisible">
+                                    {{ advancedFiltersVisible ? '收起高级选项' : '高级选项' }}
+                                </el-button>
+                                <el-button @click="exportCurrent">导出结果</el-button>
+                                <el-button @click="resetFilters">重置</el-button>
+                            </div>
+                        </div>
+                        <div v-show="advancedFiltersVisible" class="advanced-search">
+                            <div class="form-row">
+                                <el-input v-model="filters.keyword" clearable placeholder="关键字"></el-input>
+                                <el-select v-model="filters.protocol" clearable placeholder="协议">
+                                    <el-option label="TCP" value="TCP"></el-option>
+                                    <el-option label="UDP" value="UDP"></el-option>
+                                    <el-option label="ICMP" value="ICMP"></el-option>
+                                    <el-option label="OTHER" value="OTHER"></el-option>
+                                </el-select>
+                                <el-input-number v-model="filters.port" :min="0" :controls="false" placeholder="端口"></el-input-number>
+                                <el-select v-model="filters.port_scope" placeholder="端口字段">
+                                    <el-option label="任意端口" value="any"></el-option>
+                                    <el-option label="源端口" value="src"></el-option>
+                                    <el-option label="目标端口" value="dst"></el-option>
+                                    <el-option label="NAT 端口" value="nat"></el-option>
+                                </el-select>
+                            </div>
+                            <div class="form-row" style="margin-top: 14px;">
+                                <el-select v-model="pageSize" placeholder="每页条数">
+                                    <el-option :value="25" label="25 条"></el-option>
+                                    <el-option :value="50" label="50 条"></el-option>
+                                    <el-option :value="100" label="100 条"></el-option>
+                                    <el-option :value="200" label="200 条"></el-option>
+                                </el-select>
+                            </div>
+                        </div>
+                        <div v-if="searchHistory.length" class="history-tags">
+                            <el-tag v-for="history in searchHistory" :key="history.label" closable @click="applyHistory(history)" @close="removeHistory(history)">
+                                {{ history.label }}
+                            </el-tag>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-title">
+                            <span>查询结果</span>
+                            <span class="muted">{{ resultSummary }}</span>
+                        </div>
+                        <el-table :data="logs" style="width: 100%" v-loading="loading" empty-text="暂无匹配记录">
+                            <el-table-column prop="timestamp" label="时间" width="170"></el-table-column>
+                            <el-table-column prop="log_tag" label="日志标志" width="140"></el-table-column>
+                            <el-table-column label="源 IP" min-width="190">
+                                <template #default="scope">
+                                    <span class="ip-badge">{{ scope.row.src_ip }}</span>
+                                    <span v-if="isGov(scope.row.src_tag)" class="tag-gov">政务网</span>
+                                    <div class="muted" style="font-size: 12px; margin-top: 4px;">{{ tagLocation(scope.row.src_tag) }}</div>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="src_port" label="源端口" width="90"></el-table-column>
+                            <el-table-column label="目标 IP" min-width="190">
+                                <template #default="scope">
+                                    <span class="ip-badge">{{ scope.row.dst_ip }}</span>
+                                    <span v-if="isGov(scope.row.dst_tag)" class="tag-gov">政务网</span>
+                                    <div class="muted" style="font-size: 12px; margin-top: 4px;">{{ tagLocation(scope.row.dst_tag) }}</div>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="dst_port" label="目标端口" width="90"></el-table-column>
+                            <el-table-column prop="protocol" label="协议" width="90"></el-table-column>
+                            <el-table-column label="NAT" min-width="170">
+                                <template #default="scope">
+                                    <span class="mono">{{ scope.row.nat_ip }}:{{ scope.row.nat_port }}</span>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="action" label="动作" width="100"></el-table-column>
+                        </el-table>
+                        <div class="table-footer">
+                            <div class="muted">
+                                <span>{{ exportMessage }}</span>
+                                <a v-if="exportDownload.path" class="download-link" :href="exportDownload.path" target="_blank">{{ exportDownload.name || exportDownload.path }}</a>
+                            </div>
+                            <el-pagination
+                                layout="prev, pager, next"
+                                :page-size="pageSize"
+                                :current-page="page"
+                                :total="total"
+                                @current-change="search">
+                            </el-pagination>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-show="currentTab === 'settings'" class="grid">
+                    <div class="card">
+                        <div class="card-title">
+                            <span>搜索设置</span>
+                            <span class="muted">修改运行时日志目录、自动增量同步和索引任务</span>
+                        </div>
+                        <el-form label-position="top">
+                            <el-form-item label="日志目录路径">
+                                <el-input v-model="settingsForm.log_dir" placeholder="例如 D:\\logs"></el-input>
+                            </el-form-item>
+                            <el-form-item label="日志标志">
+                                <el-input v-model="settingsForm.log_tag" placeholder="例如 深信服 NAT"></el-input>
+                            </el-form-item>
+                            <div class="grid two-col">
+                                <el-form-item label="自动增量同步">
+                                    <el-switch v-model="settingsForm.auto_scan_enabled" active-text="启用" inactive-text="关闭"></el-switch>
+                                </el-form-item>
+                                <el-form-item label="同步间隔（秒）">
+                                    <el-input-number v-model="settingsForm.auto_scan_interval_sec" :min="5" :step="5"></el-input-number>
+                                </el-form-item>
+                            </div>
+                            <div class="actions">
+                                <el-button type="primary" :loading="settingsSaving" @click="saveSettings">保存设置</el-button>
+                                <el-button :disabled="isRunning" @click="triggerRebuild">仅重建索引</el-button>
+                                <el-button :disabled="isRunning" @click="triggerSync">增量同步</el-button>
+                            </div>
+                        </el-form>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-title">
+                            <span>登录密码</span>
+                            <span class="muted">修改当前控制台登录密码</span>
+                        </div>
+                        <el-form label-position="top">
+                            <div class="grid two-col">
+                                <el-form-item label="当前密码">
+                                    <el-input v-model="passwordForm.current_password" type="password" show-password></el-input>
+                                </el-form-item>
+                                <el-form-item label="新密码">
+                                    <el-input v-model="passwordForm.new_password" type="password" show-password></el-input>
+                                </el-form-item>
+                            </div>
+                            <el-button type="primary" :loading="passwordSaving" @click="changePassword">更新密码</el-button>
+                        </el-form>
+                    </div>
+
+                    <div class="grid two-col">
+                        <div class="card">
+                            <div class="card-title"><span>索引任务进度</span></div>
+                            <el-progress :percentage="rebuildPercent" :status="progressStatus" :stroke-width="16"></el-progress>
+                            <div class="progress-meta">
+                                <div>状态：{{ statusText }}</div>
+                                <div v-if="settings.rebuild_mode">模式：{{ settings.rebuild_mode }}</div>
+                                <div v-if="settings.rebuild_current_file">当前文件：<span class="mono">{{ settings.rebuild_current_file }}</span></div>
+                                <div v-if="settings.rebuild_files_total">文件：{{ settings.rebuild_files_done || 0 }} / {{ settings.rebuild_files_total }}</div>
+                                <div v-if="settings.rebuild_elapsed_sec">耗时：{{ formatDuration(settings.rebuild_elapsed_sec) }}</div>
+                                <div v-if="settings.rebuild_eta_sec">预计剩余：{{ formatDuration(settings.rebuild_eta_sec) }}</div>
+                                <div v-if="settings.rebuild_error" style="color: var(--danger);">错误：{{ settings.rebuild_error }}</div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-title"><span>运行路径</span></div>
+                            <div class="muted">DuckDB 索引文件</div>
+                            <div class="path-box mono">{{ settings.db_file || '-' }}</div>
+                            <div class="muted" style="margin-top: 14px;">导出目录</div>
+                            <div class="path-box mono">{{ settings.export_dir || '-' }}</div>
+                            <div class="muted" style="margin-top: 14px;">最近更新</div>
+                            <div class="path-box mono">{{ stats.last_update || '-' }}</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+</div>
+
+<script src="/assets/vendor/vue/vue.global.prod.js"></script>
+<script src="/assets/vendor/echarts/echarts.min.js"></script>
+<script src="/assets/vendor/element-plus/index.full.js"></script>
+<script>
+const { createApp, ref, reactive, computed, onMounted, nextTick } = Vue;
+
+createApp({
+    setup() {
+        const currentTab = ref('dashboard');
+        const authenticated = ref(false);
+        const loading = ref(false);
+        const loginLoading = ref(false);
+        const settingsSaving = ref(false);
+        const passwordSaving = ref(false);
+        const logs = ref([]);
+        const stats = reactive({});
+        const dashboard = reactive({ trend: [], top_ips: [], protocols: [], ports: [], gov_net_pct: 0 });
+        const settings = reactive({});
+        const loginForm = reactive({ password: '' });
+        const passwordForm = reactive({ current_password: '', new_password: '' });
+        const settingsForm = reactive({ log_dir: '', log_tag: '深信服 NAT', auto_scan_enabled: false, auto_scan_interval_sec: 30 });
+        const filters = reactive({ keyword: '', ip: '', range: '', protocol: '', port: null, port_scope: 'any' });
+        const logDateOptions = ref([]);
+        const page = ref(1);
+        const pageSize = ref(25);
+        const total = ref(0);
+        const queryTimeMs = ref(0);
+        const exportMessage = ref('');
+        const exportDownload = reactive({ path: '', name: '' });
+        const searchHistory = ref([]);
+        const advancedFiltersVisible = ref(false);
+        let trendChart = null;
+        let settingsTimer = null;
+
+        const pageTitle = computed(() => ({
+            dashboard: '监控大屏',
+            query: '深度溯源',
+            settings: '搜索设置'
+        }[currentTab.value]));
+        const pageDesc = computed(() => ({
+            dashboard: '聚合 NAT 日志规模、趋势、协议和热点 IP。',
+            query: '面向事件处置的精确检索、分页和导出。',
+            settings: '控制日志目录、重建索引和自动增量同步。'
+        }[currentTab.value]));
+        const isRunning = computed(() => settings.rebuild_status === 'running');
+        const statusType = computed(() => {
+            if (settings.rebuild_status === 'running') return 'warning';
+            if (settings.rebuild_status === 'failed') return 'danger';
+            if (settings.rebuild_status === 'succeeded') return 'success';
+            return 'info';
+        });
+        const progressStatus = computed(() => settings.rebuild_status === 'failed' ? 'exception' : settings.rebuild_status === 'succeeded' ? 'success' : '');
+        const statusText = computed(() => {
+            const labels = { idle: '空闲', running: '任务运行中', failed: '任务失败', succeeded: '任务完成' };
+            return labels[settings.rebuild_status] || '系统就绪';
+        });
+        const rebuildPercent = computed(() => {
+            if (settings.rebuild_status === 'succeeded') return 100;
+            const bytesTotal = Number(settings.rebuild_bytes_total || 0);
+            const bytesDone = Number(settings.rebuild_bytes_done || 0);
+            if (bytesTotal > 0) return Math.min(100, Math.round(bytesDone / bytesTotal * 100));
+            const filesTotal = Number(settings.rebuild_files_total || 0);
+            const filesDone = Number(settings.rebuild_files_done || 0);
+            if (filesTotal > 0) return Math.min(100, Math.round(filesDone / filesTotal * 100));
+            return settings.rebuild_status === 'running' ? 5 : 0;
+        });
+        const kpis = computed(() => [
+            { label: '总记录', value: formatNumber(stats.total_records), foot: `${formatNumber(stats.total_files)} 个日志文件` },
+            { label: '活跃会话', value: formatNumber(stats.active_sessions), foot: '按五元组近似统计' },
+            { label: '索引体积', value: `${formatFixed(stats.db_size_mb)} MB`, foot: `原始 ${formatFixed(stats.raw_size_mb)} MB` },
+            { label: '压缩率', value: `${formatFixed(stats.compression_pct)}%`, foot: `平均查询 ${formatFixed(stats.avg_query_time_ms)} ms` }
+        ]);
+        const resultSummary = computed(() => `${formatNumber(total.value)} 条 · ${formatFixed(queryTimeMs.value)} ms`);
+
+        function notify(type, message) {
+            ElementPlus.ElMessage({ type, message });
+        }
+
+        function formatNumber(value) {
+            return Number(value || 0).toLocaleString();
+        }
+
+        function formatFixed(value) {
+            return Number(value || 0).toFixed(1);
+        }
+
+        function formatPercent(value) {
+            return `${Number(value || 0).toFixed(2)}%`;
+        }
+
+        function safePercent(value) {
+            return Math.max(0, Math.min(100, Number(value || 0)));
+        }
+
+        function formatDuration(seconds) {
+            const totalSeconds = Number(seconds || 0);
+            const minutes = Math.floor(totalSeconds / 60);
+            const remainSeconds = totalSeconds % 60;
+            return minutes > 0 ? `${minutes}m ${remainSeconds}s` : `${remainSeconds}s`;
+        }
+
+        function isGov(tag) {
+            return tag && String(tag.label || '').includes('政务网');
+        }
+
+        function tagLocation(tag) {
+            return tag && tag.location ? tag.location : '';
+        }
+
+        function assignReactive(target, source) {
+            Object.keys(target).forEach((key) => delete target[key]);
+            Object.assign(target, source || {});
+        }
+
+        async function fetchJSON(url, options) {
+            const response = await fetch(url, options);
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                if (response.status === 401) {
+                    authenticated.value = false;
+                }
+                throw new Error(data.error || `HTTP ${response.status}`);
+            }
+            return data;
+        }
+
+        async function fetchStats() {
+            assignReactive(stats, await fetchJSON('/api/stats'));
+        }
+
+        async function fetchDashboard() {
+            const data = await fetchJSON('/api/dashboard');
+            assignReactive(dashboard, {
+                trend: data.trend || [],
+                top_ips: data.top_ips || [],
+                protocols: data.protocols || [],
+                ports: data.ports || [],
+                gov_net_pct: data.gov_net_pct || 0
+            });
+            await nextTick();
+            renderTrend();
+        }
+
+        async function fetchSettings() {
+            const data = await fetchJSON('/api/settings');
+            assignReactive(settings, data);
+            settingsForm.log_dir = data.log_dir || '';
+            settingsForm.log_tag = data.log_tag || '深信服 NAT';
+            settingsForm.auto_scan_enabled = Boolean(data.auto_scan_enabled);
+            settingsForm.auto_scan_interval_sec = Number(data.auto_scan_interval_sec || 30);
+        }
+
+        async function fetchLogDateOptions() {
+            const data = await fetchJSON('/api/log-dates');
+            logDateOptions.value = data.options || [];
+        }
+
+        async function checkSession() {
+            const data = await fetchJSON('/api/session');
+            authenticated.value = Boolean(data.authenticated);
+            return authenticated.value;
+        }
+
+        async function login() {
+            loginLoading.value = true;
+            try {
+                await fetchJSON('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: loginForm.password })
+                });
+                loginForm.password = '';
+                authenticated.value = true;
+                notify('success', '登录成功');
+                await refreshAll();
+                await search(1);
+            } catch (error) {
+                notify('error', error.message);
+            } finally {
+                loginLoading.value = false;
+            }
+        }
+
+        async function logout() {
+            try {
+                await fetchJSON('/api/logout', { method: 'POST' });
+            } catch (error) {
+                // 即使服务端返回异常，也清理本地登录态。
+            }
+            authenticated.value = false;
+            logs.value = [];
+            total.value = 0;
+            loginForm.password = '';
+            passwordForm.current_password = '';
+            passwordForm.new_password = '';
+            logDateOptions.value = [];
+        }
+
+        function renderTrend() {
+            const element = document.getElementById('trend-chart');
+            if (!element) return;
+            if (!trendChart) {
+                trendChart = echarts.init(element);
+                window.addEventListener('resize', () => trendChart && trendChart.resize());
+            }
+            const trend = dashboard.trend || [];
+            trendChart.setOption({
+                tooltip: { trigger: 'axis' },
+                grid: { left: 36, right: 18, top: 24, bottom: 32 },
+                xAxis: { type: 'category', data: trend.map((item) => item.time), axisLabel: { color: '#64748b' } },
+                yAxis: { type: 'value', axisLabel: { color: '#64748b' }, splitLine: { lineStyle: { color: '#e2e8f0' } } },
+                series: [{
+                    name: '日志数',
+                    data: trend.map((item) => item.count),
+                    type: 'line',
+                    smooth: true,
+                    symbolSize: 6,
+                    areaStyle: { color: 'rgba(37, 99, 235, .12)' },
+                    lineStyle: { color: '#2563eb', width: 3 },
+                    itemStyle: { color: '#2563eb' }
+                }]
+            });
+        }
+
+        function buildParams(targetPage) {
+            const params = new URLSearchParams();
+            const values = {
+                keyword: filters.keyword,
+                ip: filters.ip,
+                range: filters.range,
+                protocol: filters.protocol,
+                port_scope: filters.port_scope,
+                page: targetPage || page.value,
+                page_size: pageSize.value
+            };
+            if (filters.port) values.port = filters.port;
+            Object.entries(values).forEach(([key, value]) => {
+                if (value !== null && value !== undefined && String(value).trim() !== '') {
+                    params.append(key, value);
+                }
+            });
+            return params;
+        }
+
+        function historyLabel() {
+            const parts = [];
+            if (filters.keyword) parts.push(`关键字:${filters.keyword}`);
+            if (filters.ip) parts.push(`IP:${filters.ip}`);
+            if (filters.protocol) parts.push(`协议:${filters.protocol}`);
+            if (filters.range) parts.push(`时间:${filters.range}`);
+            if (filters.port) parts.push(`端口:${filters.port}`);
+            return parts.join(' · ') || '全部记录';
+        }
+
+        function pushHistory() {
+            const snapshot = JSON.parse(JSON.stringify(filters));
+            const label = historyLabel();
+            searchHistory.value = searchHistory.value.filter((item) => item.label !== label);
+            searchHistory.value.unshift({ label, filters: snapshot });
+            searchHistory.value = searchHistory.value.slice(0, 8);
+        }
+
+        async function search(targetPage) {
+            loading.value = true;
+            exportMessage.value = '';
+            exportDownload.path = '';
+            exportDownload.name = '';
+            try {
+                const data = await fetchJSON(`/api/query?${buildParams(targetPage).toString()}`);
+                logs.value = data.records || [];
+                total.value = data.total || 0;
+                page.value = data.page || targetPage || 1;
+                queryTimeMs.value = data.query_time_ms || 0;
+                pushHistory();
+            } catch (error) {
+                notify('error', error.message);
+            } finally {
+                loading.value = false;
+            }
+        }
+
+        async function exportCurrent() {
+            exportMessage.value = '正在导出...';
+            try {
+                const payload = {
+                    keyword: filters.keyword,
+                    ip: filters.ip,
+                    range: filters.range,
+                    protocol: filters.protocol,
+                    port: filters.port || 0,
+                    port_scope: filters.port_scope
+                };
+                const data = await fetchJSON('/api/export', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                exportMessage.value = `已导出 ${formatNumber(data.exported_count)} 条：`;
+                exportDownload.path = data.download_path || '';
+                exportDownload.name = data.file_name || '';
+                notify('success', '导出完成');
+            } catch (error) {
+                exportMessage.value = '';
+                exportDownload.path = '';
+                exportDownload.name = '';
+                notify('error', error.message);
+            }
+        }
+
+        function resetFilters() {
+            Object.assign(filters, { keyword: '', ip: '', range: '', protocol: '', port: null, port_scope: 'any' });
+            logs.value = [];
+            total.value = 0;
+            queryTimeMs.value = 0;
+            exportMessage.value = '';
+            exportDownload.path = '';
+            exportDownload.name = '';
+        }
+
+        function applyHistory(history) {
+            Object.assign(filters, history.filters);
+            search(1);
+        }
+
+        function removeHistory(history) {
+            searchHistory.value = searchHistory.value.filter((item) => item !== history);
+        }
+
+        async function saveSettings() {
+            settingsSaving.value = true;
+            try {
+                await fetchJSON('/api/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        log_dir: settingsForm.log_dir,
+                        log_tag: settingsForm.log_tag,
+                        auto_scan_enabled: settingsForm.auto_scan_enabled,
+                        auto_scan_interval_sec: settingsForm.auto_scan_interval_sec
+                    })
+                });
+                notify('success', '设置已保存');
+                await fetchSettings();
+                await fetchStats();
+            } catch (error) {
+                notify('error', error.message);
+            } finally {
+                settingsSaving.value = false;
+            }
+        }
+
+        async function changePassword() {
+            passwordSaving.value = true;
+            try {
+                await fetchJSON('/api/password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(passwordForm)
+                });
+                passwordForm.current_password = '';
+                passwordForm.new_password = '';
+                notify('success', '密码已更新');
+            } catch (error) {
+                notify('error', error.message);
+            } finally {
+                passwordSaving.value = false;
+            }
+        }
+
+        async function triggerRebuild() {
+            try {
+                await fetchJSON('/api/rebuild', { method: 'POST' });
+                notify('success', '索引重建已启动');
+                await fetchSettings();
+            } catch (error) {
+                notify('error', error.message);
+            }
+        }
+
+        async function triggerSync() {
+            try {
+                await fetchJSON('/api/sync', { method: 'POST' });
+                notify('success', '增量同步已启动');
+                await fetchSettings();
+            } catch (error) {
+                notify('error', error.message);
+            }
+        }
+
+        async function refreshAll() {
+            try {
+                await Promise.all([fetchStats(), fetchDashboard(), fetchSettings(), fetchLogDateOptions()]);
+            } catch (error) {
+                notify('error', error.message);
+            }
+        }
+
+        function switchTab(tab) {
+            currentTab.value = tab;
+            if (tab === 'dashboard') {
+                nextTick(renderTrend);
+            }
+        }
+
+        onMounted(async () => {
+            if (await checkSession()) {
+                await refreshAll();
+                await search(1);
+            }
+            settingsTimer = window.setInterval(async () => {
+                if (!authenticated.value) return;
+                try {
+                    await fetchSettings();
+                    if (!isRunning.value) return;
+                    await fetchStats();
+                } catch (error) {
+                    window.clearInterval(settingsTimer);
+                }
+            }, 3000);
+        });
+
+        return {
+            currentTab,
+            authenticated,
+            loading,
+            loginLoading,
+            settingsSaving,
+            passwordSaving,
+            logs,
+            stats,
+            dashboard,
+            settings,
+            settingsForm,
+            loginForm,
+            passwordForm,
+            filters,
+            logDateOptions,
+            page,
+            pageSize,
+            total,
+            exportMessage,
+            exportDownload,
+            searchHistory,
+            advancedFiltersVisible,
+            pageTitle,
+            pageDesc,
+            kpis,
+            resultSummary,
+            statusType,
+            statusText,
+            isRunning,
+            rebuildPercent,
+            progressStatus,
+            safePercent,
+            formatPercent,
+            formatDuration,
+            isGov,
+            tagLocation,
+            login,
+            logout,
+            search,
+            exportCurrent,
+            resetFilters,
+            applyHistory,
+            removeHistory,
+            saveSettings,
+            changePassword,
+            triggerRebuild,
+            triggerSync,
+            refreshAll,
+            switchTab
+        };
+    }
+}).use(ElementPlus).mount('#app');
+</script>
+</body>
+</html>
