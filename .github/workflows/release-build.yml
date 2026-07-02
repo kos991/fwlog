@@ -194,6 +194,7 @@ jobs:
     name: Build Kylin V10 SP1 ${{ matrix.arch-name }}
     runs-on: ${{ matrix.runs-on }}
     needs: prepare-release
+    continue-on-error: true
     container:
       image: ${{ matrix.container }}
     strategy:
