@@ -12,8 +12,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  test-linux:
-    name: Test Linux amd64
+  test-and-build:
+    name: Test and build Linux amd64
     runs-on: ubuntu-24.04
 
     steps:
@@ -26,225 +26,32 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Install build dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config
-
-      - name: Prepare DuckDB shared library
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p third_party/duckdb/linux-amd64
-          curl -fsSL --retry 3 --retry-delay 5 \
-            https://github.com/duckdb/duckdb/releases/download/v0.10.2/libduckdb-linux-amd64.zip \
-            -o third_party/duckdb/linux-amd64/libduckdb-linux-amd64.zip
-          unzip -q third_party/duckdb/linux-amd64/libduckdb-linux-amd64.zip -d third_party/duckdb/linux-amd64
-
-      - name: Check Go formatting
-        shell: bash
-        run: |
-          set -euo pipefail
-          files="$(gofmt -l *.go)"
-          if [[ -n "$files" ]]; then
-            echo "$files"
-            exit 1
-          fi
-
-      - name: Run tests
-        shell: bash
-        env:
-          CGO_ENABLED: "1"
-          CC: gcc
-          CXX: g++
-          CGO_CFLAGS: "-I${{ github.workspace }}/third_party/duckdb/linux-amd64"
-          CGO_LDFLAGS: "-L${{ github.workspace }}/third_party/duckdb/linux-amd64 -lduckdb"
-          LD_LIBRARY_PATH: "${{ github.workspace }}/third_party/duckdb/linux-amd64"
-        run: |
-          set -euo pipefail
-          go test -tags=duckdb_use_lib ./...
-
-  test-kylin-baseline:
-    name: Test Kylin V10 SP1 x86_64 baseline
-    runs-on: ubuntu-24.04
-    continue-on-error: true
-    container:
-      image: quay.io/pypa/manylinux_2_28_x86_64
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          go-version-file: go.mod
-          cache: true
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
 
-      - name: Show compatibility baseline
-        shell: bash
+      - name: Install frontend dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Build frontend assets
+        working-directory: web
+        run: npm run build
+
+      - name: Run Go tests
+        run: go test ./...
+
+      - name: Build Linux amd64 binary
         run: |
-          set -euo pipefail
-          uname -a
-          ldd --version | sed -n '1p'
-          gcc --version | sed -n '1p'
+          mkdir -p dist
+          go build -trimpath -ldflags "-s -w" -o dist/nat-query-service-linux-amd64 .
 
-      - name: Prepare DuckDB shared library
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p third_party/duckdb/linux-amd64
-          curl -fsSL --retry 3 --retry-delay 5 \
-            https://github.com/duckdb/duckdb/releases/download/v0.10.2/libduckdb-linux-amd64.zip \
-            -o third_party/duckdb/linux-amd64/libduckdb-linux-amd64.zip
-          unzip -q third_party/duckdb/linux-amd64/libduckdb-linux-amd64.zip -d third_party/duckdb/linux-amd64
-
-      - name: Run tests
-        shell: bash
-        env:
-          CGO_ENABLED: "1"
-          CC: gcc
-          CXX: g++
-          CGO_CFLAGS: "-I${{ github.workspace }}/third_party/duckdb/linux-amd64"
-          CGO_LDFLAGS: "-L${{ github.workspace }}/third_party/duckdb/linux-amd64 -lduckdb"
-          LD_LIBRARY_PATH: "${{ github.workspace }}/third_party/duckdb/linux-amd64"
-        run: |
-          set -euo pipefail
-          go test -tags=duckdb_use_lib ./...
-
-  build-linux-artifact:
-    name: Build CI artifact Linux amd64
-    runs-on: ubuntu-24.04
-    needs:
-      - test-linux
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Install Linux build dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config
-
-      - name: Show build baseline
-        shell: bash
-        run: |
-          set -euo pipefail
-          uname -a
-          ldd --version | sed -n '1p' || true
-          gcc --version | sed -n '1p'
-
-      - name: Prepare DuckDB shared library
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p third_party/duckdb/linux-amd64
-          curl -fsSL --retry 3 --retry-delay 5 \
-            https://github.com/duckdb/duckdb/releases/download/v0.10.2/libduckdb-linux-amd64.zip \
-            -o third_party/duckdb/linux-amd64/libduckdb-linux-amd64.zip
-          unzip -q third_party/duckdb/linux-amd64/libduckdb-linux-amd64.zip -d third_party/duckdb/linux-amd64
-
-      - name: Build binary package
-        shell: bash
-        env:
-          GOOS: linux
-          GOARCH: amd64
-          CGO_ENABLED: "1"
-          CC: gcc
-          CXX: g++
-          CGO_CFLAGS: "-I${{ github.workspace }}/third_party/duckdb/linux-amd64"
-          CGO_LDFLAGS: "-L${{ github.workspace }}/third_party/duckdb/linux-amd64 -lduckdb"
-          LD_LIBRARY_PATH: "${{ github.workspace }}/third_party/duckdb/linux-amd64"
-          ASSET_NAME: nat-query-service_linux-amd64
-        run: |
-          set -euo pipefail
-          package_dir="dist/${ASSET_NAME}"
-          mkdir -p "$package_dir" artifacts
-          go build -trimpath -tags=duckdb_use_lib -ldflags "-s -w" -o "$package_dir/nat-query-service" main.go ip_engine.go
-          cp nat-query-service.service "$package_dir/"
-          cp third_party/duckdb/linux-amd64/libduckdb.so "$package_dir/"
-          tar -C "$package_dir" -czf "artifacts/${ASSET_NAME}.tar.gz" .
-
-      - name: Upload CI artifact
+      - name: Upload Linux amd64 artifact
         uses: actions/upload-artifact@v4
         with:
           name: linux-amd64
-          path: artifacts/*
-          if-no-files-found: error
-
-  build-kylin-artifact:
-    name: Build CI artifact Kylin V10 SP1 x86_64
-    runs-on: ubuntu-24.04
-    needs:
-      - test-linux
-    container:
-      image: quay.io/pypa/manylinux_2_28_x86_64
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Show build baseline
-        shell: bash
-        run: |
-          set -euo pipefail
-          uname -a
-          ldd --version | sed -n '1p' || true
-          gcc --version | sed -n '1p'
-
-      - name: Prepare DuckDB shared library
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p third_party/duckdb/linux-amd64
-          curl -fsSL --retry 3 --retry-delay 5 \
-            https://github.com/duckdb/duckdb/releases/download/v0.10.2/libduckdb-linux-amd64.zip \
-            -o third_party/duckdb/linux-amd64/libduckdb-linux-amd64.zip
-          unzip -q third_party/duckdb/linux-amd64/libduckdb-linux-amd64.zip -d third_party/duckdb/linux-amd64
-
-      - name: Build binary package
-        shell: bash
-        env:
-          GOOS: linux
-          GOARCH: amd64
-          CGO_ENABLED: "1"
-          CC: gcc
-          CXX: g++
-          CGO_CFLAGS: "-I${{ github.workspace }}/third_party/duckdb/linux-amd64"
-          CGO_LDFLAGS: "-L${{ github.workspace }}/third_party/duckdb/linux-amd64 -lduckdb"
-          LD_LIBRARY_PATH: "${{ github.workspace }}/third_party/duckdb/linux-amd64"
-          ASSET_NAME: nat-query-service_kylin-v10-sp1-x86_64
-        run: |
-          set -euo pipefail
-          package_dir="dist/${ASSET_NAME}"
-          mkdir -p "$package_dir" artifacts
-          go build -trimpath -tags=duckdb_use_lib -ldflags "-s -w" -o "$package_dir/nat-query-service" main.go ip_engine.go
-          cp nat-query-service.service "$package_dir/"
-          cp third_party/duckdb/linux-amd64/libduckdb.so "$package_dir/"
-          max_glibc="$(readelf -V "$package_dir/nat-query-service" | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -n 1 || true)"
-          echo "Max GLIBC symbol: ${max_glibc:-not detected}"
-          tar -C "$package_dir" -czf "artifacts/${ASSET_NAME}.tar.gz" .
-
-      - name: Upload CI artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: kylin-v10-sp1-x86_64
-          path: artifacts/*
+          path: dist/nat-query-service-linux-amd64
           if-no-files-found: error

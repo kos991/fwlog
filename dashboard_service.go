@@ -1,0 +1,263 @@
+package main
+
+import "time"
+
+type HealthDashboardResponse struct {
+	DataHealth      DataHealth      `json:"data_health"`
+	IngestHealth    IngestHealth    `json:"ingest_health"`
+	IPDistribution  IPDistribution  `json:"ip_distribution"`
+	GeoDistribution GeoDistribution `json:"geo_distribution"`
+}
+
+type DataHealth struct {
+	TotalLogs                uint64 `json:"total_logs"`
+	ReadyDates               int    `json:"ready_dates"`
+	PendingDates             int    `json:"pending_dates"`
+	ImportingDates           int    `json:"importing_dates"`
+	FailedDates              int    `json:"failed_dates"`
+	QueryableStartDate       string `json:"queryable_start_date"`
+	QueryableEndDate         string `json:"queryable_end_date"`
+	LastSuccessfulIngestTime string `json:"last_successful_ingest_time"`
+	ClickHouseDiskUsedBytes  uint64 `json:"clickhouse_disk_used_bytes"`
+	TodayRows                uint64 `json:"today_rows"`
+	YesterdayRows            uint64 `json:"yesterday_rows"`
+}
+
+type IngestHealth struct {
+	Status               IngestStatus `json:"status"`
+	SourceID             string       `json:"source_id"`
+	LogTag               string       `json:"log_tag"`
+	CurrentDate          string       `json:"current_date"`
+	CurrentFile          string       `json:"current_file"`
+	FilesTotal           uint64       `json:"files_total"`
+	FilesDone            uint64       `json:"files_done"`
+	BytesTotal           uint64       `json:"bytes_total"`
+	BytesDone            uint64       `json:"bytes_done"`
+	RowsImported         uint64       `json:"rows_imported"`
+	ProgressPct          float64      `json:"progress_pct"`
+	Error                string       `json:"error"`
+	LastAutoScanAt       string       `json:"last_auto_scan_at"`
+	NextAutoScanAt       string       `json:"next_auto_scan_at"`
+	ElapsedSec           int64        `json:"elapsed_sec"`
+	ETASeconds           int64        `json:"eta_sec"`
+	LastUpdatedAt        time.Time    `json:"last_updated_at"`
+	LastSuccessfulIngest time.Time    `json:"last_successful_ingest_at"`
+}
+
+type IPDistribution struct {
+	TopSourceIPs       []DistributionItem `json:"top_source_ips"`
+	TopDestinationIPs  []DistributionItem `json:"top_destination_ips"`
+	TopNATIPs          []DistributionItem `json:"top_nat_ips"`
+	AddressTypeShares  []DistributionItem `json:"address_type_shares"`
+	LogTagDistribution []DistributionItem `json:"log_tag_distribution"`
+}
+
+type GeoDistribution struct {
+	TopCountries       []DistributionItem `json:"top_countries"`
+	TopRegions         []DistributionItem `json:"top_regions"`
+	UnrecognizedIPRate float64            `json:"unrecognized_ip_rate"`
+	GeoIPLoaded        bool               `json:"geoip_loaded"`
+	GeoIPStatus        string             `json:"geoip_status"`
+}
+
+type DistributionItem struct {
+	Name  string `json:"name"`
+	Value uint64 `json:"value"`
+}
+
+type DashboardMetrics struct {
+	ClickHouseDiskUsedBytes uint64
+	TodayRows               uint64
+	YesterdayRows           uint64
+	TopSourceIPs            []DistributionItem
+	TopDestinationIPs       []DistributionItem
+	TopNATIPs               []DistributionItem
+	AddressTypeShares       []DistributionItem
+	LogTagDistribution      []DistributionItem
+	TopCountries            []DistributionItem
+	TopRegions              []DistributionItem
+	UnrecognizedIPRate      float64
+	GeoIPLoaded             bool
+	GeoIPStatus             string
+	LastAutoScanAt          time.Time
+	NextAutoScanAt          time.Time
+}
+
+type IngestProgressResponse struct {
+	Status         IngestStatus      `json:"status"`
+	SourceID       string            `json:"source_id"`
+	LogTag         string            `json:"log_tag"`
+	CurrentDate    string            `json:"current_date"`
+	CurrentFile    string            `json:"current_file"`
+	FilesTotal     uint64            `json:"files_total"`
+	FilesDone      uint64            `json:"files_done"`
+	BytesTotal     uint64            `json:"bytes_total"`
+	BytesDone      uint64            `json:"bytes_done"`
+	RowsImported   uint64            `json:"rows_imported"`
+	ProgressPct    float64           `json:"progress_pct"`
+	ElapsedSec     int64             `json:"elapsed_sec"`
+	ETASeconds     int64             `json:"eta_sec"`
+	LastAutoScanAt string            `json:"last_auto_scan_at"`
+	NextAutoScanAt string            `json:"next_auto_scan_at"`
+	Error          string            `json:"error"`
+	Dates          []DateIngestState `json:"dates"`
+}
+
+func BuildHealthDashboard(states []DateIngestState, metrics DashboardMetrics) HealthDashboardResponse {
+	return HealthDashboardResponse{
+		DataHealth:      buildDataHealth(states, metrics),
+		IngestHealth:    buildIngestHealth(states, metrics),
+		IPDistribution:  buildIPDistribution(metrics),
+		GeoDistribution: buildGeoDistribution(metrics),
+	}
+}
+
+func BuildIngestProgress(states []DateIngestState, includeReady bool, metricArgs ...DashboardMetrics) IngestProgressResponse {
+	var metrics DashboardMetrics
+	if len(metricArgs) > 0 {
+		metrics = metricArgs[0]
+	}
+
+	var current DateIngestState
+	for _, state := range states {
+		if state.Status == StatusImporting {
+			current = state
+			break
+		}
+		if current.Status == "" && state.Status == StatusFailed {
+			current = state
+		}
+	}
+
+	response := IngestProgressResponse{
+		Status:         StatusIdle,
+		LastAutoScanAt: formatDateTime(metrics.LastAutoScanAt),
+		NextAutoScanAt: formatDateTime(metrics.NextAutoScanAt),
+		Dates:          make([]DateIngestState, 0, len(states)),
+	}
+	if current.Status != "" {
+		response.Status = current.Status
+		response.SourceID = current.SourceID
+		response.LogTag = current.LogTag
+		response.CurrentDate = formatDate(current.LogDate)
+		response.CurrentFile = current.CurrentFile
+		response.FilesTotal = current.FilesTotal
+		response.FilesDone = current.FilesDone
+		response.BytesTotal = current.BytesTotal
+		response.BytesDone = current.BytesDone
+		response.RowsImported = current.RowsImported
+		response.ProgressPct = current.ProgressPct
+		response.Error = current.Error
+	}
+
+	for _, state := range states {
+		if !includeReady && state.Status == StatusReady {
+			continue
+		}
+		response.Dates = append(response.Dates, state)
+	}
+
+	return response
+}
+
+func buildDataHealth(states []DateIngestState, metrics DashboardMetrics) DataHealth {
+	var health DataHealth
+	health.ClickHouseDiskUsedBytes = metrics.ClickHouseDiskUsedBytes
+	health.TodayRows = metrics.TodayRows
+	health.YesterdayRows = metrics.YesterdayRows
+
+	var firstReady time.Time
+	var lastReady time.Time
+	var lastSuccessful time.Time
+	for _, state := range states {
+		switch state.Status {
+		case StatusReady:
+			health.ReadyDates++
+			health.TotalLogs += state.RowsImported
+			if firstReady.IsZero() || state.LogDate.Before(firstReady) {
+				firstReady = state.LogDate
+			}
+			if lastReady.IsZero() || state.LogDate.After(lastReady) {
+				lastReady = state.LogDate
+			}
+			if state.UpdatedAt.After(lastSuccessful) {
+				lastSuccessful = state.UpdatedAt
+			}
+		case StatusPending:
+			health.PendingDates++
+		case StatusImporting:
+			health.ImportingDates++
+		case StatusFailed:
+			health.FailedDates++
+		}
+	}
+
+	health.QueryableStartDate = formatDate(firstReady)
+	health.QueryableEndDate = formatDate(lastReady)
+	health.LastSuccessfulIngestTime = formatDateTime(lastSuccessful)
+	return health
+}
+
+func buildIngestHealth(states []DateIngestState, metrics DashboardMetrics) IngestHealth {
+	progress := BuildIngestProgress(states, false)
+	health := IngestHealth{
+		Status:         progress.Status,
+		SourceID:       progress.SourceID,
+		LogTag:         progress.LogTag,
+		CurrentDate:    progress.CurrentDate,
+		CurrentFile:    progress.CurrentFile,
+		FilesTotal:     progress.FilesTotal,
+		FilesDone:      progress.FilesDone,
+		BytesTotal:     progress.BytesTotal,
+		BytesDone:      progress.BytesDone,
+		RowsImported:   progress.RowsImported,
+		ProgressPct:    progress.ProgressPct,
+		Error:          progress.Error,
+		LastAutoScanAt: formatDateTime(metrics.LastAutoScanAt),
+		NextAutoScanAt: formatDateTime(metrics.NextAutoScanAt),
+	}
+
+	for _, state := range states {
+		if state.UpdatedAt.After(health.LastUpdatedAt) {
+			health.LastUpdatedAt = state.UpdatedAt
+		}
+		if state.Status == StatusReady && state.UpdatedAt.After(health.LastSuccessfulIngest) {
+			health.LastSuccessfulIngest = state.UpdatedAt
+		}
+	}
+	return health
+}
+
+func buildIPDistribution(metrics DashboardMetrics) IPDistribution {
+	return IPDistribution{
+		TopSourceIPs:       metrics.TopSourceIPs,
+		TopDestinationIPs:  metrics.TopDestinationIPs,
+		TopNATIPs:          metrics.TopNATIPs,
+		AddressTypeShares:  metrics.AddressTypeShares,
+		LogTagDistribution: metrics.LogTagDistribution,
+	}
+}
+
+func buildGeoDistribution(metrics DashboardMetrics) GeoDistribution {
+	return GeoDistribution{
+		TopCountries:       metrics.TopCountries,
+		TopRegions:         metrics.TopRegions,
+		UnrecognizedIPRate: metrics.UnrecognizedIPRate,
+		GeoIPLoaded:        metrics.GeoIPLoaded,
+		GeoIPStatus:        metrics.GeoIPStatus,
+	}
+}
+
+func formatDate(ts time.Time) string {
+	if ts.IsZero() {
+		return ""
+	}
+	return ts.Format("2006-01-02")
+}
+
+func formatDateTime(ts time.Time) string {
+	if ts.IsZero() {
+		return ""
+	}
+	return ts.Format("2006-01-02 15:04:05")
+}

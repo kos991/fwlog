@@ -35,6 +35,7 @@ func NewIPEngine() *IPEngine {
 	engine.AddSegment("2.0.0.0/8", "政务网私有段")
 	return engine
 }
+
 func (e *IPEngine) AddSegment(cidr, label string) error {
 	_, ipnet, err := net.ParseCIDR(cidr)
 	if err != nil {
@@ -45,11 +46,13 @@ func (e *IPEngine) AddSegment(cidr, label string) error {
 	e.segments = append(e.segments, networkSegment{Network: ipnet, Label: label})
 	return nil
 }
+
 func (e *IPEngine) AddOverride(ip, label, location string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.overrides[ip] = IPTag{IP: ip, Label: label, Location: location, IsManual: true}
 }
+
 func (e *IPEngine) LoadGeoDB(filePath string) error {
 	db, err := geoip2.Open(filePath)
 	if err != nil {
@@ -82,7 +85,6 @@ func (e *IPEngine) GetTag(ipStr string) IPTag {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
-	// 1. 最高优先级：手动覆盖
 	if tag, ok := e.overrides[ipStr]; ok {
 		return tag
 	}
@@ -92,19 +94,16 @@ func (e *IPEngine) GetTag(ipStr string) IPTag {
 		return IPTag{IP: ipStr, Label: "非法 IP", Location: "未知"}
 	}
 
-	// 2. 第二优先级：自定义网段匹配
 	for _, seg := range e.segments {
 		if seg.Network.Contains(ip) {
 			return IPTag{IP: ipStr, Label: seg.Label, Location: "内网"}
 		}
 	}
 
-	// 3. 第三优先级：私有地址/局域网判断
 	if ip.IsPrivate() {
 		return IPTag{IP: ipStr, Label: "局域网", Location: "内网"}
 	}
 
-	// 4. 最终兜底：公网 (GeoIP)
 	location := "未知公网"
 	if e.geoDB != nil {
 		record, err := e.geoDB.City(ip)

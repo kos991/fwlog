@@ -1,4 +1,4 @@
-﻿name: Release Build
+name: Release Build
 
 on:
   push:
@@ -95,7 +95,7 @@ jobs:
               "prerelease": False,
           }
           if release is None:
-              release = request("POST", f"https://api.github.com/repos/{repo}/releases", payload)
+              request("POST", f"https://api.github.com/repos/{repo}/releases", payload)
               print(f"Created release {version}")
           else:
               request("PATCH", release["url"], {"name": version, "body": body, "draft": False, "prerelease": False})
@@ -133,51 +133,23 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Setup MSYS2 toolchain
-        if: matrix.goos == 'windows'
-        id: msys2
-        uses: msys2/setup-msys2@v2
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          msystem: UCRT64
-          update: true
-          install: >-
-            mingw-w64-ucrt-x86_64-gcc
-            mingw-w64-ucrt-x86_64-tools
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
 
-      - name: Expose MSYS2 toolchain
-        if: matrix.goos == 'windows'
-        shell: pwsh
-        run: |
-          $msysRoot = "${{ steps.msys2.outputs.msys2-location }}"
-          $mingwPath = Join-Path $msysRoot 'ucrt64\bin'
-          if (-not (Test-Path $mingwPath)) {
-            throw "MSYS2 UCRT64 path not found: $mingwPath"
-          }
-          $mingwPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          & "$mingwPath\gcc.exe" --version
-          & "$mingwPath\g++.exe" --version
+      - name: Install frontend dependencies
+        working-directory: web
+        run: npm ci
 
-      - name: Prepare DuckDB shared library for Windows
-        if: matrix.goos == 'windows'
-        shell: pwsh
-        run: |
-          $duckdbDir = Join-Path $PWD 'third_party\duckdb\windows-amd64'
-          $zipPath = Join-Path $duckdbDir 'libduckdb-windows-amd64.zip'
-          New-Item -ItemType Directory -Force -Path $duckdbDir | Out-Null
-          Invoke-WebRequest -UseBasicParsing 'https://github.com/duckdb/duckdb/releases/download/v0.10.2/libduckdb-windows-amd64.zip' -OutFile $zipPath
-          Expand-Archive -LiteralPath $zipPath -DestinationPath $duckdbDir -Force
-          Push-Location $duckdbDir
-          gendef duckdb.dll
-          dlltool -d duckdb.def -l libduckdb.dll.a -D duckdb.dll
-          Pop-Location
+      - name: Build frontend assets
+        working-directory: web
+        run: npm run build
 
-      - name: Install Linux build dependencies
-        if: matrix.goos == 'linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config
+      - name: Run Go tests
+        run: go test ./...
 
       - name: Build Linux binary
         if: matrix.goos == 'linux'
@@ -185,33 +157,27 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: "1"
-          CC: gcc
-          CXX: g++
+          CGO_ENABLED: "0"
         run: |
           set -euo pipefail
           mkdir -p release
           asset="nat-query-service_${GOOS}_${GOARCH}"
-          go build -trimpath -ldflags "-s -w" -o "release/$asset" main.go ip_engine.go
+          go build -trimpath -ldflags "-s -w" -o "release/$asset" .
+          if [[ "${GOARCH}" == "amd64" ]]; then
+            cp nat-query-service.service release/
+            cp scripts/deploy-142-from-release.sh release/
+          fi
 
-      - name: Build Windows binary package
+      - name: Build Windows binary
         if: matrix.goos == 'windows'
         shell: pwsh
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: "1"
-          CC: gcc
-          CXX: g++
-          CGO_CFLAGS: -I${{ github.workspace }}\third_party\duckdb\windows-amd64
-          CGO_LDFLAGS: -L${{ github.workspace }}\third_party\duckdb\windows-amd64
+          CGO_ENABLED: "0"
         run: |
           New-Item -ItemType Directory -Force -Path release | Out-Null
-          $packageDir = Join-Path $PWD 'pkg_temp\windows-amd64'
-          New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
-          go build -trimpath -tags=duckdb_use_lib -o "$packageDir\nat-query-service_windows_amd64.exe" main.go ip_engine.go
-          Copy-Item 'third_party\duckdb\windows-amd64\duckdb.dll' "$packageDir\duckdb.dll" -Force
-          Compress-Archive -Path "$packageDir\*" -DestinationPath "release\nat-query-service_windows_amd64.zip" -Force
+          go build -trimpath -ldflags "-s -w" -o "release\nat-query-service_windows_amd64.exe" .
 
       - name: Upload release asset
         env:
@@ -255,6 +221,24 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Build frontend assets
+        working-directory: web
+        run: npm run build
+
+      - name: Run Go tests
+        run: go test ./...
+
       - name: Show compatibility baseline
         shell: bash
         run: |
@@ -268,9 +252,7 @@ jobs:
         env:
           GOOS: linux
           GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: "1"
-          CC: gcc
-          CXX: g++
+          CGO_ENABLED: "0"
           ASSET_ARCH: ${{ matrix.asset-arch }}
         run: |
           set -euo pipefail
@@ -280,7 +262,7 @@ jobs:
           binary="nat-query-service"
           asset="nat-query-service_kylin-v10-sp1_${ASSET_ARCH}.tar.gz"
 
-          go build -trimpath -ldflags "-s -w" -o "${package_dir}/${binary}" main.go ip_engine.go
+          go build -trimpath -ldflags "-s -w" -o "${package_dir}/${binary}" .
           cp nat-query-service.service "${package_dir}/"
 
           cat > "${package_dir}/README_KYLIN_V10_SP1.txt" <<'EOF'
@@ -288,7 +270,6 @@ jobs:
 
           Target:
           - Kylin Linux Advanced Server V10 SP1
-          - glibc 2.28 compatible build
           - systemd deployment
 
           Install:
@@ -303,16 +284,8 @@ jobs:
 
           Runtime data:
           - /data/sangfor_fw_log
-          - /data/index/nat_logs.duckdb
           - /data/export
           EOF
-
-          max_glibc="$(readelf -V "${package_dir}/${binary}" | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -n 1 || true)"
-          echo "Max GLIBC symbol: ${max_glibc:-not detected}"
-          if [[ -n "$max_glibc" && "$max_glibc" != "GLIBC_2.28" && "$max_glibc" > "GLIBC_2.28" ]]; then
-            echo "Unexpected GLIBC baseline: $max_glibc" >&2
-            exit 1
-          fi
 
           tar -C "$package_dir" -czf "release/$asset" .
 
@@ -324,45 +297,5 @@ jobs:
         run: |
           set -euo pipefail
           version="${{ needs.prepare-release.outputs.version }}"
-          python3 - "$version" <<'PY'
-          import glob
-          import json
-          import mimetypes
-          import os
-          import sys
-          import urllib.parse
-          import urllib.request
-
-          version = sys.argv[1]
-          repo = os.environ["GH_REPO"]
-          token = os.environ["GH_TOKEN"]
-
-          def request(method, url, data=None, content_type="application/json"):
-              headers = {
-                  "Accept": "application/vnd.github+json",
-                  "Authorization": f"Bearer {token}",
-                  "User-Agent": "fwlog-release-build",
-                  "X-GitHub-Api-Version": "2022-11-28",
-              }
-              if data is not None:
-                  headers["Content-Type"] = content_type
-              req = urllib.request.Request(url, data=data, headers=headers, method=method)
-              with urllib.request.urlopen(req) as response:
-                  body = response.read()
-                  return json.loads(body.decode("utf-8")) if body else None
-
-          release = request("GET", f"https://api.github.com/repos/{repo}/releases/tags/{version}")
-          upload_base = release["upload_url"].split("{", 1)[0]
-          existing_assets = {asset["name"]: asset["id"] for asset in release.get("assets", [])}
-
-          for path in glob.glob("release/*"):
-              name = os.path.basename(path)
-              if name in existing_assets:
-                  request("DELETE", f"https://api.github.com/repos/{repo}/releases/assets/{existing_assets[name]}")
-              content_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
-              with open(path, "rb") as file:
-                  data = file.read()
-              upload_url = upload_base + "?" + urllib.parse.urlencode({"name": name})
-              request("POST", upload_url, data=data, content_type=content_type)
-              print(f"Uploaded {name} ({len(data)} bytes)")
-          PY
+          gh release view "$version" --repo "$GH_REPO" >/dev/null
+          gh release upload "$version" release/* --repo "$GH_REPO" --clobber

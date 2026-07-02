@@ -1,6 +1,6 @@
 [Unit]
 Description=NAT Query Service - High-Performance Network Log Analysis
-Documentation=https://github.com/your-org/nat-query-service
+Documentation=https://github.com/kos991/fwlog
 After=network-online.target
 Wants=network-online.target
 
@@ -12,9 +12,12 @@ WorkingDirectory=/opt/nat-query
 
 # Environment
 Environment="LOG_DIR=/data/sangfor_fw_log"
-Environment="DB_FILE=/data/index/nat_logs.duckdb"
+Environment="PORT=8080"
+Environment="CLICKHOUSE_ADDR=127.0.0.1:9000"
+Environment="CLICKHOUSE_DATABASE=default"
+Environment="CUSTOM_IP_MAP=/opt/nat-query/custom_ip_map.csv"
+Environment="GEOIP_DB=/data/index/GeoLite2-City.mmdb"
 Environment="GIN_MODE=release"
-Environment="LD_LIBRARY_PATH=/opt/nat-query"
 
 # Execution
 ExecStart=/opt/nat-query/nat-query-service
