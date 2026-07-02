@@ -8,7 +8,7 @@ import { HealthDashboard } from './pages/HealthDashboard';
 import { LogSearchPage } from './pages/LogSearchPage';
 import { IncrementalProgressPage } from './pages/IncrementalProgressPage';
 import { SystemMaintenancePage } from './pages/SystemMaintenancePage';
-import { apiGet } from './api';
+import { apiGet, apiPost } from './api';
 import './styles.css';
 
 type SessionResponse = {
@@ -27,9 +27,7 @@ function App() {
       setAuthenticated(Boolean(session.authenticated ?? session.ok));
     } catch (error) {
       setAuthenticated(false);
-      if (error instanceof Error) {
-        message.warning(error.message);
-      }
+      if (error instanceof Error) message.warning(error.message);
     } finally {
       setCheckingSession(false);
     }
@@ -39,12 +37,18 @@ function App() {
     void refreshSession();
   }, [refreshSession]);
 
+  const logout = React.useCallback(async () => {
+    try {
+      await apiPost('/api/logout');
+    } catch (error) {
+      if (error instanceof Error) message.warning(error.message);
+    } finally {
+      setAuthenticated(false);
+    }
+  }, []);
+
   if (checkingSession) {
-    return (
-      <div className="app-loading">
-        <Spin tip="正在检查登录状态" />
-      </div>
-    );
+    return <Spin fullscreen tip="正在检查登录状态" />;
   }
 
   if (!authenticated) {
@@ -52,11 +56,11 @@ function App() {
   }
 
   return (
-    <AppLayout active={active} onChange={setActive}>
-      {active === 'dashboard' ? <HealthDashboard onOpenProgress={() => setActive('progress')} /> : null}
-      {active === 'search' ? <LogSearchPage onOpenProgress={() => setActive('progress')} /> : null}
-      {active === 'progress' ? <IncrementalProgressPage /> : null}
-      {active === 'maintenance' ? <SystemMaintenancePage onRequireLogin={() => setAuthenticated(false)} /> : null}
+    <AppLayout active={active} onChange={setActive} onLogout={logout}>
+      {active === 'dashboard' && <HealthDashboard onOpenProgress={() => setActive('progress')} />}
+      {active === 'search' && <LogSearchPage onOpenProgress={() => setActive('progress')} />}
+      {active === 'progress' && <IncrementalProgressPage />}
+      {active === 'maintenance' && <SystemMaintenancePage onRequireLogin={() => setAuthenticated(false)} />}
     </AppLayout>
   );
 }
@@ -69,8 +73,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         token: {
           colorPrimary: '#1677ff',
           borderRadius: 6,
-          fontFamily:
-            '"Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif',
+          fontFamily: '"Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif',
         },
       }}
     >

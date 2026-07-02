@@ -10,6 +10,8 @@
 /data/
 *.duckdb
 *.duckdb.wal
+web-vite-preview*.log
+/web/*.png
 
 # Local editor and OS metadata
 .DS_Store

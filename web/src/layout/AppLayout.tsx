@@ -1,21 +1,24 @@
 import {
-  AreaChartOutlined,
-  DatabaseOutlined,
-  FileSearchOutlined,
+  LogoutOutlined,
+  SafetyCertificateOutlined,
+  SearchOutlined,
   SettingOutlined,
+  SyncOutlined,
+  FundProjectionScreenOutlined,
 } from '@ant-design/icons';
 import { ProLayout } from '@ant-design/pro-components';
-import type { ReactNode } from 'react';
+import { Button, Tooltip } from 'antd';
+import { useEffect, useRef, type ReactNode } from 'react';
 
 export type RouteKey = 'dashboard' | 'search' | 'progress' | 'maintenance';
 
 const route = {
   path: '/',
   routes: [
-    { path: '/dashboard', name: '监控大屏', icon: <AreaChartOutlined /> },
-    { path: '/search', name: '日志检索', icon: <FileSearchOutlined /> },
-    { path: '/progress', name: '增量进度', icon: <DatabaseOutlined /> },
-    { path: '/maintenance', name: '系统维护', icon: <SettingOutlined /> },
+    { path: '/dashboard', name: '数据概览', icon: <FundProjectionScreenOutlined /> },
+    { path: '/search', name: '日志查询', icon: <SearchOutlined /> },
+    { path: '/progress', name: '入库进度', icon: <SyncOutlined /> },
+    { path: '/maintenance', name: '系统设置', icon: <SettingOutlined /> },
   ],
 };
 
@@ -29,19 +32,47 @@ const pathMap: Record<string, RouteKey> = {
 type AppLayoutProps = {
   active: RouteKey;
   onChange: (key: RouteKey) => void;
+  onLogout: () => void;
   children: ReactNode;
 };
 
-export function AppLayout({ active, onChange, children }: AppLayoutProps) {
-  const activePath = `/${active}`;
+export function AppLayout({ active, onChange, onLogout, children }: AppLayoutProps) {
+  const collapsedOnce = useRef(false);
+
+  useEffect(() => {
+    let attempts = 0;
+    const timer = window.setInterval(() => {
+      if (collapsedOnce.current) return;
+      attempts += 1;
+      if (document.querySelector('.ant-layout-sider-collapsed')) {
+        collapsedOnce.current = true;
+        window.clearInterval(timer);
+        return;
+      }
+      const button = document.querySelector<HTMLElement>('.ant-pro-sider-collapsed-button');
+      if (button) {
+        button.click();
+        collapsedOnce.current = true;
+        window.clearInterval(timer);
+        return;
+      }
+      if (attempts > 20) {
+        window.clearInterval(timer);
+      }
+    }, 50);
+    return () => window.clearInterval(timer);
+  }, []);
+
   return (
     <ProLayout
       route={route}
-      location={{ pathname: activePath }}
-      title="NAT Query Service"
+      location={{ pathname: `/${active}` }}
+      logo={<span className="brand-logo"><SafetyCertificateOutlined /></span>}
+      title="NAT 日志控制台"
       layout="side"
       fixedHeader
       fixSiderbar
+      defaultCollapsed
       token={{
         sider: {
           colorMenuBackground: '#ffffff',
@@ -69,7 +100,22 @@ export function AppLayout({ active, onChange, children }: AppLayoutProps) {
           </a>
         );
       }}
-      actionsRender={() => [<span className="admin-label" key="admin">管理员</span>]}
+      menuFooterRender={(props) => {
+        const collapsed = props?.collapsed;
+        return (
+          <div className={collapsed ? 'admin-footer admin-footer-collapsed' : 'admin-footer'} aria-label="管理员">
+            <Tooltip title="退出登录" placement="right">
+              <Button
+                className="admin-logout"
+                type="text"
+                icon={<LogoutOutlined />}
+                aria-label="退出登录"
+                onClick={onLogout}
+              />
+            </Tooltip>
+          </div>
+        );
+      }}
     >
       <main className="workbench">{children}</main>
     </ProLayout>

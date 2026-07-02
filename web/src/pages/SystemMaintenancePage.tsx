@@ -1,14 +1,25 @@
 import React from 'react';
 import {
+  CalendarOutlined,
+  ClockCircleOutlined,
   DatabaseOutlined,
+  DeleteOutlined,
+  FieldTimeOutlined,
+  FileTextOutlined,
   FolderOpenOutlined,
+  GlobalOutlined,
+  KeyOutlined,
+  LogoutOutlined,
+  PlusOutlined,
   ReloadOutlined,
-  SafetyOutlined,
-  SettingOutlined,
-  SyncOutlined
+  SaveOutlined,
+  SafetyCertificateOutlined,
+  SyncOutlined,
+  TagsOutlined,
+  WarningOutlined,
 } from '@ant-design/icons';
-import { Button, Form, Input, Select, Space, Switch, Tabs, Typography, message } from 'antd';
-import type { TabsProps } from 'antd';
+import { Button, DatePicker, Form, Input, InputNumber, Popconfirm, Segmented, Space, Switch, Tabs, Typography, message } from 'antd';
+import dayjs, { type Dayjs } from 'dayjs';
 import { apiGet, apiPost } from '../api';
 
 const { Text } = Typography;
@@ -17,330 +28,365 @@ type SystemMaintenancePageProps = {
   onRequireLogin: () => void;
 };
 
-type SettingsResponse = Record<string, string>;
-
-type PasswordResponse = {
-  authenticated: boolean;
+type LogSourceSetting = {
+  source_id?: string;
+  log_tag?: string;
+  log_dir?: string;
+  enabled?: boolean;
 };
 
-type SourceFormValues = {
-  source_id: string;
-  log_dir: string;
-  log_tag: string;
+type CidrAliasSetting = {
+  cidr?: string;
+  alias?: string;
+  enabled?: boolean;
 };
 
-type IPDataFormValues = {
-  custom_ip_map_path: string;
-  geoip_db_path: string;
-  ip_map_enabled: boolean;
-  geoip_enabled: boolean;
-};
-
-type AutoSyncFormValues = {
-  auto_scan_enabled: boolean;
-  auto_scan_mode: string;
-  auto_scan_times: string;
-  auto_scan_timezone: string;
-  auto_scan_jitter_sec: string;
-};
-
-type PasswordFormValues = {
+type Settings = {
+  log_dir?: string;
+  log_tag?: string;
+  log_sources?: LogSourceSetting[];
+  cidr_aliases?: CidrAliasSetting[] | string;
+  custom_ip_map_path?: string;
+  geoip_db_path?: string;
+  auto_scan_enabled?: boolean | string;
+  auto_scan_interval_sec?: number | string;
   current_password?: string;
-  new_password: string;
+  new_password?: string;
 };
 
-type IPDataStatus = {
-  loaded: boolean;
-  custom_ip_map_path: string;
-  geoip_db_path: string;
-  ip_map_enabled: boolean;
-  geoip_enabled: boolean;
-  updated_at: string;
-  error: string;
-};
+function tabLabel(icon: React.ReactNode, text: string) {
+  return <span className="tab-label">{icon}{text}</span>;
+}
 
-function MaintenanceSection(props: { title: string; description: string; children: React.ReactNode }) {
-  return (
-    <section className="maintenance-pane">
-      <div className="section-head">
-        <h3>{props.title}</h3>
-      </div>
-      <Text type="secondary" className="maintenance-copy">
-        {props.description}
-      </Text>
-      <div className="maintenance-body">{props.children}</div>
-    </section>
-  );
+function parseCidrAliases(value?: CidrAliasSetting[] | string): CidrAliasSetting[] {
+  if (Array.isArray(value)) return value;
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageProps) {
-  const [settings, setSettings] = React.useState<SettingsResponse>({});
+  const [form] = Form.useForm<Settings>();
   const [loading, setLoading] = React.useState(false);
-  const [reloadingIP, setReloadingIP] = React.useState(false);
-  const [passwordSubmitting, setPasswordSubmitting] = React.useState(false);
-  const [sourceForm] = Form.useForm<SourceFormValues>();
-  const [ipDataForm] = Form.useForm<IPDataFormValues>();
-  const [autoSyncForm] = Form.useForm<AutoSyncFormValues>();
-  const [passwordForm] = Form.useForm<PasswordFormValues>();
+  const [rebuildDate, setRebuildDate] = React.useState<Dayjs | null>(dayjs());
+  const geoipPath = Form.useWatch('geoip_db_path', form);
+  const customIpPath = Form.useWatch('custom_ip_map_path', form);
+  const autoScanEnabled = Form.useWatch('auto_scan_enabled', form);
+  const autoScanInterval = Form.useWatch('auto_scan_interval_sec', form);
 
-  const loadSettings = React.useCallback(async () => {
-    setLoading(true);
+  const load = React.useCallback(async () => {
     try {
-      const response = await apiGet<SettingsResponse>('/api/settings');
-      setSettings(response);
+      setLoading(true);
+      const settings = await apiGet<Settings>('/api/settings');
+      const logSources = settings.log_sources?.length ? settings.log_sources : [
+        {
+          source_id: 'default',
+          log_tag: settings.log_tag || '深信服 NAT',
+          log_dir: settings.log_dir || '/data/sangfor_fw_log',
+          enabled: true,
+        },
+      ];
+      const cidrAliases = parseCidrAliases(settings.cidr_aliases);
+      form.setFieldsValue({
+        ...settings,
+        log_sources: logSources,
+        cidr_aliases: cidrAliases,
+        auto_scan_enabled: settings.auto_scan_enabled === true || settings.auto_scan_enabled === 'true',
+        auto_scan_interval_sec: Number(settings.auto_scan_interval_sec || 3600),
+      });
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '系统维护数据加载失败');
+      message.error(error instanceof Error ? error.message : '加载设置失败');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [form]);
 
   React.useEffect(() => {
-    void loadSettings();
-  }, [loadSettings]);
+    void load();
+  }, [load]);
 
-  React.useEffect(() => {
-    sourceForm.setFieldsValue({
-      source_id: settings.source_id || 'default',
-      log_dir: settings.log_dir || '',
-      log_tag: settings.log_tag || ''
-    });
-    ipDataForm.setFieldsValue({
-      custom_ip_map_path: settings.custom_ip_map_path || '',
-      geoip_db_path: settings.geoip_db_path || '',
-      ip_map_enabled: settings.ip_map_enabled === 'true',
-      geoip_enabled: settings.geoip_enabled === 'true'
-    });
-    autoSyncForm.setFieldsValue({
-      auto_scan_enabled: settings.auto_scan_enabled === 'true',
-      auto_scan_mode: settings.auto_scan_mode || 'hourly',
-      auto_scan_times: settings.auto_scan_times || '01:00',
-      auto_scan_timezone: settings.auto_scan_timezone || 'Asia/Shanghai',
-      auto_scan_jitter_sec: settings.auto_scan_jitter_sec || '60'
-    });
-  }, [autoSyncForm, ipDataForm, settings, sourceForm]);
-
-  const saveSettings = async (next: Record<string, unknown>) => {
+  const save = async () => {
     try {
-      await apiPost('/api/settings', next);
-      message.success('设置已保存');
-      await loadSettings();
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : '设置保存失败');
-    }
-  };
-
-  const reloadIPData = async () => {
-    setReloadingIP(true);
-    try {
-      const response = await apiPost<IPDataStatus>('/api/ip-data/reload');
-      if (!response.loaded && response.error) {
-        throw new Error(response.error);
-      }
-      message.success('IP 库已重新加载');
-      await loadSettings();
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : 'IP 库重载失败');
-    } finally {
-      setReloadingIP(false);
-    }
-  };
-
-  const updatePassword = async () => {
-    try {
-      const values = await passwordForm.validateFields();
-      setPasswordSubmitting(true);
-      const response = await apiPost<PasswordResponse>('/api/password', {
-        current_password: values.current_password,
-        new_password: values.new_password
+      setLoading(true);
+      const values = form.getFieldsValue();
+      const firstSource = values.log_sources?.[0];
+      await apiPost('/api/settings', {
+        ...values,
+        cidr_aliases: JSON.stringify(values.cidr_aliases || []),
+        log_dir: firstSource?.log_dir || values.log_dir,
+        log_tag: firstSource?.log_tag || values.log_tag,
+        auto_scan_enabled: String(Boolean(values.auto_scan_enabled)),
+        auto_scan_interval_sec: String(values.auto_scan_interval_sec || 3600),
       });
-      if (!response.authenticated) {
-        onRequireLogin();
-      }
-      message.success('管理员密码已更新');
-      passwordForm.resetFields();
+      message.success('设置已保存');
     } catch (error) {
-      if (error && typeof error === 'object' && 'errorFields' in error) {
-        return;
-      }
-      message.error(error instanceof Error ? error.message : '管理员密码更新失败');
+      message.error(error instanceof Error ? error.message : '保存设置失败');
     } finally {
-      setPasswordSubmitting(false);
+      setLoading(false);
     }
   };
 
-  const items: TabsProps['items'] = [
-    {
-      key: 'sources',
-      label: '日志源',
-      icon: <FolderOpenOutlined />,
-      children: (
-        <MaintenanceSection title="日志源" description="日志目录和日志标识统一在系统维护内管理。">
-          <Form
-            form={sourceForm}
-            layout="vertical"
-            className="dense-form"
-            onFinish={(values) => void saveSettings(values)}
-          >
-            <div className="maintenance-grid">
-              <Form.Item name="source_id" label="日志源标识">
-                <Input placeholder="source_id" />
-              </Form.Item>
-              <Form.Item name="log_tag" label="日志标识">
-                <Input placeholder="日志标识" />
-              </Form.Item>
-            </div>
-            <Form.Item name="log_dir" label="日志目录">
-              <Input placeholder="/data/sangfor_fw_log" />
-            </Form.Item>
-            <Space>
-              <Button type="primary" htmlType="submit" icon={<SettingOutlined />} loading={loading}>
-                保存配置
-              </Button>
-            </Space>
-          </Form>
-        </MaintenanceSection>
-      )
-    },
-    {
-      key: 'ip-data',
-      label: 'IP 库',
-      icon: <DatabaseOutlined />,
-      children: (
-        <MaintenanceSection title="IP 库" description="支持自定义 IP 映射和 GeoIP 路径管理，重载失败时保留旧库。">
-          <Form
-            form={ipDataForm}
-            layout="vertical"
-            className="dense-form"
-            onFinish={(values) => void saveSettings(values)}
-          >
-            <Form.Item name="custom_ip_map_path" label="自定义 IP 映射 CSV 路径">
-              <Input placeholder="/opt/nat-query/custom_ip_map.csv" />
-            </Form.Item>
-            <Form.Item name="geoip_db_path" label="GeoIP mmdb 路径">
-              <Input placeholder="/data/index/GeoLite2-City.mmdb" />
-            </Form.Item>
-            <div className="maintenance-grid">
-              <Form.Item name="ip_map_enabled" label="启用自定义 IP 映射" valuePropName="checked">
-                <Switch />
-              </Form.Item>
-              <Form.Item name="geoip_enabled" label="启用 GeoIP" valuePropName="checked">
-                <Switch />
-              </Form.Item>
-            </div>
-            <Space>
-              <Button type="primary" htmlType="submit" icon={<SettingOutlined />} loading={loading}>
-                保存配置
-              </Button>
-              <Button icon={<ReloadOutlined />} onClick={() => void reloadIPData()} loading={reloadingIP}>
-                重新加载 IP 库
-              </Button>
-            </Space>
-          </Form>
-        </MaintenanceSection>
-      )
-    },
-    {
-      key: 'auto-sync',
-      label: '自动增量',
-      icon: <SyncOutlined />,
-      children: (
-        <MaintenanceSection title="自动增量" description="自动增量开关和调度模式在这里维护。">
-          <Form
-            form={autoSyncForm}
-            layout="vertical"
-            className="dense-form"
-            onFinish={(values) => void saveSettings(values)}
-          >
-            <div className="maintenance-grid">
-              <Form.Item name="auto_scan_enabled" label="开启自动增量" valuePropName="checked">
-                <Switch />
-              </Form.Item>
-              <Form.Item name="auto_scan_mode" label="调度模式">
-                <Select
-                  options={[
-                    { label: 'hourly', value: 'hourly' },
-                    { label: 'daily', value: 'daily' },
-                    { label: 'custom', value: 'custom' }
-                  ]}
-                />
-              </Form.Item>
-              <Form.Item name="auto_scan_times" label="执行时间">
-                <Input placeholder="01:00" />
-              </Form.Item>
-              <Form.Item name="auto_scan_timezone" label="时区">
-                <Input placeholder="Asia/Shanghai" />
-              </Form.Item>
-              <Form.Item name="auto_scan_jitter_sec" label="抖动秒数">
-                <Input placeholder="60" />
-              </Form.Item>
-            </div>
-            <Button type="primary" htmlType="submit" icon={<SettingOutlined />} loading={loading}>
-              保存配置
-            </Button>
-          </Form>
-        </MaintenanceSection>
-      )
-    },
-    {
-      key: 'ops',
-      label: '维护操作',
-      icon: <ReloadOutlined />,
-      children: (
-        <MaintenanceSection title="维护操作" description="低频维护动作集中在这里，避免进入日常主流程。">
-          <Space wrap>
-            <Button
-              icon={<SyncOutlined />}
-              onClick={() => void apiPost('/api/sync')
-                .then(() => message.success('已触发立即增量'))
-                .catch((error: unknown) => message.error(error instanceof Error ? error.message : '操作失败'))}
-            >
-              立即增量一次
-            </Button>
-            <Button
-              onClick={() => void apiPost('/api/rebuild', { mode: 'retry_failed' })
-                .then(() => message.success('已触发失败日期重试'))
-                .catch((error: unknown) => message.error(error instanceof Error ? error.message : '操作失败'))}
-            >
-              重试失败日期
-            </Button>
-            <Button
-              danger
-              onClick={() => void apiPost('/api/rebuild', { mode: 'full' })
-                .then(() => message.success('已触发全量重建'))
-                .catch((error: unknown) => message.error(error instanceof Error ? error.message : '操作失败'))}
-            >
-              全量重建
-            </Button>
-          </Space>
-        </MaintenanceSection>
-      )
-    },
-    {
-      key: 'security',
-      label: '登录安全',
-      icon: <SafetyOutlined />,
-      children: (
-        <MaintenanceSection title="登录安全" description="仅保留单一管理员密码。">
-          <Form form={passwordForm} layout="vertical" className="dense-form">
-            <Form.Item name="current_password" label="当前管理员密码">
-              <Input.Password />
-            </Form.Item>
-            <Form.Item
-              name="new_password"
-              label="新管理员密码"
-              rules={[{ required: true, message: '请输入新管理员密码' }]}
-            >
-              <Input.Password />
-            </Form.Item>
-            <Button type="primary" icon={<SafetyOutlined />} loading={passwordSubmitting} onClick={() => void updatePassword()}>
-              更新密码
-            </Button>
-          </Form>
-        </MaintenanceSection>
-      )
+  const trigger = async (path: string, ok: string) => {
+    try {
+      setLoading(true);
+      await apiPost(path);
+      message.success(ok);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '操作失败');
+    } finally {
+      setLoading(false);
     }
-  ];
+  };
 
-  return <Tabs className="maintenance-tabs" items={items} />;
+  const triggerRebuild = async () => {
+    await trigger(`/api/rebuild${rebuildDate ? `?date=${rebuildDate.format('YYYY-MM-DD')}` : ''}`, '已触发指定日期重建');
+  };
+
+  return (
+    <div className="page-stack">
+      <section className="page-header">
+        <div>
+          <span className="eyebrow">配置和维护</span>
+          <h1>系统设置</h1>
+        </div>
+        <Space>
+          <Button icon={<ReloadOutlined />} onClick={() => void load()} loading={loading} />
+          <Button type="primary" icon={<SaveOutlined />} onClick={() => void save()} loading={loading}>保存</Button>
+        </Space>
+      </section>
+
+      <Form form={form} layout="vertical">
+        <Tabs
+          items={[
+            {
+              key: 'source',
+              label: tabLabel(<FolderOpenOutlined />, '日志源'),
+              children: (
+                <section className="ops-section maintenance-card">
+                  <Form.List name="log_sources">
+                    {(fields, { add, remove }) => (
+                      <div className="source-list-editor">
+                        <div className="source-list-head">
+                          <div>
+                            <strong>日志目录</strong>
+                          </div>
+                          <Button
+                            icon={<PlusOutlined />}
+                            onClick={() => add({ source_id: `source-${fields.length + 1}`, log_tag: '', log_dir: '', enabled: true })}
+                          >
+                            添加
+                          </Button>
+                        </div>
+                        <div className="source-row source-row-header">
+                          <span>设备 ID</span>
+                          <span>日志名称</span>
+                          <span>日志目录</span>
+                          <span>启用</span>
+                          <span>操作</span>
+                        </div>
+                        {fields.map((field) => (
+                          <div className="source-row" key={field.key}>
+                            <Form.Item name={[field.name, 'source_id']} rules={[{ required: true, message: '必填' }]}>
+                              <Input prefix={<DatabaseOutlined />} placeholder="device-id" />
+                            </Form.Item>
+                            <Form.Item name={[field.name, 'log_tag']} rules={[{ required: true, message: '必填' }]}>
+                              <Input prefix={<TagsOutlined />} placeholder="日志名称" />
+                            </Form.Item>
+                            <Form.Item name={[field.name, 'log_dir']} rules={[{ required: true, message: '必填' }]}>
+                              <Input prefix={<FolderOpenOutlined />} placeholder="/data/device_fw_log" />
+                            </Form.Item>
+                            <Form.Item name={[field.name, 'enabled']} valuePropName="checked">
+                              <Switch />
+                            </Form.Item>
+                            <Popconfirm
+                              title="删除这个设备目录？"
+                              okText="删除"
+                              cancelText="取消"
+                              onConfirm={() => remove(field.name)}
+                            >
+                              <Button danger icon={<DeleteOutlined />} />
+                            </Popconfirm>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </Form.List>
+                </section>
+              ),
+            },
+            {
+              key: 'ip',
+              label: tabLabel(<GlobalOutlined />, 'IP 库'),
+              children: (
+                <section className="ops-section maintenance-card">
+                  <div className="setting-grid">
+                    <div className="setting-fields">
+                      <Form.Item name="custom_ip_map_path" label="自定义 IP 映射 CSV">
+                        <Input prefix={<FileTextOutlined />} />
+                      </Form.Item>
+                      <Form.Item name="geoip_db_path" label="GeoIP 数据库">
+                        <Input prefix={<DatabaseOutlined />} />
+                      </Form.Item>
+                      <Form.List name="cidr_aliases">
+                        {(fields, { add, remove }) => (
+                          <div className="source-list-editor cidr-list-editor ip-cidr-list-editor">
+                            <div className="source-list-head">
+                              <div>
+                                <strong>CIDR 别名</strong>
+                                <Text type="secondary">用于把内网网段显示为业务名称</Text>
+                              </div>
+                              <Button
+                                icon={<PlusOutlined />}
+                                onClick={() => add({ cidr: '', alias: '', enabled: true })}
+                              >
+                                添加
+                              </Button>
+                            </div>
+                            <div className="source-row cidr-row source-row-header">
+                              <span>CIDR 网段</span>
+                              <span>别名</span>
+                              <span>启用</span>
+                              <span>操作</span>
+                            </div>
+                            {fields.map((field) => (
+                              <div className="source-row cidr-row" key={field.key}>
+                                <Form.Item
+                                  name={[field.name, 'cidr']}
+                                  rules={[
+                                    { required: true, message: '必填' },
+                                    { pattern: /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/, message: '格式示例：10.10.0.0/16' },
+                                  ]}
+                                >
+                                  <Input prefix={<GlobalOutlined />} placeholder="10.10.0.0/16" />
+                                </Form.Item>
+                                <Form.Item name={[field.name, 'alias']} rules={[{ required: true, message: '必填' }]}>
+                                  <Input prefix={<TagsOutlined />} placeholder="办公网段" />
+                                </Form.Item>
+                                <Form.Item name={[field.name, 'enabled']} valuePropName="checked">
+                                  <Switch />
+                                </Form.Item>
+                                <Popconfirm
+                                  title="删除这个网段别名？"
+                                  okText="删除"
+                                  cancelText="取消"
+                                  onConfirm={() => remove(field.name)}
+                                >
+                                  <Button danger icon={<DeleteOutlined />} />
+                                </Popconfirm>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </Form.List>
+                    </div>
+                    <aside className="setting-summary setting-summary-green">
+                      <GlobalOutlined />
+                      <Text type="secondary">当前 IP 库</Text>
+                      <strong>GeoIP + 自定义映射</strong>
+                      <code>{geoipPath || '-'}</code>
+                      <code>{customIpPath || '-'}</code>
+                      <Button icon={<ReloadOutlined />} onClick={() => void trigger('/api/ip-data/reload', 'IP 库已重新加载')} loading={loading}>
+                        重新加载
+                      </Button>
+                    </aside>
+                  </div>
+                </section>
+              ),
+            },
+            {
+              key: 'ops',
+              label: tabLabel(<WarningOutlined />, '维护'),
+              children: (
+                <section className="ops-section maintenance-card">
+                  <div className="maintenance-action-row">
+                    <div className="maintenance-field maintenance-switch-field">
+                      <label>自动扫描</label>
+                      <div className="maintenance-switch-line">
+                      <Form.Item name="auto_scan_enabled" valuePropName="checked" noStyle>
+                        <Switch />
+                      </Form.Item>
+                        <strong>{autoScanEnabled ? '已开启' : '已关闭'}</strong>
+                      </div>
+                    </div>
+
+                    <div className="maintenance-field">
+                      <label>扫描间隔（秒）</label>
+                      <Form.Item name="auto_scan_interval_sec" noStyle>
+                        <InputNumber min={60} />
+                      </Form.Item>
+                    </div>
+
+                    <div className="maintenance-field maintenance-quick-field">
+                      <label>常用间隔</label>
+                      <Segmented
+                        value={String(autoScanInterval || 3600)}
+                        options={[
+                          { label: '15 分钟', value: '900' },
+                          { label: '1 小时', value: '3600' },
+                          { label: '6 小时', value: '21600' },
+                        ]}
+                        onChange={(value) => form.setFieldValue('auto_scan_interval_sec', Number(value))}
+                      />
+                    </div>
+
+                    <div className="maintenance-field">
+                      <label>手动入库</label>
+                      <Button type="primary" icon={<SyncOutlined />} onClick={() => void trigger('/api/sync', '已开始入库')} loading={loading}>
+                        执行
+                      </Button>
+                    </div>
+
+                    <div className="maintenance-field">
+                      <label>重建日期</label>
+                      <DatePicker value={rebuildDate} onChange={setRebuildDate} />
+                    </div>
+
+                    <div className="maintenance-field maintenance-danger-field">
+                      <label>操作</label>
+                      <Popconfirm
+                        title="确认重建该日期？"
+                        description={rebuildDate ? rebuildDate.format('YYYY-MM-DD') : '未选择日期'}
+                        okText="确认重建"
+                        cancelText="取消"
+                        onConfirm={() => void triggerRebuild()}
+                      >
+                        <Button danger icon={<WarningOutlined />} loading={loading}>重建</Button>
+                      </Popconfirm>
+                    </div>
+                  </div>
+                </section>
+              ),
+            },
+            {
+              key: 'security',
+              label: tabLabel(<SafetyCertificateOutlined />, '登录'),
+              children: (
+                <section className="ops-section maintenance-card">
+                  <div className="setting-grid">
+                    <div className="setting-fields">
+                      <Form.Item name="current_password" label="当前密码"><Input.Password prefix={<KeyOutlined />} /></Form.Item>
+                      <Form.Item name="new_password" label="新密码"><Input.Password prefix={<SafetyCertificateOutlined />} /></Form.Item>
+                      <Space>
+                        <Button type="primary" icon={<KeyOutlined />} onClick={() => void trigger('/api/password', '密码已更新')} loading={loading}>更新密码</Button>
+                        <Button icon={<LogoutOutlined />} onClick={onRequireLogin}>退出登录</Button>
+                      </Space>
+                    </div>
+                    <aside className="setting-summary setting-summary-amber">
+                      <SafetyCertificateOutlined />
+                      <Text type="secondary">当前会话</Text>
+                      <strong>本机控制台</strong>
+                    </aside>
+                  </div>
+                </section>
+              ),
+            },
+          ]}
+        />
+      </Form>
+    </div>
+  );
 }

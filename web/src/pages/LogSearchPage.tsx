@@ -1,18 +1,16 @@
 import React from 'react';
-import { SearchOutlined, SyncOutlined } from '@ant-design/icons';
+import { DownOutlined, SearchOutlined, UpOutlined } from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
-import { Alert, Button, DatePicker, Form, Input, Select, Space, Tag, Typography, message } from 'antd';
+import { Button, DatePicker, Descriptions, Form, Input, Select, Tag, message } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { apiGet, buildQueryString, type QueryVisibility } from '../api';
 
 const { RangePicker } = DatePicker;
-const { Text } = Typography;
 
 type SearchRecord = {
   id?: string;
   timestamp?: string;
-  time?: string;
   log_tag?: string;
   source_id?: string;
   src_ip?: string;
@@ -24,12 +22,9 @@ type SearchRecord = {
   protocol?: string;
   action?: string;
   src_ip_label?: string;
-  src_label?: string;
-  dst_country_region?: string;
   dst_geo?: string;
   source_file?: string;
   source_offset?: number;
-  source_id_detail?: string;
   log_date?: string;
   ingested_at?: string;
 };
@@ -37,8 +32,6 @@ type SearchRecord = {
 type QueryResponse = {
   records: SearchRecord[];
   total: number;
-  page: number;
-  page_size: number;
   query_time_ms: number;
   visibility: QueryVisibility;
 };
@@ -61,33 +54,35 @@ type SearchFormValues = {
   log_tag?: string;
 };
 
-function makeRecordKey(record: SearchRecord, index?: number) {
-  return record.id
-    ?? `${record.timestamp || record.time || ''}-${record.source_file || ''}-${record.source_offset || 0}-${index ?? 0}`;
-}
-
-function renderAddress(ip?: string, port?: number) {
+function address(ip?: string, port?: number) {
   if (!ip) return '-';
-  return `${ip}${port !== undefined && port !== null ? `:${port}` : ''}`;
+  return `${ip}${port ? `:${port}` : ''}`;
 }
 
-export function LogSearchPage({ onOpenProgress }: LogSearchPageProps) {
+function mono(value?: React.ReactNode) {
+  return <span className="mono-number">{value || '-'}</span>;
+}
+
+function actionText(action?: string) {
+  const map: Record<string, string> = {
+    ALLOW: '放行',
+    DENY: '拒绝',
+  };
+  return action ? map[action] || action : '-';
+}
+
+export function LogSearchPage(_props: LogSearchPageProps) {
   const [form] = Form.useForm<SearchFormValues>();
   const [loading, setLoading] = React.useState(false);
   const [response, setResponse] = React.useState<QueryResponse | null>(null);
-
-  React.useEffect(() => {
-    form.setFieldsValue({
-      range: [dayjs().subtract(7, 'day').startOf('day'), dayjs().endOf('day')]
-    });
-    void handleSearch();
-  }, [form]);
+  const [advancedOpen, setAdvancedOpen] = React.useState(false);
 
   const handleSearch = async () => {
     try {
       const values = await form.validateFields();
       const range = values.range;
-      const params = {
+      setLoading(true);
+      setResponse(await apiGet<QueryResponse>(`/api/query${buildQueryString({
         start: range?.[0]?.format('YYYY-MM-DD HH:mm:ss'),
         end: range?.[1]?.format('YYYY-MM-DD HH:mm:ss'),
         ip: values.ip,
@@ -99,177 +94,148 @@ export function LogSearchPage({ onOpenProgress }: LogSearchPageProps) {
         nat_port: values.nat_port,
         protocol: values.protocol,
         action: values.action,
-        log_tag: values.log_tag
-      };
-
-      setLoading(true);
-      const data = await apiGet<QueryResponse>(`/api/query${buildQueryString(params)}`);
-      setResponse(data);
+        log_tag: values.log_tag,
+      })}`));
     } catch (error) {
-      if (error && typeof error === 'object' && 'errorFields' in error) {
-        return;
-      }
-      message.error(error instanceof Error ? error.message : '日志检索失败');
+      if (error && typeof error === 'object' && 'errorFields' in error) return;
+      message.error(error instanceof Error ? error.message : '日志查询失败');
     } finally {
       setLoading(false);
     }
   };
 
+  React.useEffect(() => {
+    form.setFieldsValue({ range: [dayjs().subtract(7, 'day').startOf('day'), dayjs().endOf('day')] });
+    void handleSearch();
+  }, []);
+
   const columns: ProColumns<SearchRecord>[] = [
-    {
-      title: '时间',
-      dataIndex: 'timestamp',
-      width: 180,
-      render: (_, record) => record.timestamp || record.time || '-'
-    },
-    { title: '日志标识', dataIndex: 'log_tag', width: 160, renderText: (value) => value || '-' },
-    {
-      title: '源 IP / 端口',
-      key: 'src',
-      width: 180,
-      render: (_, record) => renderAddress(record.src_ip, record.src_port)
-    },
-    {
-      title: '目标 IP / 端口',
-      key: 'dst',
-      width: 180,
-      render: (_, record) => renderAddress(record.dst_ip, record.dst_port)
-    },
-    {
-      title: 'NAT IP / 端口',
-      key: 'nat',
-      width: 180,
-      render: (_, record) => renderAddress(record.nat_ip, record.nat_port)
-    },
-    { title: '协议', dataIndex: 'protocol', width: 100, renderText: (value) => value || '-' },
-    {
-      title: '动作',
-      dataIndex: 'action',
-      width: 100,
-      render: (_, record) => {
-        const action = record.action || '-';
-        const color = /deny|drop|reject|拒绝/i.test(action) ? 'error' : 'processing';
-        return <Tag color={color}>{action}</Tag>;
-      }
-    },
-    {
-      title: '源 IP 标注',
-      width: 180,
-      render: (_, record) => record.src_ip_label || record.src_label || '-'
-    },
-    {
-      title: '目标 IP 国家地区',
-      width: 180,
-      render: (_, record) => record.dst_country_region || record.dst_geo || '-'
-    }
+    { title: '时间', dataIndex: 'timestamp', width: 180, render: (_, row) => mono(row.timestamp) },
+    { title: '日志名称', dataIndex: 'log_tag', width: 150 },
+    { title: '源 IP / 端口', width: 180, render: (_, row) => mono(address(row.src_ip, row.src_port)) },
+    { title: '目标 IP / 端口', width: 180, render: (_, row) => mono(address(row.dst_ip, row.dst_port)) },
+    { title: 'NAT IP / 端口', width: 180, render: (_, row) => mono(address(row.nat_ip, row.nat_port)) },
+    { title: '协议', dataIndex: 'protocol', width: 90, render: (_, row) => mono(row.protocol) },
+    { title: '结果', dataIndex: 'action', width: 100, render: (_, row) => <Tag color={row.action === 'DENY' ? 'error' : 'processing'}>{actionText(row.action)}</Tag> },
+    { title: '源 IP 标注', dataIndex: 'src_ip_label', width: 160 },
+    { title: '目标地区', dataIndex: 'dst_geo', width: 160 },
   ];
+
+  const visibility = response?.visibility;
+  const visibleDateState = React.useMemo(() => {
+    const dates = new Map<string, { kind: 'queried' | 'skipped'; label: string; title: string }>();
+    visibility?.queried_ranges?.forEach((range) => {
+      dates.set(range.log_date, { kind: 'queried', label: '可查', title: '已入库，可查询' });
+    });
+    visibility?.skipped_dates?.forEach((item) => {
+      dates.set(item.log_date, { kind: 'skipped', label: '未查', title: `${item.status}：${item.reason}` });
+    });
+    return dates;
+  }, [visibility]);
+
+  const renderDateCell = React.useCallback((current: Dayjs | string | number, info: { originNode: React.ReactNode; type: string }) => {
+    if (info.type !== 'date' || !dayjs.isDayjs(current)) return info.originNode;
+    const state = visibleDateState.get(current.format('YYYY-MM-DD'));
+    if (!state) return info.originNode;
+    return (
+      <div className={`visible-date-cell visible-date-cell-${state.kind}`} title={state.title}>
+        {info.originNode}
+        <span className="visible-date-label">{state.label}</span>
+      </div>
+    );
+  }, [visibleDateState]);
 
   return (
     <div className="page-stack">
-      <section className="ops-section">
-        <div className="section-head">
-          <h3>基础筛选</h3>
+      <section className="page-header">
+        <div>
+          <span className="eyebrow">NAT 日志检索</span>
+          <h1>日志查询</h1>
         </div>
+      </section>
+
+      <section className="ops-section search-panel">
         <Form form={form} layout="vertical" className="dense-form">
-          <div className="filter-grid">
-            <Form.Item
-              name="range"
-              label="时间范围"
-              rules={[{ required: true, message: '请选择时间范围' }]}
-            >
-              <RangePicker showTime style={{ width: '100%' }} />
-            </Form.Item>
-            <Form.Item name="ip" label="任意 IP">
-              <Input placeholder="支持任意 IP" />
-            </Form.Item>
-            <Form.Item name="src_ip" label="源 IP">
-              <Input placeholder="源 IP" />
-            </Form.Item>
-            <Form.Item name="dst_ip" label="目标 IP">
-              <Input placeholder="目标 IP" />
-            </Form.Item>
-            <Form.Item name="nat_ip" label="NAT IP">
-              <Input placeholder="NAT IP" />
-            </Form.Item>
-            <Form.Item name="src_port" label="源端口">
-              <Input placeholder="源端口" />
-            </Form.Item>
-            <Form.Item name="dst_port" label="目标端口">
-              <Input placeholder="目标端口" />
-            </Form.Item>
-            <Form.Item name="nat_port" label="NAT 端口">
-              <Input placeholder="NAT 端口" />
-            </Form.Item>
-            <Form.Item name="protocol" label="协议">
-              <Select
-                allowClear
-                options={['TCP', 'UDP', 'ICMP'].map((item) => ({ label: item, value: item }))}
+          <div className="primary-filter-grid">
+            <Form.Item className="time-range-item" name="range" label="日期" rules={[{ required: true, message: '请选择日期' }]}>
+              <RangePicker
+                showTime
+                format="YYYY-MM-DD HH:mm:ss"
+                separator="到"
+                allowClear={false}
+                cellRender={renderDateCell}
+                renderExtraFooter={() => (
+                  <div className="date-picker-legend">
+                    <span><i className="legend-dot legend-dot-queried" />可查</span>
+                    <span><i className="legend-dot legend-dot-skipped" />未入库</span>
+                  </div>
+                )}
+                style={{ width: '100%' }}
               />
             </Form.Item>
-            <Form.Item name="action" label="动作">
-              <Select
-                allowClear
-                options={['ALLOW', 'DENY'].map((item) => ({ label: item, value: item }))}
-              />
-            </Form.Item>
-            <Form.Item name="log_tag" label="日志标识">
-              <Input placeholder="日志标识" />
-            </Form.Item>
+            <Form.Item name="ip" label="IP"><Input /></Form.Item>
+            <div className="filter-actions">
+              <Button type="primary" icon={<SearchOutlined />} loading={loading} onClick={() => void handleSearch()}>
+                查询
+              </Button>
+              <Button
+                icon={advancedOpen ? <UpOutlined /> : <DownOutlined />}
+                onClick={() => setAdvancedOpen((open) => !open)}
+              >
+                更多条件
+              </Button>
+            </div>
           </div>
-          <Space>
-            <Button type="primary" icon={<SearchOutlined />} onClick={() => void handleSearch()} loading={loading}>
-              查询
-            </Button>
-          </Space>
+
+          {advancedOpen && (
+          <div className="filter-grid advanced-filter-grid">
+            <Form.Item name="src_ip" label="源 IP"><Input /></Form.Item>
+            <Form.Item name="dst_ip" label="目标 IP"><Input /></Form.Item>
+            <Form.Item name="nat_ip" label="NAT IP"><Input /></Form.Item>
+            <Form.Item name="src_port" label="源端口"><Input /></Form.Item>
+            <Form.Item name="dst_port" label="目标端口"><Input /></Form.Item>
+            <Form.Item name="nat_port" label="NAT 端口"><Input /></Form.Item>
+            <Form.Item name="protocol" label="协议"><Select allowClear options={['TCP', 'UDP', 'ICMP'].map((value) => ({ value, label: value }))} /></Form.Item>
+            <Form.Item name="action" label="结果"><Select allowClear options={[{ value: 'ALLOW', label: '放行' }, { value: 'DENY', label: '拒绝' }]} /></Form.Item>
+            <Form.Item name="log_tag" label="日志名称"><Input /></Form.Item>
+          </div>
+          )}
         </Form>
       </section>
 
-      {response?.visibility.partial ? (
-        <Alert
-          type="warning"
-          showIcon
-          className="block-alert"
-          message={response.visibility.message || '所选时间包含未完成入库日期，已自动缩小到可查询范围。'}
-          action={
-            <Button type="link" icon={<SyncOutlined />} onClick={onOpenProgress}>
-              跳转增量进度
-            </Button>
-          }
-        />
-      ) : null}
-
-      <section className="ops-section">
-        <div className="section-head section-head-row">
-          <h3>检索结果</h3>
-          <Text type="secondary">
-            {response ? `共 ${response.total} 条，查询耗时 ${response.query_time_ms} ms` : '尚未返回结果'}
-          </Text>
-        </div>
-        <ProTable<SearchRecord>
-          rowKey={makeRecordKey}
-          loading={loading}
-          columns={columns}
-          dataSource={response?.records ?? []}
-          search={false}
-          options={false}
-          pagination={false}
-          size="small"
-          cardBordered={false}
-          expandable={{
-            expandedRowRender: (record) => (
-              <dl className="detail-grid">
-                <div><dt>source_file</dt><dd className="mono-cell">{record.source_file || '-'}</dd></div>
-                <div><dt>source_offset</dt><dd>{record.source_offset ?? '-'}</dd></div>
-                <div><dt>source_id</dt><dd>{record.source_id_detail || record.source_id || '-'}</dd></div>
-                <div><dt>log_date</dt><dd>{record.log_date || '-'}</dd></div>
-                <div><dt>ingested_at</dt><dd>{record.ingested_at || '-'}</dd></div>
-                <div><dt>源 IP 标注</dt><dd>{record.src_ip_label || record.src_label || '-'}</dd></div>
-                <div><dt>目标 IP 国家地区</dt><dd>{record.dst_country_region || record.dst_geo || '-'}</dd></div>
-              </dl>
-            )
-          }}
-        />
-      </section>
+      <ProTable<SearchRecord>
+        className="app-data-table search-results-table"
+        rowKey={(row) => row.id || `${row.timestamp}-${row.source_file}-${row.source_offset}`}
+        columns={columns}
+        dataSource={response?.records || []}
+        loading={loading}
+        search={false}
+        options={false}
+        pagination={{ pageSize: 50 }}
+        expandable={{
+          expandedRowRender: (row) => (
+            <Descriptions className="record-detail" size="small" column={3}>
+              <Descriptions.Item label="来源文件">{row.source_file || '-'}</Descriptions.Item>
+              <Descriptions.Item label="文件偏移">{row.source_offset ?? '-'}</Descriptions.Item>
+              <Descriptions.Item label="日志源">{row.source_id || '-'}</Descriptions.Item>
+              <Descriptions.Item label="日志日期">{row.log_date || '-'}</Descriptions.Item>
+              <Descriptions.Item label="入库时间">{row.ingested_at || '-'}</Descriptions.Item>
+              <Descriptions.Item label="IP 标注">
+                源：{row.src_ip_label || '-'}；目标：{row.dst_geo || '-'}
+              </Descriptions.Item>
+            </Descriptions>
+          ),
+        }}
+        headerTitle={(
+          <div className="table-title-block">
+            <h3>查询结果</h3>
+            <span>
+              共 <span className="mono-number">{response?.total ?? 0}</span> 条，耗时{' '}
+              <span className="mono-number">{response?.query_time_ms ?? 0}</span> ms
+            </span>
+          </div>
+        )}
+      />
     </div>
   );
 }
