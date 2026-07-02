@@ -25,9 +25,8 @@ function App() {
     try {
       const session = await apiGet<SessionResponse>('/api/session');
       setAuthenticated(Boolean(session.authenticated ?? session.ok));
-    } catch (error) {
+    } catch {
       setAuthenticated(false);
-      if (error instanceof Error) message.warning(error.message);
     } finally {
       setCheckingSession(false);
     }
@@ -72,8 +71,48 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       theme={{
         token: {
           colorPrimary: '#1677ff',
-          borderRadius: 6,
+          colorInfo: '#1677ff',
+          colorSuccess: '#16a34a',
+          colorWarning: '#d97706',
+          colorError: '#d4380d',
+          colorText: '#1f2633',
+          colorTextSecondary: '#637083',
+          colorBorder: '#dce5f2',
+          colorBgLayout: '#f4f7fb',
+          colorBgContainer: '#ffffff',
+          borderRadius: 7,
+          fontSize: 13,
+          controlHeight: 32,
           fontFamily: '"Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif',
+        },
+        components: {
+          Button: {
+            borderRadius: 7,
+            controlHeight: 32,
+            fontWeight: 600,
+          },
+          Input: {
+            borderRadius: 7,
+            controlHeight: 32,
+          },
+          DatePicker: {
+            borderRadius: 7,
+            controlHeight: 32,
+          },
+          Select: {
+            borderRadius: 7,
+            controlHeight: 32,
+          },
+          Table: {
+            headerBg: '#f8fbff',
+            headerColor: '#526071',
+            cellPaddingBlock: 9,
+            cellPaddingInline: 8,
+          },
+          Tabs: {
+            itemSelectedColor: '#0958d9',
+            inkBarColor: '#1677ff',
+          },
         },
       }}
     >

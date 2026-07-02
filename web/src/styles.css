@@ -2,10 +2,36 @@
   min-height: 100vh;
 }
 
+:root {
+  --fw-bg: #f4f7fb;
+  --fw-surface: #ffffff;
+  --fw-surface-soft: #f8fbff;
+  --fw-line: #dce5f2;
+  --fw-line-soft: #edf2f7;
+  --fw-text: #1f2633;
+  --fw-muted: #637083;
+  --fw-primary: #1677ff;
+  --fw-primary-strong: #0958d9;
+  --fw-primary-soft: #eaf3ff;
+  --fw-green: #16a34a;
+  --fw-amber: #d97706;
+  --fw-cyan: #0891b2;
+  --fw-danger: #d4380d;
+  --fw-radius: 8px;
+  --fw-shadow: 0 12px 28px rgba(18, 58, 111, 0.05);
+  --fw-mono: "Roboto Mono", "Fira Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
-  background: #f4f7fb;
-  color: #1f2633;
+  background: var(--fw-bg);
+  color: var(--fw-text);
   font-variant-numeric: tabular-nums;
 }
 
@@ -22,11 +48,11 @@ body {
   min-height: 100dvh;
   display: grid;
   place-items: center;
-  padding: 32px;
+  padding: 28px;
   background:
-    radial-gradient(circle at 18% 18%, rgba(22, 119, 255, 0.16), transparent 30%),
-    radial-gradient(circle at 88% 72%, rgba(22, 163, 74, 0.12), transparent 26%),
-    linear-gradient(135deg, #f7fbff 0%, #eef6ff 52%, #f6f9fc 100%);
+    radial-gradient(circle at 18% 18%, rgba(22, 119, 255, 0.12), transparent 28%),
+    radial-gradient(circle at 88% 74%, rgba(22, 163, 74, 0.08), transparent 24%),
+    var(--fw-bg);
 }
 
 .login-shell::before {
@@ -44,10 +70,10 @@ body {
 .login-stage {
   position: relative;
   z-index: 1;
-  width: min(1080px, 100%);
+  width: min(980px, 100%);
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(360px, 420px);
-  gap: 28px;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 380px);
+  gap: 18px;
   align-items: stretch;
 }
 
@@ -56,14 +82,14 @@ body {
   overflow: hidden;
   display: grid;
   align-content: space-between;
-  min-height: 520px;
-  padding: 36px;
-  border: 1px solid #d7e6f6;
-  border-radius: 12px;
+  min-height: 430px;
+  padding: 28px;
+  border: 1px solid var(--fw-line);
+  border-radius: var(--fw-radius);
   background:
-    radial-gradient(circle at 84% 18%, rgba(22, 119, 255, 0.16), transparent 26%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(239, 247, 255, 0.86));
-  box-shadow: 0 22px 60px rgba(18, 58, 111, 0.12);
+    radial-gradient(circle at 84% 18%, rgba(22, 119, 255, 0.1), transparent 26%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(248, 251, 255, 0.92));
+  box-shadow: var(--fw-shadow);
 }
 
 .login-copy::after {
@@ -92,12 +118,12 @@ body {
 .login-logo {
   display: inline-grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
+  width: 34px;
+  height: 34px;
   border-radius: 10px;
   background: #123a6f;
   color: #fff;
-  font-size: 20px;
+  font-size: 18px;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22), 0 10px 24px rgba(18, 58, 111, 0.22);
 }
 
@@ -109,24 +135,24 @@ body {
 
 .login-title-block h1 {
   margin: 0;
-  color: #172033;
-  font-size: 56px;
+  color: var(--fw-text);
+  font-size: 34px;
   font-weight: 700;
-  line-height: 1.05;
+  line-height: 1.18;
 }
 
 .login-title-block p {
   max-width: 460px;
-  margin: 16px 0 0;
-  color: #566274;
-  font-size: 16px;
-  line-height: 1.7;
+  margin: 12px 0 0;
+  color: var(--fw-muted);
+  font-size: 14px;
+  line-height: 1.65;
 }
 
 .login-flow-art {
   position: relative;
   z-index: 1;
-  width: min(520px, 100%);
+  width: min(460px, 100%);
   height: auto;
   justify-self: end;
 }
@@ -192,13 +218,13 @@ body {
   overflow: hidden;
   display: grid;
   align-content: center;
-  gap: 26px;
-  min-height: 520px;
-  padding: 34px;
-  border: 1px solid #dce8f7;
-  border-radius: 12px;
+  gap: 20px;
+  min-height: 430px;
+  padding: 30px;
+  border: 1px solid var(--fw-line);
+  border-radius: var(--fw-radius);
   background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 22px 60px rgba(18, 58, 111, 0.13);
+  box-shadow: var(--fw-shadow);
   backdrop-filter: blur(14px);
 }
 
@@ -217,8 +243,8 @@ body {
 
 .login-panel-head h2 {
   margin: 0;
-  color: #172033;
-  font-size: 28px;
+  color: var(--fw-text);
+  font-size: 22px;
   line-height: 1.2;
 }
 
@@ -229,7 +255,7 @@ body {
 
 .login-password {
   border-color: #d8e4f2;
-  background: #f8fbff;
+  background: var(--fw-surface-soft);
 }
 
 .login-password:hover,
@@ -296,6 +322,15 @@ body {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.24);
 }
 
+.ant-layout-sider-collapsed .ant-pro-sider-logo {
+  justify-content: center;
+  padding-inline: 0 !important;
+}
+
+.ant-layout-sider-collapsed .ant-pro-sider-logo h1 {
+  display: none;
+}
+
 .admin-footer {
   display: flex;
   align-items: center;
@@ -305,10 +340,10 @@ body {
   min-height: 42px;
   margin: 10px auto 14px;
   padding: 0;
-  border: 1px solid #dbe7f6;
-  border-radius: 8px;
-  background: #f7fbff;
-  color: #1f2633;
+  border: 1px solid var(--fw-line);
+  border-radius: var(--fw-radius);
+  background: var(--fw-surface-soft);
+  color: var(--fw-text);
   cursor: default;
   transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
 }
@@ -316,7 +351,7 @@ body {
 .admin-footer:hover {
   border-color: #91caff;
   background: #eef6ff;
-  color: #0958d9;
+  color: var(--fw-primary-strong);
 }
 
 .admin-footer-collapsed {
@@ -336,8 +371,8 @@ body {
   flex: 0 0 28px;
   width: 28px;
   height: 28px;
-  background: #eaf3ff;
-  color: #1677ff;
+  background: var(--fw-primary-soft);
+  color: var(--fw-primary);
   font-size: 15px;
 }
 
@@ -425,7 +460,7 @@ body {
 
 .page-header h1 {
   margin: 0;
-  color: #172033;
+  color: var(--fw-text);
   font-size: 24px;
   line-height: 1.2;
 }
@@ -438,7 +473,7 @@ body {
 }
 
 .dashboard-title-block span {
-  color: #637083;
+  color: var(--fw-muted);
   font-size: 13px;
 }
 
@@ -554,9 +589,9 @@ body {
 }
 
 .ops-section {
-  background: #fff;
-  border: 1px solid #dce5f2;
-  border-radius: 8px;
+  background: var(--fw-surface);
+  border: 1px solid var(--fw-line);
+  border-radius: var(--fw-radius);
   padding: 14px 16px;
 }
 
@@ -591,9 +626,9 @@ body {
 
 .app-data-table {
   overflow: hidden;
-  border: 1px solid #dce5f2;
-  border-radius: 8px;
-  background: #fff;
+  border: 1px solid var(--fw-line);
+  border-radius: var(--fw-radius);
+  background: var(--fw-surface);
 }
 
 .app-data-table .ant-pro-card {
@@ -611,15 +646,15 @@ body {
 
 .app-data-table .ant-table-thead > tr > th {
   padding: 10px 8px;
-  background: #f8fbff !important;
-  color: #637083;
+  background: var(--fw-surface-soft) !important;
+  color: var(--fw-muted);
   font-size: 13px;
   font-weight: 600;
 }
 
 .app-data-table .ant-table-tbody > tr > td {
   padding: 9px 8px;
-  border-bottom-color: #edf2f7;
+  border-bottom-color: var(--fw-line-soft);
   font-size: 13px;
 }
 
@@ -634,7 +669,7 @@ body {
 
 .table-title-block h3 {
   margin: 0;
-  color: #1f2633;
+  color: var(--fw-text);
   font-size: 15px;
 }
 
@@ -651,12 +686,12 @@ body {
   overflow: hidden;
   display: grid;
   grid-template-rows: auto auto auto 34px;
-  min-height: 102px;
+  min-height: 110px;
   padding: 14px 16px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  box-shadow: none;
+  border: 1px solid var(--fw-line);
+  border-radius: var(--fw-radius);
+  background: var(--fw-surface);
+  box-shadow: var(--fw-shadow);
   animation: card-rise 0.48s ease both;
 }
 
@@ -743,8 +778,8 @@ body {
 
 .metric-value {
   margin-top: 0;
-  color: #1f2633;
-  font-family: "Roboto Mono", "Fira Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  color: var(--fw-text);
+  font-family: var(--fw-mono);
   font-size: 21px;
   font-weight: 650;
   line-height: 1.24;
@@ -919,9 +954,9 @@ body {
   height: 30px;
   margin-top: 0 !important;
   padding: 0 10px;
-  border: 1px solid #dce5f2;
-  border-radius: 8px;
-  background: #fff;
+  border: 1px solid var(--fw-line);
+  border-radius: var(--fw-radius);
+  background: var(--fw-surface);
   color: #344054 !important;
   font-size: 13px !important;
   font-weight: 600;
@@ -941,8 +976,8 @@ body {
 }
 
 .trend-legend strong {
-  color: #1f2633;
-  font-family: "Roboto Mono", "Fira Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  color: var(--fw-text);
+  font-family: var(--fw-mono);
   font-weight: 650;
 }
 
@@ -961,7 +996,7 @@ body {
 .trend-y-label,
 .trend-x-label {
   fill: #6b7280;
-  font-family: "Roboto Mono", "Fira Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-family: var(--fw-mono);
   font-size: 12px;
 }
 
@@ -1019,7 +1054,7 @@ body {
   align-items: center;
   min-height: 37px;
   padding: 7px 14px;
-  border-bottom: 1px solid #edf2f7;
+  border-bottom: 1px solid var(--fw-line-soft);
 }
 
 .compact-rank-row:last-child {
@@ -1032,9 +1067,9 @@ body {
   width: 20px;
   height: 20px;
   border-radius: 7px;
-  background: #eaf3ff;
-  color: #0958d9;
-  font-family: "Roboto Mono", "Fira Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  background: var(--fw-primary-soft);
+  color: var(--fw-primary-strong);
+  font-family: var(--fw-mono);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1042,15 +1077,15 @@ body {
 .compact-rank-row strong {
   min-width: 0;
   overflow: hidden;
-  color: #1f2633;
+  color: var(--fw-text);
   font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .compact-rank-value {
-  color: #1f2633;
-  font-family: "Roboto Mono", "Fira Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  color: var(--fw-text);
+  font-family: var(--fw-mono);
   font-size: 12px;
   text-align: right;
 }
@@ -1103,8 +1138,8 @@ body {
   width: 26px;
   height: 26px;
   border-radius: 8px;
-  background: #eaf3ff;
-  color: #1677ff;
+  background: var(--fw-primary-soft);
+  color: var(--fw-primary);
   font-size: 14px;
 }
 
@@ -1117,7 +1152,7 @@ body {
 .progress-summary-item strong {
   min-width: 0;
   overflow: hidden;
-  color: #1f2633;
+  color: var(--fw-text);
   font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1153,7 +1188,7 @@ body {
   align-items: center;
   min-height: 46px;
   padding: 8px 14px;
-  border-bottom: 1px solid #edf2f7;
+  border-bottom: 1px solid var(--fw-line-soft);
 }
 
 .progress-list-row:last-child {
@@ -1162,19 +1197,19 @@ body {
 
 .progress-list-head {
   min-height: 36px;
-  background: #f8fbff;
-  color: #637083;
+  background: var(--fw-surface-soft);
+  color: var(--fw-muted);
   font-size: 13px;
   font-weight: 600;
 }
 
 .progress-list-row strong {
-  color: #1f2633;
+  color: var(--fw-text);
   font-size: 13px;
 }
 
 .mono-number {
-  font-family: "Roboto Mono", "Fira Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-family: var(--fw-mono);
   font-variant-numeric: tabular-nums;
   font-size: 13px;
 }
@@ -1370,7 +1405,7 @@ body {
 .source-list-head strong {
   display: block;
   margin-bottom: 3px;
-  color: #1f2633;
+  color: var(--fw-text);
   font-size: 15px;
 }
 
@@ -1382,9 +1417,9 @@ body {
   min-height: 44px;
   padding: 8px 10px;
   border: 0;
-  border-bottom: 1px solid #edf2f7;
+  border-bottom: 1px solid var(--fw-line-soft);
   border-radius: 0;
-  background: #fff;
+  background: var(--fw-surface);
 }
 
 .source-row:not(.source-row-header):hover {
@@ -1404,7 +1439,7 @@ body {
 .source-row-header {
   padding-block: 8px;
   border-bottom: 1px solid #e5edf7;
-  background: #f8fbff;
+  background: var(--fw-surface-soft);
   color: #6b7280;
   font-size: 13px;
   font-weight: 600;
@@ -1451,8 +1486,8 @@ body {
   gap: 8px;
   min-width: 0;
   padding: 18px;
-  border: 1px solid #edf2f7;
-  border-radius: 8px;
+  border: 1px solid var(--fw-line-soft);
+  border-radius: var(--fw-radius);
   background: #fbfdff;
 }
 
@@ -1481,7 +1516,7 @@ body {
 }
 
 .setting-summary strong {
-  color: #1f2633;
+  color: var(--fw-text);
   font-size: 16px;
   line-height: 1.25;
 }
@@ -1492,7 +1527,7 @@ body {
   border-radius: 6px;
   background: #fff;
   color: #374151;
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-family: var(--fw-mono);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1532,7 +1567,7 @@ body {
 }
 
 .maintenance-switch-line strong {
-  color: #1f2633;
+  color: var(--fw-text);
   font-size: 16px;
   white-space: nowrap;
 }
@@ -1565,7 +1600,7 @@ body {
   }
 
   .login-title-block h1 {
-    font-size: 40px;
+    font-size: 30px;
   }
 
   .login-flow-art {
@@ -1639,7 +1674,7 @@ body {
   }
 
   .login-title-block h1 {
-    font-size: 34px;
+    font-size: 28px;
   }
 
   .login-title-block p {

@@ -84,7 +84,6 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                 prefix={<LockOutlined />}
                 placeholder="请输入管理员密码"
                 autoFocus
-                size="large"
               />
             </Form.Item>
             <Button
@@ -93,7 +92,6 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
               htmlType="submit"
               loading={loading}
               block
-              size="large"
               icon={<LoginOutlined />}
             >
               登录
