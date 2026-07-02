@@ -12,6 +12,7 @@ WorkingDirectory=/opt/nat-query
 
 # Environment
 Environment="LOG_DIR=/data/sangfor_fw_log"
+Environment="LOG_TAG=深信服 NAT"
 Environment="PORT=8080"
 Environment="CLICKHOUSE_ADDR=127.0.0.1:9000"
 Environment="CLICKHOUSE_DATABASE=default"
