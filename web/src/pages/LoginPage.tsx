@@ -41,9 +41,9 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
           <svg className="login-flow-art" viewBox="0 0 520 260" role="img" aria-label="日志流转示意">
             <defs>
               <linearGradient id="loginFlowLine" x1="0%" x2="100%" y1="0%" y2="0%">
-                <stop offset="0%" stopColor="#16a34a" />
-                <stop offset="48%" stopColor="#1677ff" />
-                <stop offset="100%" stopColor="#123a6f" />
+                <stop offset="0%" stopColor="#94a3b8" />
+                <stop offset="48%" stopColor="#2563eb" />
+                <stop offset="100%" stopColor="#1d4ed8" />
               </linearGradient>
               <linearGradient id="loginFlowNode" x1="0%" x2="100%" y1="0%" y2="100%">
                 <stop offset="0%" stopColor="#ffffff" />

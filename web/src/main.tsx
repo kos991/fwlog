@@ -70,15 +70,15 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       locale={zhCN}
       theme={{
         token: {
-          colorPrimary: '#1677ff',
-          colorInfo: '#1677ff',
+          colorPrimary: '#2563eb',
+          colorInfo: '#2563eb',
           colorSuccess: '#16a34a',
-          colorWarning: '#d97706',
-          colorError: '#d4380d',
-          colorText: '#1f2633',
-          colorTextSecondary: '#637083',
-          colorBorder: '#dce5f2',
-          colorBgLayout: '#f4f7fb',
+          colorWarning: '#ca8a04',
+          colorError: '#dc2626',
+          colorText: '#172033',
+          colorTextSecondary: '#627084',
+          colorBorder: '#dfe7f1',
+          colorBgLayout: '#f3f6fa',
           colorBgContainer: '#ffffff',
           borderRadius: 7,
           fontSize: 13,
@@ -104,14 +104,14 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             controlHeight: 32,
           },
           Table: {
-            headerBg: '#f8fbff',
+            headerBg: '#f7f9fc',
             headerColor: '#526071',
             cellPaddingBlock: 9,
             cellPaddingInline: 8,
           },
           Tabs: {
-            itemSelectedColor: '#0958d9',
-            inkBarColor: '#1677ff',
+            itemSelectedColor: '#1d4ed8',
+            inkBarColor: '#2563eb',
           },
         },
       }}

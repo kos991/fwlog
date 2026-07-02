@@ -1,23 +1,24 @@
 import {
-  LogoutOutlined,
+  DashboardOutlined,
+  FileSyncOutlined,
+  PoweroffOutlined,
   SafetyCertificateOutlined,
   SearchOutlined,
   SettingOutlined,
-  SyncOutlined,
-  FundProjectionScreenOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import { ProLayout } from '@ant-design/pro-components';
 import { Button, Tooltip } from 'antd';
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 export type RouteKey = 'dashboard' | 'search' | 'progress' | 'maintenance';
 
 const route = {
   path: '/',
   routes: [
-    { path: '/dashboard', name: '数据概览', icon: <FundProjectionScreenOutlined /> },
+    { path: '/dashboard', name: '数据概览', icon: <DashboardOutlined /> },
     { path: '/search', name: '日志查询', icon: <SearchOutlined /> },
-    { path: '/progress', name: '入库进度', icon: <SyncOutlined /> },
+    { path: '/progress', name: '入库进度', icon: <FileSyncOutlined /> },
     { path: '/maintenance', name: '系统设置', icon: <SettingOutlined /> },
   ],
 };
@@ -37,31 +38,24 @@ type AppLayoutProps = {
 };
 
 export function AppLayout({ active, onChange, onLogout, children }: AppLayoutProps) {
-  const collapsedOnce = useRef(false);
+  const [collapsed, setCollapsed] = useState(true);
 
   useEffect(() => {
-    let attempts = 0;
-    const timer = window.setInterval(() => {
-      if (collapsedOnce.current) return;
-      attempts += 1;
-      if (document.querySelector('.ant-layout-sider-collapsed')) {
-        collapsedOnce.current = true;
-        window.clearInterval(timer);
-        return;
-      }
-      const button = document.querySelector<HTMLElement>('.ant-pro-sider-collapsed-button');
-      if (button) {
-        button.click();
-        collapsedOnce.current = true;
-        window.clearInterval(timer);
-        return;
-      }
-      if (attempts > 20) {
-        window.clearInterval(timer);
-      }
-    }, 50);
-    return () => window.clearInterval(timer);
+    const collapseOnce = () => {
+      if (document.querySelector('.ant-layout-sider-collapsed')) return;
+      document.querySelector<HTMLElement>('.ant-pro-sider-collapsed-button')?.click();
+    };
+    const timers = [80, 240, 520].map((delay) => window.setTimeout(collapseOnce, delay));
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, []);
+
+  const keepCollapsed = () => {
+    setCollapsed(true);
+    window.setTimeout(() => {
+      if (document.querySelector('.ant-layout-sider-collapsed')) return;
+      document.querySelector<HTMLElement>('.ant-pro-sider-collapsed-button')?.click();
+    }, 80);
+  };
 
   return (
     <ProLayout
@@ -72,17 +66,18 @@ export function AppLayout({ active, onChange, onLogout, children }: AppLayoutPro
       layout="side"
       fixedHeader
       fixSiderbar
-      defaultCollapsed
+      collapsed={collapsed}
+      onCollapse={setCollapsed}
       token={{
         sider: {
           colorMenuBackground: '#ffffff',
-          colorTextMenu: '#3f4654',
-          colorTextMenuSelected: '#0958d9',
-          colorBgMenuItemSelected: '#eaf3ff',
+          colorTextMenu: '#465568',
+          colorTextMenuSelected: '#1d4ed8',
+          colorBgMenuItemSelected: '#eef4ff',
         },
         header: {
           colorBgHeader: '#ffffff',
-          colorHeaderTitle: '#1f2633',
+          colorHeaderTitle: '#172033',
         },
       }}
       menuItemRender={(item, dom) => {
@@ -94,6 +89,7 @@ export function AppLayout({ active, onChange, onLogout, children }: AppLayoutPro
             onClick={(event) => {
               event.preventDefault();
               onChange(key);
+              keepCollapsed();
             }}
           >
             {dom}
@@ -104,11 +100,13 @@ export function AppLayout({ active, onChange, onLogout, children }: AppLayoutPro
         const collapsed = props?.collapsed;
         return (
           <div className={collapsed ? 'admin-footer admin-footer-collapsed' : 'admin-footer'} aria-label="管理员">
+            <span className="admin-badge"><UserOutlined /></span>
+            <span className="admin-name">管理员</span>
             <Tooltip title="退出登录" placement="right">
               <Button
                 className="admin-logout"
                 type="text"
-                icon={<LogoutOutlined />}
+                icon={<PoweroffOutlined />}
                 aria-label="退出登录"
                 onClick={onLogout}
               />

@@ -136,8 +136,8 @@ function DashboardFlowArt() {
       <defs>
         <linearGradient id="flowLine" x1="0" y1="0" x2="1" y2="0">
           <stop offset="0%" stopColor="#9cc9ff" stopOpacity="0.12" />
-          <stop offset="45%" stopColor="#2f80ed" stopOpacity="0.78" />
-          <stop offset="100%" stopColor="#22c55e" stopOpacity="0.18" />
+          <stop offset="45%" stopColor="#2563eb" stopOpacity="0.78" />
+          <stop offset="100%" stopColor="#64748b" stopOpacity="0.18" />
         </linearGradient>
         <linearGradient id="flowNode" x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stopColor="#ffffff" />
