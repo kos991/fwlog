@@ -37,6 +37,9 @@ func TestRouterRegistersAPIRoutes(t *testing.T) {
 		{method: http.MethodPost, path: "/api/sync"},
 		{method: http.MethodPost, path: "/api/rebuild"},
 		{method: http.MethodPost, path: "/api/export"},
+		{method: http.MethodGet, path: "/api/upgrade/check"},
+		{method: http.MethodGet, path: "/api/upgrade/status"},
+		{method: http.MethodPost, path: "/api/upgrade/run"},
 	}
 
 	for _, tt := range tests {

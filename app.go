@@ -15,18 +15,21 @@ import (
 )
 
 type App struct {
-	cfg          Config
-	store        *ClickHouseStore
-	mu           sync.RWMutex
-	settings     map[string]string
-	ipEngine     *IPEngine
-	ipStatus     IPDataStatus
-	passwordHash string
-	sessionToken string
-	importRunner importRunnerFunc
-	importMu     sync.Mutex
-	importing    bool
-	querySem     chan struct{}
+	cfg           Config
+	store         *ClickHouseStore
+	mu            sync.RWMutex
+	settings      map[string]string
+	ipEngine      *IPEngine
+	ipStatus      IPDataStatus
+	passwordHash  string
+	sessionToken  string
+	importRunner  importRunnerFunc
+	importMu      sync.Mutex
+	importing     bool
+	querySem      chan struct{}
+	upgradeMu     sync.Mutex
+	upgradeStatus UpgradeStatus
+	upgradeRunner upgradeRunnerFunc
 }
 
 type importRunnerFunc func(context.Context, *ClickHouseStore, LogSource, bool) ([]string, []string, error)
@@ -38,13 +41,14 @@ func NewApp(cfg Config) *App {
 	}
 
 	return &App{
-		cfg:          cfg,
-		settings:     defaultSettings(cfg),
-		ipEngine:     NewIPEngine(),
-		ipStatus:     defaultIPDataStatus(cfg),
-		passwordHash: passwordHash,
-		importRunner: importArchivedDates,
-		querySem:     make(chan struct{}, 4),
+		cfg:           cfg,
+		settings:      defaultSettings(cfg),
+		ipEngine:      NewIPEngine(),
+		ipStatus:      defaultIPDataStatus(cfg),
+		passwordHash:  passwordHash,
+		importRunner:  importArchivedDates,
+		querySem:      make(chan struct{}, 4),
+		upgradeStatus: defaultUpgradeStatus(),
 	}
 }
 
@@ -69,6 +73,9 @@ func (a *App) Router() http.Handler {
 	mux.Handle("/api/sync", methodHandler(http.MethodPost, a.importHandler(false)))
 	mux.Handle("/api/rebuild", methodHandler(http.MethodPost, a.importHandler(true)))
 	mux.Handle("/api/export", placeholderHandler(http.MethodPost, "export endpoint is not implemented yet"))
+	mux.Handle("/api/upgrade/check", methodHandler(http.MethodGet, a.upgradeCheckHandler()))
+	mux.Handle("/api/upgrade/status", methodHandler(http.MethodGet, a.upgradeStatusHandler()))
+	mux.Handle("/api/upgrade/run", methodHandler(http.MethodPost, a.upgradeRunHandler()))
 
 	mux.Handle("/", newStaticHandler())
 	return mux

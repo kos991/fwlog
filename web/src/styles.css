@@ -1747,9 +1747,21 @@ body {
 }
 
 .maintenance-field .ant-input-number,
+.maintenance-field .ant-input,
 .maintenance-field .ant-picker,
 .maintenance-field .ant-btn {
   width: 100%;
+}
+
+.maintenance-upgrade-note {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.maintenance-upgrade-note .ant-typography {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .maintenance-switch-line {

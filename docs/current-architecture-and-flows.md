@@ -12,6 +12,7 @@
 - `dashboard_service.go`
 - `log_scanner.go`
 - `ip_engine.go`
+- `upgrade_service.go`
 - `session_auth.go`
 - `web/src/main.tsx`
 - `web/src/layout/AppLayout.tsx`
@@ -42,6 +43,7 @@ flowchart LR
         DashboardSvc[看板与进度服务]
         ImportSvc[归档日志入库服务]
         SettingsSvc[设置持久化]
+        UpgradeSvc[自动升级服务]
         IPEngine[IP 标注引擎]
         Static[内嵌前端静态资源]
     end
@@ -52,15 +54,17 @@ flowchart LR
     Router --> DashboardSvc
     Router --> ImportSvc
     Router --> SettingsSvc
+    Router --> UpgradeSvc
     Router --> IPEngine
     Router --> Static
 
     subgraph Storage[数据与文件]
         CH[(ClickHouse<br/>nat_logs / ingest_dates / ingest_files / app_settings / log_sources)]
         Logs[/归档日志目录<br/>*.log-YYYYMMDD / *.log-YYYYMMDD.gz/]
-        CustomMap[/custom_ip_map.csv/]
-        GeoDB[/GeoLite2-City.mmdb/]
-        Exports[/导出目录<br/>当前接口占位/]
+    CustomMap[/custom_ip_map.csv/]
+    GeoDB[/GeoLite2-City.mmdb/]
+    Exports[/导出目录<br/>当前接口占位/]
+    GitHubRelease[/GitHub Release<br/>Linux amd64 资产/]
     end
 
     QuerySvc --> CH
@@ -68,6 +72,7 @@ flowchart LR
     ImportSvc --> Logs
     ImportSvc --> CH
     SettingsSvc --> CH
+    UpgradeSvc --> GitHubRelease
     IPEngine --> CustomMap
     IPEngine --> GeoDB
 
@@ -123,6 +128,7 @@ flowchart TB
     Router --> SettingsAPI[/api/settings]
     Router --> SyncAPI[/api/sync]
     Router --> RebuildAPI[/api/rebuild]
+    Router --> UpgradeAPI[/api/upgrade/check<br/>/api/upgrade/status<br/>/api/upgrade/run]
     Router --> IPReloadAPI[/api/ip-data/reload]
     Router --> Static[/ 前端静态资源]
 
@@ -133,6 +139,7 @@ flowchart TB
     IPReloadAPI --> SecuritySvc
     SyncAPI --> ImportSvc[startBackgroundImport(false)]
     RebuildAPI --> ImportSvc2[startBackgroundImport(true)]
+    UpgradeAPI --> UpgradeSvc[升级检查 / 后台替换二进制]
 
     QuerySvc --> CH[(ClickHouseStore)]
     DashboardSvc --> CH
@@ -166,6 +173,7 @@ flowchart TB
     Maintenance -->|POST| IPReloadAPI[/api/ip-data/reload]
     Maintenance -->|POST| SyncAPI[/api/sync]
     Maintenance -->|POST| RebuildAPI[/api/rebuild]
+    Maintenance -->|GET/POST| UpgradeAPI[/api/upgrade/*]
 
     AppLayout -->|POST /api/logout| LogoutAPI[/api/logout]
 ```
@@ -497,6 +505,9 @@ flowchart TB
     API --> SettingsPost[POST /api/settings]
     API --> Sync[POST /api/sync]
     API --> Rebuild[POST /api/rebuild]
+    API --> UpgradeCheck[GET /api/upgrade/check]
+    API --> UpgradeStatus[GET /api/upgrade/status]
+    API --> UpgradeRun[POST /api/upgrade/run]
     API --> IPReload[POST /api/ip-data/reload]
     API --> Export[POST /api/export<br/>当前占位 501]
 ```
@@ -585,3 +596,15 @@ LIMIT page_size + 1
 - 全局并发查询闸门为 4，超过时返回 `query_busy`。
 
 第二到第五优先级仍保持规划状态：物化视图预聚合看板、`dst_ip` / `nat_ip` skip index、异步导出、Dictionary / Projection / 冷热分层，均需要先在真实查询与 142 资源占用下验证收益，再进入生产变更。
+
+## 20. 自动升级补充
+
+系统设置页维护标签新增 Release 升级卡片。该功能当前只支持人工触发，不做定时自动升级，也不绕过登录态。
+
+后端新增接口：
+
+- `GET /api/upgrade/check`：检查 GitHub 最新 Release，确认 `nat-query-service_linux_amd64`、`nat-query-service.service`、`deploy-142-from-release.sh` 三个 Linux 发布资产是否齐全。
+- `GET /api/upgrade/status`：返回当前进程内升级状态，状态包括 `idle`、`running`、`succeeded`、`failed`。
+- `POST /api/upgrade/run`：接收明确版本号，例如 `{"version":"v1.1.0"}`，后台下载 Linux amd64 二进制、备份当前 `/opt/nat-query/nat-query-service`、替换文件并执行 `systemctl restart nat-query-service`。
+
+发布构建会通过 `-ldflags "-X main.appVersion=$version"` 注入当前版本号，供升级页显示。升级失败时记录错误和备份路径，不自动回滚。

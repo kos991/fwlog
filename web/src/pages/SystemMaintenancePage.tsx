@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   ClockCircleOutlined,
+  CloudDownloadOutlined,
   DatabaseOutlined,
   DeleteOutlined,
   FileTextOutlined,
@@ -18,7 +19,7 @@ import {
 } from '@ant-design/icons';
 import { Button, DatePicker, Form, Input, Popconfirm, Space, Switch, Tabs, Tag, TimePicker, Typography, message } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
-import { apiGet, apiPost } from '../api';
+import { apiGet, apiPost, type UpgradeCheckResponse, type UpgradeStatus } from '../api';
 
 const { Text } = Typography;
 
@@ -98,6 +99,10 @@ function autoScanTimeValue(value?: string) {
 export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageProps) {
   const [form] = Form.useForm<Settings>();
   const [loading, setLoading] = React.useState(false);
+  const [upgradeLoading, setUpgradeLoading] = React.useState(false);
+  const [upgradeStatus, setUpgradeStatus] = React.useState<UpgradeStatus | null>(null);
+  const [upgradeCheck, setUpgradeCheck] = React.useState<UpgradeCheckResponse | null>(null);
+  const [upgradeVersion, setUpgradeVersion] = React.useState('');
   const [rebuildDate, setRebuildDate] = React.useState<Dayjs | null>(dayjs());
   const geoipPath = Form.useWatch('geoip_db_path', form);
   const customIpPath = Form.useWatch('custom_ip_map_path', form);
@@ -139,6 +144,26 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
     void load();
   }, [load]);
 
+  const loadUpgradeStatus = React.useCallback(async () => {
+    const status = await apiGet<UpgradeStatus>('/api/upgrade/status');
+    setUpgradeStatus(status);
+    if (!upgradeVersion && status.target_version) {
+      setUpgradeVersion(status.target_version);
+    }
+  }, [upgradeVersion]);
+
+  React.useEffect(() => {
+    void loadUpgradeStatus().catch(() => undefined);
+  }, [loadUpgradeStatus]);
+
+  React.useEffect(() => {
+    if (upgradeStatus?.state !== 'running') return;
+    const timer = window.setInterval(() => {
+      void loadUpgradeStatus().catch(() => undefined);
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [loadUpgradeStatus, upgradeStatus?.state]);
+
   const save = async () => {
     try {
       setLoading(true);
@@ -179,6 +204,41 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
 
   const triggerRebuild = async () => {
     await trigger(`/api/rebuild${rebuildDate ? `?date=${rebuildDate.format('YYYY-MM-DD')}` : ''}`, '已触发指定日期重建');
+  };
+
+  const checkUpgrade = async () => {
+    try {
+      setUpgradeLoading(true);
+      const response = await apiGet<UpgradeCheckResponse>('/api/upgrade/check');
+      setUpgradeCheck(response);
+      setUpgradeStatus(response.status);
+      if (response.latest_version) {
+        setUpgradeVersion(response.latest_version);
+      }
+      message.success(response.update_available ? '发现可升级版本' : '当前已是最新版本');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '检查更新失败');
+    } finally {
+      setUpgradeLoading(false);
+    }
+  };
+
+  const runUpgrade = async () => {
+    const version = upgradeVersion.trim();
+    if (!/^v\d+\.\d+\.\d+$/.test(version)) {
+      message.error('升级版本必须使用 vX.Y.Z 格式');
+      return;
+    }
+    try {
+      setUpgradeLoading(true);
+      const status = await apiPost<UpgradeStatus>('/api/upgrade/run', { version });
+      setUpgradeStatus(status);
+      message.success('升级任务已开始');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '启动升级失败');
+    } finally {
+      setUpgradeLoading(false);
+    }
   };
 
   const changePassword = async () => {
@@ -415,6 +475,68 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                           <Button danger icon={<WarningOutlined />} loading={loading}>重建</Button>
                         </Popconfirm>
                       </div>
+                    </div>
+                  </div>
+
+                  <div className="maintenance-run-card">
+                    <div className="maintenance-card-head">
+                      <div>
+                        <span className="maintenance-card-kicker"><CloudDownloadOutlined /> 自动升级</span>
+                        <strong>Release 升级</strong>
+                      </div>
+                      <Tag color={upgradeStatus?.state === 'running' ? 'processing' : upgradeStatus?.state === 'failed' ? 'error' : upgradeStatus?.state === 'succeeded' ? 'success' : 'default'}>
+                        {upgradeStatus?.state || 'idle'}
+                      </Tag>
+                    </div>
+
+                    <div className="maintenance-run-grid">
+                      <div className="maintenance-field">
+                        <label>当前版本</label>
+                        <Input value={upgradeCheck?.current_version || upgradeStatus?.current_version || '-'} readOnly />
+                      </div>
+
+                      <div className="maintenance-field">
+                        <label>目标版本</label>
+                        <Input
+                          value={upgradeVersion}
+                          onChange={(event) => setUpgradeVersion(event.target.value)}
+                          placeholder="v1.1.0"
+                        />
+                      </div>
+
+                      <div className="maintenance-field">
+                        <label>检查更新</label>
+                        <Button icon={<ReloadOutlined />} onClick={() => void checkUpgrade()} loading={upgradeLoading}>
+                          检查
+                        </Button>
+                      </div>
+
+                      <div className="maintenance-field maintenance-danger-field">
+                        <label>执行升级</label>
+                        <Popconfirm
+                          title="确认升级并重启服务？"
+                          description={upgradeVersion || '未填写版本'}
+                          okText="确认升级"
+                          cancelText="取消"
+                          onConfirm={() => void runUpgrade()}
+                        >
+                          <Button
+                            type="primary"
+                            icon={<CloudDownloadOutlined />}
+                            loading={upgradeLoading || upgradeStatus?.state === 'running'}
+                          >
+                            升级
+                          </Button>
+                        </Popconfirm>
+                      </div>
+                    </div>
+
+                    <div className="maintenance-upgrade-note">
+                      <Text type={upgradeStatus?.state === 'failed' ? 'danger' : 'secondary'}>
+                        {upgradeStatus?.error || upgradeStatus?.message || upgradeCheck?.message || '升级只替换 Linux amd64 二进制，任务执行后服务会自动重启。'}
+                      </Text>
+                      {upgradeCheck?.latest_version ? <Text type="secondary">最新版本：{upgradeCheck.latest_version}</Text> : null}
+                      {upgradeCheck?.missing_assets?.length ? <Text type="danger">缺少资产：{upgradeCheck.missing_assets.join(', ')}</Text> : null}
                     </div>
                   </div>
                 </section>

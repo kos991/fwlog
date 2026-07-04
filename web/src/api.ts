@@ -150,6 +150,28 @@ function mockResponse<T>(path: string): T {
       ],
     } as T;
   }
+  if (path.startsWith('/api/upgrade/check')) {
+    return {
+      current_version: 'v1.1.0',
+      latest_version: 'v1.1.0',
+      update_available: false,
+      release_url: 'https://github.com/kos991/fwlog/releases/tag/v1.1.0',
+      assets_ready: true,
+      missing_assets: [],
+      status: {
+        state: 'idle',
+        current_version: 'v1.1.0',
+      },
+    } as T;
+  }
+  if (path.startsWith('/api/upgrade/status') || path.startsWith('/api/upgrade/run')) {
+    return {
+      state: 'idle',
+      current_version: 'v1.1.0',
+      target_version: 'v1.1.0',
+      message: '模拟升级状态',
+    } as T;
+  }
   if (path.startsWith('/api/settings')) {
     return {
       log_dir: '/data/sangfor_fw_log',
@@ -202,3 +224,25 @@ export type QueryVisibility = {
 };
 
 export type DistributionItem = { name: string; value: number };
+
+export type UpgradeStatus = {
+  state: 'idle' | 'running' | 'succeeded' | 'failed' | string;
+  current_version: string;
+  target_version?: string;
+  message?: string;
+  error?: string;
+  backup_path?: string;
+  started_at?: string;
+  finished_at?: string;
+};
+
+export type UpgradeCheckResponse = {
+  current_version: string;
+  latest_version: string;
+  update_available: boolean;
+  release_url: string;
+  assets_ready: boolean;
+  missing_assets: string[];
+  message?: string;
+  status: UpgradeStatus;
+};
