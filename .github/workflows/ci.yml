@@ -15,6 +15,8 @@ jobs:
   test-and-build:
     name: Test and build Linux amd64
     runs-on: ubuntu-24.04
+    env:
+      TZ: Asia/Shanghai
 
     steps:
       - name: Checkout repository
