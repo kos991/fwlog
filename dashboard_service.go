@@ -1,6 +1,10 @@
 package main
 
-import "time"
+import (
+	"sort"
+	"strings"
+	"time"
+)
 
 type HealthDashboardResponse struct {
 	DataHealth      DataHealth      `json:"data_health"`
@@ -38,6 +42,9 @@ type IngestHealth struct {
 	Error                string       `json:"error"`
 	LastAutoScanAt       string       `json:"last_auto_scan_at"`
 	NextAutoScanAt       string       `json:"next_auto_scan_at"`
+	AutoScanPolicy       string       `json:"auto_scan_policy"`
+	AutoScanEnabled      bool         `json:"auto_scan_enabled"`
+	AutoScanMode         string       `json:"auto_scan_mode"`
 	ElapsedSec           int64        `json:"elapsed_sec"`
 	ETASeconds           int64        `json:"eta_sec"`
 	LastUpdatedAt        time.Time    `json:"last_updated_at"`
@@ -81,26 +88,32 @@ type DashboardMetrics struct {
 	GeoIPStatus             string
 	LastAutoScanAt          time.Time
 	NextAutoScanAt          time.Time
+	AutoScanPolicy          string
+	AutoScanEnabled         bool
+	AutoScanMode            string
 }
 
 type IngestProgressResponse struct {
-	Status         IngestStatus      `json:"status"`
-	SourceID       string            `json:"source_id"`
-	LogTag         string            `json:"log_tag"`
-	CurrentDate    string            `json:"current_date"`
-	CurrentFile    string            `json:"current_file"`
-	FilesTotal     uint64            `json:"files_total"`
-	FilesDone      uint64            `json:"files_done"`
-	BytesTotal     uint64            `json:"bytes_total"`
-	BytesDone      uint64            `json:"bytes_done"`
-	RowsImported   uint64            `json:"rows_imported"`
-	ProgressPct    float64           `json:"progress_pct"`
-	ElapsedSec     int64             `json:"elapsed_sec"`
-	ETASeconds     int64             `json:"eta_sec"`
-	LastAutoScanAt string            `json:"last_auto_scan_at"`
-	NextAutoScanAt string            `json:"next_auto_scan_at"`
-	Error          string            `json:"error"`
-	Dates          []DateIngestState `json:"dates"`
+	Status          IngestStatus      `json:"status"`
+	SourceID        string            `json:"source_id"`
+	LogTag          string            `json:"log_tag"`
+	CurrentDate     string            `json:"current_date"`
+	CurrentFile     string            `json:"current_file"`
+	FilesTotal      uint64            `json:"files_total"`
+	FilesDone       uint64            `json:"files_done"`
+	BytesTotal      uint64            `json:"bytes_total"`
+	BytesDone       uint64            `json:"bytes_done"`
+	RowsImported    uint64            `json:"rows_imported"`
+	ProgressPct     float64           `json:"progress_pct"`
+	ElapsedSec      int64             `json:"elapsed_sec"`
+	ETASeconds      int64             `json:"eta_sec"`
+	LastAutoScanAt  string            `json:"last_auto_scan_at"`
+	NextAutoScanAt  string            `json:"next_auto_scan_at"`
+	AutoScanPolicy  string            `json:"auto_scan_policy"`
+	AutoScanEnabled bool              `json:"auto_scan_enabled"`
+	AutoScanMode    string            `json:"auto_scan_mode"`
+	Error           string            `json:"error"`
+	Dates           []DateIngestState `json:"dates"`
 }
 
 func BuildHealthDashboard(states []DateIngestState, metrics DashboardMetrics) HealthDashboardResponse {
@@ -130,10 +143,13 @@ func BuildIngestProgress(states []DateIngestState, includeReady bool, metricArgs
 	}
 
 	response := IngestProgressResponse{
-		Status:         StatusIdle,
-		LastAutoScanAt: formatDateTime(metrics.LastAutoScanAt),
-		NextAutoScanAt: formatDateTime(metrics.NextAutoScanAt),
-		Dates:          make([]DateIngestState, 0, len(states)),
+		Status:          StatusIdle,
+		LastAutoScanAt:  formatDateTime(metrics.LastAutoScanAt),
+		NextAutoScanAt:  formatDateTime(metrics.NextAutoScanAt),
+		AutoScanPolicy:  metrics.AutoScanPolicy,
+		AutoScanEnabled: metrics.AutoScanEnabled,
+		AutoScanMode:    metrics.AutoScanMode,
+		Dates:           make([]DateIngestState, 0, len(states)),
 	}
 	if current.Status != "" {
 		response.Status = current.Status
@@ -201,20 +217,23 @@ func buildDataHealth(states []DateIngestState, metrics DashboardMetrics) DataHea
 func buildIngestHealth(states []DateIngestState, metrics DashboardMetrics) IngestHealth {
 	progress := BuildIngestProgress(states, false)
 	health := IngestHealth{
-		Status:         progress.Status,
-		SourceID:       progress.SourceID,
-		LogTag:         progress.LogTag,
-		CurrentDate:    progress.CurrentDate,
-		CurrentFile:    progress.CurrentFile,
-		FilesTotal:     progress.FilesTotal,
-		FilesDone:      progress.FilesDone,
-		BytesTotal:     progress.BytesTotal,
-		BytesDone:      progress.BytesDone,
-		RowsImported:   progress.RowsImported,
-		ProgressPct:    progress.ProgressPct,
-		Error:          progress.Error,
-		LastAutoScanAt: formatDateTime(metrics.LastAutoScanAt),
-		NextAutoScanAt: formatDateTime(metrics.NextAutoScanAt),
+		Status:          progress.Status,
+		SourceID:        progress.SourceID,
+		LogTag:          progress.LogTag,
+		CurrentDate:     progress.CurrentDate,
+		CurrentFile:     progress.CurrentFile,
+		FilesTotal:      progress.FilesTotal,
+		FilesDone:       progress.FilesDone,
+		BytesTotal:      progress.BytesTotal,
+		BytesDone:       progress.BytesDone,
+		RowsImported:    progress.RowsImported,
+		ProgressPct:     progress.ProgressPct,
+		Error:           progress.Error,
+		LastAutoScanAt:  formatDateTime(metrics.LastAutoScanAt),
+		NextAutoScanAt:  formatDateTime(metrics.NextAutoScanAt),
+		AutoScanPolicy:  metrics.AutoScanPolicy,
+		AutoScanEnabled: metrics.AutoScanEnabled,
+		AutoScanMode:    metrics.AutoScanMode,
 	}
 
 	for _, state := range states {
@@ -232,7 +251,6 @@ func buildIPDistribution(metrics DashboardMetrics) IPDistribution {
 	return IPDistribution{
 		TopSourceIPs:       metrics.TopSourceIPs,
 		TopDestinationIPs:  metrics.TopDestinationIPs,
-		TopNATIPs:          metrics.TopNATIPs,
 		AddressTypeShares:  metrics.AddressTypeShares,
 		LogTagDistribution: metrics.LogTagDistribution,
 	}
@@ -246,6 +264,72 @@ func buildGeoDistribution(metrics DashboardMetrics) GeoDistribution {
 		GeoIPLoaded:        metrics.GeoIPLoaded,
 		GeoIPStatus:        metrics.GeoIPStatus,
 	}
+}
+
+func enrichGeoDistributionMetrics(metrics DashboardMetrics, engine *IPEngine) DashboardMetrics {
+	if engine == nil || len(metrics.TopCountries) > 0 {
+		return metrics
+	}
+
+	countries := make(map[string]uint64)
+	regions := make(map[string]uint64)
+	for _, item := range metrics.TopDestinationIPs {
+		if item.Name == "" || item.Value == 0 {
+			continue
+		}
+		tag := engine.GetTag(item.Name)
+		country, region := splitGeoLocation(tag.Location)
+		if country != "" {
+			countries[country] += item.Value
+		}
+		if region != "" {
+			regions[region] += item.Value
+		}
+	}
+
+	metrics.TopCountries = topDistributionItems(countries, 10)
+	metrics.TopRegions = topDistributionItems(regions, 10)
+	return metrics
+}
+
+func splitGeoLocation(location string) (string, string) {
+	location = strings.TrimSpace(location)
+	if location == "" {
+		return "", ""
+	}
+	parts := strings.Split(location, "/")
+	country := strings.TrimSpace(parts[0])
+	region := country
+	if len(parts) > 1 {
+		if right := strings.TrimSpace(parts[1]); right != "" {
+			region = right
+		}
+	}
+	return country, region
+}
+
+func topDistributionItems(values map[string]uint64, limit int) []DistributionItem {
+	if len(values) == 0 || limit <= 0 {
+		return nil
+	}
+
+	items := make([]DistributionItem, 0, len(values))
+	for name, value := range values {
+		if name == "" || value == 0 {
+			continue
+		}
+		items = append(items, DistributionItem{Name: name, Value: value})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Value == items[j].Value {
+			return items[i].Name < items[j].Name
+		}
+		return items[i].Value > items[j].Value
+	})
+	if len(items) > limit {
+		return items[:limit]
+	}
+	return items
 }
 
 func formatDate(ts time.Time) string {

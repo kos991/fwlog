@@ -2,6 +2,7 @@ import React from 'react';
 import { CalendarOutlined, CheckCircleOutlined, DatabaseOutlined, FileZipOutlined, ReloadOutlined, SyncOutlined } from '@ant-design/icons';
 import { Button, Progress, Space, Switch, Tag, Typography, message } from 'antd';
 import { apiGet, buildQueryString } from '../api';
+import { buildIngestProgressView } from '../ingestPresentation';
 
 const { Text } = Typography;
 
@@ -17,6 +18,10 @@ type DateState = {
   current_file?: string;
   error?: string;
   updated_at?: string;
+  auto_scan_policy?: string;
+  auto_scan_enabled?: boolean;
+  auto_scan_mode?: string;
+  next_auto_scan_at?: string;
 };
 
 type ProgressResponse = DateState & {
@@ -40,6 +45,11 @@ function formatCount(value?: number) {
   return new Intl.NumberFormat('zh-CN').format(value ?? 0);
 }
 
+function formatLogDate(value?: string) {
+  if (!value) return '-';
+  return value.slice(0, 10);
+}
+
 function progressStatus(status?: string) {
   if (status === 'failed') return 'exception';
   if (status === 'ready') return 'success';
@@ -54,7 +64,7 @@ export function IncrementalProgressPage() {
   const load = React.useCallback(async () => {
     try {
       setLoading(true);
-      setData(await apiGet<ProgressResponse>(`/api/ingest-progress${buildQueryString({ include_ready: includeReady })}`));
+      setData(await apiGet<ProgressResponse>(`/api/ingest-progress${buildQueryString({ range: 'all', include_ready: includeReady })}`));
     } catch (error) {
       message.error(error instanceof Error ? error.message : '加载入库进度失败');
     } finally {
@@ -67,6 +77,10 @@ export function IncrementalProgressPage() {
     const timer = window.setInterval(() => void load(), data?.status === 'importing' ? 5000 : 30000);
     return () => window.clearInterval(timer);
   }, [load, data?.status]);
+
+  const currentProgressView = buildIngestProgressView(data);
+  const nextScanText = data?.auto_scan_enabled ? data?.next_auto_scan_at || '计算中' : '未启用';
+  const scanPolicyText = data?.auto_scan_policy || (data?.auto_scan_enabled ? '配置待完善' : '未启用');
 
   return (
     <div className="page-stack">
@@ -107,8 +121,22 @@ export function IncrementalProgressPage() {
             <Text type="secondary">行数</Text>
             <strong>{formatCount(data?.rows_imported)}</strong>
           </div>
+          <div className="progress-summary-item">
+            <span className="status-icon"><SyncOutlined /></span>
+            <Text type="secondary">下次扫描</Text>
+            <strong>{nextScanText}</strong>
+          </div>
+          <div className="progress-summary-item">
+            <span className="status-icon"><CalendarOutlined /></span>
+            <Text type="secondary">扫描策略</Text>
+            <strong>{scanPolicyText}</strong>
+          </div>
         </div>
-        <Progress percent={Math.round(data?.progress_pct ?? 0)} status={progressStatus(data?.status)} />
+        <Progress
+          percent={currentProgressView.displayPercent}
+          format={() => currentProgressView.percentText}
+          status={progressStatus(data?.status)}
+        />
       </section>
 
       <section className="ops-section progress-list-card">
@@ -127,21 +155,29 @@ export function IncrementalProgressPage() {
             <span>进度</span>
             <span>当前文件 / 错误信息</span>
           </div>
-          {(data?.dates || []).map((row) => (
-            <div className="progress-list-row" key={row.log_date}>
-              <strong>{row.log_date || '-'}</strong>
-              <Tag color={row.status === 'failed' ? 'error' : row.status === 'ready' ? 'success' : 'processing'}>{statusText(row.status)}</Tag>
-              <span className="mono-number">{row.files_done ?? 0}/{row.files_total ?? 0}</span>
-              <span className="mono-number">{formatCount(row.rows_imported)}</span>
-              <div className="progress-inline">
-                <Progress percent={Math.round(row.progress_pct ?? 0)} size="small" status={progressStatus(row.status)} />
+          {(data?.dates || []).map((row) => {
+            const rowProgressView = buildIngestProgressView(row);
+            return (
+              <div className="progress-list-row" key={row.log_date}>
+                <strong>{formatLogDate(row.log_date)}</strong>
+                <Tag color={row.status === 'failed' ? 'error' : row.status === 'ready' ? 'success' : 'processing'}>{statusText(row.status)}</Tag>
+                <span className="mono-number">{row.files_done ?? 0}/{row.files_total ?? 0}</span>
+                <span className="mono-number">{formatCount(row.rows_imported)}</span>
+                <div className="progress-inline">
+                  <Progress
+                    percent={rowProgressView.displayPercent}
+                    format={() => rowProgressView.percentText}
+                    size="small"
+                    status={progressStatus(row.status)}
+                  />
+                </div>
+                <span className={row.error ? 'progress-error-text' : 'progress-muted-text'}>
+                  {row.error || row.current_file || '-'}
+                </span>
+                {row.status === 'ready' ? <CheckCircleOutlined className="progress-ready-icon" /> : null}
               </div>
-              <span className={row.error ? 'progress-error-text' : 'progress-muted-text'}>
-                {row.error || row.current_file || '-'}
-              </span>
-              {row.status === 'ready' ? <CheckCircleOutlined className="progress-ready-icon" /> : null}
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
     </div>

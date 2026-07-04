@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestReloadIPEngineKeepsOldEngineWhenPathFails(t *testing.T) {
+func TestReloadIPEngineIgnoresMissingCustomMap(t *testing.T) {
 	old := NewIPEngine()
 	next, status := ReloadIPEngine(Config{
 		IPMapEnabled:    true,
@@ -14,14 +14,14 @@ func TestReloadIPEngineKeepsOldEngineWhenPathFails(t *testing.T) {
 		GeoIPEnabled:    false,
 	}, old)
 
-	if next != old {
-		t.Fatal("failed reload should keep old engine")
+	if next == old {
+		t.Fatal("missing custom map should not block a usable engine")
 	}
-	if status.Error == "" {
-		t.Fatal("failed reload should return error status")
+	if status.Error != "" {
+		t.Fatalf("missing custom map should be non-fatal: %#v", status)
 	}
-	if status.Loaded {
-		t.Fatalf("failed reload should not be marked loaded: %#v", status)
+	if !status.Loaded {
+		t.Fatalf("reload should be marked loaded: %#v", status)
 	}
 }
 
@@ -44,5 +44,23 @@ func TestReloadIPEngineLoadsCustomMapWhenEnabled(t *testing.T) {
 	tag := next.GetTag("10.0.0.1")
 	if tag.Label != "办公终端" || tag.Location != "内网" || !tag.IsManual {
 		t.Fatalf("custom tag not loaded: %#v", tag)
+	}
+}
+
+func TestReloadIPEngineLoadsCIDRAliasOverDefaultSegment(t *testing.T) {
+	next, status := ReloadIPEngine(Config{
+		IPMapEnabled: false,
+		GeoIPEnabled: false,
+		CIDRAliases: []CIDRAliasSetting{
+			{CIDR: "2.55.80.0/24", Alias: "office", Enabled: true},
+		},
+	}, NewIPEngine())
+
+	if !status.Loaded || status.Error != "" {
+		t.Fatalf("reload status = %#v", status)
+	}
+	tag := next.GetTag("2.55.80.9")
+	if tag.Label != "office" || tag.Location != "内网" {
+		t.Fatalf("cidr alias should override default segment: %#v", tag)
 	}
 }

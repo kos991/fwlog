@@ -1,5 +1,7 @@
 package main
 
+import "fmt"
+
 type IngestStatus string
 
 const (
@@ -12,6 +14,22 @@ const (
 	StatusSucceeded IngestStatus = "succeeded"
 )
 
+func (s *IngestStatus) Scan(value any) error {
+	switch typed := value.(type) {
+	case string:
+		*s = IngestStatus(typed)
+		return nil
+	case []byte:
+		*s = IngestStatus(string(typed))
+		return nil
+	case nil:
+		*s = ""
+		return nil
+	default:
+		return fmt.Errorf("cannot scan %T into IngestStatus", value)
+	}
+}
+
 type Config struct {
 	LogDir              string
 	LogTag              string
@@ -23,6 +41,7 @@ type Config struct {
 	ClickHousePassword  string
 	CustomIPMapPath     string
 	GeoIPDBPath         string
+	CIDRAliases         []CIDRAliasSetting
 	IPMapEnabled        bool
 	GeoIPEnabled        bool
 	AutoScanEnabled     bool
@@ -32,4 +51,10 @@ type Config struct {
 	AutoScanTimezone    string
 	AutoScanJitterSec   int
 	ExportRoot          string
+}
+
+type CIDRAliasSetting struct {
+	CIDR    string `json:"cidr"`
+	Alias   string `json:"alias"`
+	Enabled bool   `json:"enabled"`
 }

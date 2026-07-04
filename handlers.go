@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 )
 
@@ -62,7 +63,19 @@ func NewIPDataReloadHandler(service securityServicer) http.Handler {
 func (h QueryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	response, err := h.service.Query(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		var queryErr *QueryError
+		if errors.As(err, &queryErr) {
+			status := queryErr.Status
+			if status == 0 {
+				status = http.StatusBadRequest
+			}
+			writeJSONStatus(w, status, queryErr)
+			return
+		}
+		writeJSONStatus(w, http.StatusBadRequest, map[string]any{
+			"error":   "bad_request",
+			"message": err.Error(),
+		})
 		return
 	}
 

@@ -14,6 +14,13 @@ type ClickHouseStore struct {
 	conn clickhouse.Conn
 }
 
+type QuerySortMode string
+
+const (
+	QuerySortFast     QuerySortMode = "fast"
+	QuerySortTimeDesc QuerySortMode = "time_desc"
+)
+
 func OpenClickHouse(ctx context.Context, cfg Config) (*ClickHouseStore, error) {
 	conn, err := clickhouse.Open(&clickhouse.Options{
 		Addr: []string{cfg.ClickHouseAddr},
@@ -53,7 +60,7 @@ func (s *ClickHouseStore) ListDateStates(ctx context.Context, since time.Time) (
 		since = time.Date(1970, 1, 1, 0, 0, 0, 0, time.Local)
 	}
 
-	rows, err := s.conn.Query(ctx, DateStateListQuery(), since)
+	rows, err := s.conn.Query(ctx, DateStateListQuery(), dateKey(startOfDay(since)))
 	if err != nil {
 		return nil, err
 	}
@@ -87,28 +94,21 @@ func (s *ClickHouseStore) ListDateStates(ctx context.Context, since time.Time) (
 	return states, rows.Err()
 }
 
-func (s *ClickHouseStore) QueryNATLogs(ctx context.Context, baseSQL string, args []any, page, pageSize int) ([]map[string]any, error) {
-	if page <= 0 {
-		page = 1
-	}
-	if pageSize <= 0 {
-		pageSize = 50
-	}
-	if pageSize > 500 {
-		pageSize = 500
-	}
-
-	offset := (page - 1) * pageSize
-	sql := baseSQL + " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
-	queryArgs := append(append([]any{}, args...), pageSize, offset)
+func (s *ClickHouseStore) QueryNATLogs(ctx context.Context, baseSQL string, args []any, options QueryPageOptions, sortMode QuerySortMode) ([]map[string]any, bool, error) {
+	sql, queryArgs := queryNATLogsPageSQL(baseSQL, args, options, sortMode)
 
 	rows, err := s.conn.Query(ctx, sql, queryArgs...)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer rows.Close()
 
-	records := make([]map[string]any, 0, pageSize)
+	pageSize := normalizeQueryPageSize(options.PageSize)
+	limit := pageSize
+	if usesCursorPagination(options) {
+		limit++
+	}
+	records := make([]map[string]any, 0, limit)
 	for rows.Next() {
 		var (
 			sourceID     string
@@ -147,7 +147,7 @@ func (s *ClickHouseStore) QueryNATLogs(ctx context.Context, baseSQL string, args
 			&batchID,
 			&ingestedAt,
 		); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 
 		records = append(records, map[string]any{
@@ -162,7 +162,7 @@ func (s *ClickHouseStore) QueryNATLogs(ctx context.Context, baseSQL string, args
 			"dst_port":      dstPort,
 			"nat_ip":        ipString(natIP),
 			"nat_port":      natPort,
-			"protocol":      protocol,
+			"protocol":      normalizeProtocol(protocol),
 			"action":        action,
 			"source_file":   sourceFile,
 			"source_offset": sourceOffset,
@@ -170,13 +170,69 @@ func (s *ClickHouseStore) QueryNATLogs(ctx context.Context, baseSQL string, args
 			"ingested_at":   formatDateTime(ingestedAt),
 		})
 	}
-	return records, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	hasMore := usesCursorPagination(options) && len(records) > pageSize
+	if hasMore {
+		records = records[:pageSize]
+	}
+	return records, hasMore, nil
 }
 
-func (s *ClickHouseStore) DashboardMetrics(ctx context.Context) (DashboardMetrics, error) {
+func queryNATLogsPageSQL(baseSQL string, args []any, options QueryPageOptions, sortMode QuerySortMode) (string, []any) {
+	page := normalizeQueryPage(options.Page)
+	pageSize := normalizeQueryPageSize(options.PageSize)
+
+	offset := (page - 1) * pageSize
+	sql := baseSQL
+	queryArgs := append([]any{}, args...)
+	if options.Cursor != nil {
+		sql += " AND (timestamp < ? OR (timestamp = ? AND (source_id, source_file, source_offset) < (?, ?, ?)))"
+		queryArgs = append(queryArgs, options.Cursor.Timestamp, options.Cursor.Timestamp, options.Cursor.SourceID, options.Cursor.SourceFile, options.Cursor.SourceOffset)
+	}
+	if sortMode == QuerySortTimeDesc {
+		sql += " ORDER BY timestamp DESC, source_id DESC, source_file DESC, source_offset DESC"
+	}
+	if usesCursorPagination(options) {
+		sql += " LIMIT ?"
+		queryArgs = append(queryArgs, pageSize+1)
+		return sql, queryArgs
+	}
+	sql += " LIMIT ? OFFSET ?"
+	queryArgs = append(queryArgs, pageSize, offset)
+	return sql, queryArgs
+}
+
+func normalizeQueryPage(page int) int {
+	if page <= 0 {
+		return 1
+	}
+	return page
+}
+
+func normalizeQueryPageSize(pageSize int) int {
+	if pageSize <= 0 {
+		return 50
+	}
+	if pageSize > 500 {
+		return 500
+	}
+	return pageSize
+}
+
+func usesCursorPagination(options QueryPageOptions) bool {
+	return options.Cursor != nil || normalizeQueryPage(options.Page) <= 1
+}
+
+func (s *ClickHouseStore) DashboardMetrics(ctx context.Context, distributionSince time.Time, includeDistributions bool) (DashboardMetrics, error) {
 	var metrics DashboardMetrics
 
 	var err error
+	metrics.ClickHouseDiskUsedBytes, err = s.clickHouseDiskUsedBytes(ctx)
+	if err != nil {
+		return DashboardMetrics{}, err
+	}
 	metrics.TodayRows, err = s.countRowsForDate(ctx, time.Now())
 	if err != nil {
 		return DashboardMetrics{}, err
@@ -186,24 +242,38 @@ func (s *ClickHouseStore) DashboardMetrics(ctx context.Context) (DashboardMetric
 		return DashboardMetrics{}, err
 	}
 
-	metrics.TopSourceIPs, err = s.distribution(ctx, "src_ip")
+	if !includeDistributions {
+		return metrics, nil
+	}
+
+	metrics.TopSourceIPs, err = s.distribution(ctx, "src_ip", distributionSince)
 	if err != nil {
 		return DashboardMetrics{}, err
 	}
-	metrics.TopDestinationIPs, err = s.distribution(ctx, "dst_ip")
+	metrics.TopDestinationIPs, err = s.distribution(ctx, "dst_ip", distributionSince)
 	if err != nil {
 		return DashboardMetrics{}, err
 	}
-	metrics.TopNATIPs, err = s.distribution(ctx, "nat_ip")
-	if err != nil {
-		return DashboardMetrics{}, err
-	}
-	metrics.LogTagDistribution, err = s.distribution(ctx, "log_tag")
+	metrics.LogTagDistribution, err = s.distribution(ctx, "log_tag", distributionSince)
 	if err != nil {
 		return DashboardMetrics{}, err
 	}
 
 	return metrics, nil
+}
+
+func (s *ClickHouseStore) clickHouseDiskUsedBytes(ctx context.Context) (uint64, error) {
+	var bytes uint64
+	err := s.conn.QueryRow(ctx, ClickHouseDiskUsageSQL()).Scan(&bytes)
+	return bytes, err
+}
+
+func ClickHouseDiskUsageSQL() string {
+	return `SELECT toUInt64(coalesce(sum(bytes_on_disk), 0))
+FROM system.parts
+WHERE active
+  AND database = currentDatabase()
+  AND table IN ('nat_logs', 'ingest_dates', 'ingest_files', 'app_settings', 'log_sources')`
 }
 
 func (s *ClickHouseStore) countRowsForDate(ctx context.Context, date time.Time) (uint64, error) {
@@ -212,15 +282,13 @@ func (s *ClickHouseStore) countRowsForDate(ctx context.Context, date time.Time) 
 	return count, err
 }
 
-func (s *ClickHouseStore) distribution(ctx context.Context, column string) ([]DistributionItem, error) {
-	switch column {
-	case "src_ip", "dst_ip", "nat_ip", "log_tag":
-	default:
-		return nil, fmt.Errorf("unsupported distribution column %q", column)
+func (s *ClickHouseStore) distribution(ctx context.Context, column string, since time.Time) ([]DistributionItem, error) {
+	sql, args, err := distributionSQL(column, since)
+	if err != nil {
+		return nil, err
 	}
 
-	sql := fmt.Sprintf("SELECT toString(%s) AS name, count() AS value FROM nat_logs GROUP BY %s ORDER BY value DESC LIMIT 10", column, column)
-	rows, err := s.conn.Query(ctx, sql)
+	rows, err := s.conn.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -235,6 +303,24 @@ func (s *ClickHouseStore) distribution(ctx context.Context, column string) ([]Di
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func distributionSQL(column string, since time.Time) (string, []any, error) {
+	switch column {
+	case "src_ip", "dst_ip", "nat_ip", "log_tag":
+	default:
+		return "", nil, fmt.Errorf("unsupported distribution column %q", column)
+	}
+
+	args := make([]any, 0, 1)
+	where := ""
+	if !since.IsZero() {
+		where = " WHERE log_date >= ?"
+		args = append(args, startOfDay(since))
+	}
+
+	sql := fmt.Sprintf("SELECT toString(%s) AS name, count() AS value FROM nat_logs%s GROUP BY %s ORDER BY value DESC LIMIT 10", column, where, column)
+	return sql, args, nil
 }
 
 func ipString(ip net.IP) string {

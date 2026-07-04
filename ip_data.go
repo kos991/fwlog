@@ -1,6 +1,11 @@
 package main
 
-import "time"
+import (
+	"errors"
+	"os"
+	"strings"
+	"time"
+)
 
 type IPDataStatus struct {
 	Loaded        bool      `json:"loaded"`
@@ -22,10 +27,26 @@ func ReloadIPEngine(cfg Config, old *IPEngine) (*IPEngine, IPDataStatus) {
 	}
 
 	next := NewIPEngine()
-	if cfg.IPMapEnabled {
-		if err := next.LoadCustomMap(cfg.CustomIPMapPath); err != nil {
+	for _, item := range cfg.CIDRAliases {
+		if !item.Enabled {
+			continue
+		}
+		cidr := strings.TrimSpace(item.CIDR)
+		alias := strings.TrimSpace(item.Alias)
+		if cidr == "" || alias == "" {
+			continue
+		}
+		if err := next.AddSegment(cidr, alias); err != nil {
 			status.Error = err.Error()
 			return oldOrNewEngine(old, next), status
+		}
+	}
+	if cfg.IPMapEnabled {
+		if err := next.LoadCustomMap(cfg.CustomIPMapPath); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				status.Error = err.Error()
+				return oldOrNewEngine(old, next), status
+			}
 		}
 	}
 	if cfg.GeoIPEnabled {

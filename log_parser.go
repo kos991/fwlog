@@ -9,21 +9,19 @@ import (
 )
 
 var (
-	defaultIPv4Addr     = netip.MustParseAddr("0.0.0.0")
-	natLineTimePattern  = regexp.MustCompile(`^(\d{4}\s+[A-Za-z]{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})`)
-	natFieldPatterns    = []struct {
-		key   string
-		regex *regexp.Regexp
-	}{
-		{key: "src_ip", regex: regexp.MustCompile(`源IP:\s*([0-9.]+)`)},
-		{key: "src_port", regex: regexp.MustCompile(`源端口:\s*(\d+)`)},
-		{key: "dst_ip", regex: regexp.MustCompile(`目的IP:\s*([0-9.]+)`)},
-		{key: "dst_port", regex: regexp.MustCompile(`目的端口:\s*(\d+)`)},
-		{key: "protocol", regex: regexp.MustCompile(`协议:\s*([^\s]+)`)},
-		{key: "nat_ip", regex: regexp.MustCompile(`转换后的IP:\s*([0-9.]+)`)},
-		{key: "nat_port", regex: regexp.MustCompile(`转换后的端口:\s*(\d+)`)},
-		{key: "action", regex: regexp.MustCompile(`动作:\s*([^\s]+)`)},
-	}
+	defaultIPv4Addr    = netip.MustParseAddr("0.0.0.0")
+	natLineTimePattern = regexp.MustCompile(`^(\d{4}\s+[A-Za-z]{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})`)
+)
+
+const (
+	natLabelSrcIP    = "源IP:"
+	natLabelSrcPort  = "源端口:"
+	natLabelDstIP    = "目的IP:"
+	natLabelDstPort  = "目的端口:"
+	natLabelProtocol = "协议:"
+	natLabelNATIP    = "转换后的IP:"
+	natLabelNATPort  = "转换后的端口:"
+	natLabelAction   = "动作:"
 )
 
 type ParseMeta struct {
@@ -69,42 +67,53 @@ func ParseNATLine(line string, meta ParseMeta) (NATLogRow, bool) {
 		BatchID:      meta.BatchID,
 	}
 
-	fields := make(map[string]string, len(natFieldPatterns))
-	matchedField := false
-	for _, pattern := range natFieldPatterns {
-		matches := pattern.regex.FindStringSubmatch(line)
-		if len(matches) != 2 {
-			continue
-		}
-		fields[pattern.key] = strings.TrimSpace(matches[1])
-		matchedField = true
-	}
-	if !matchedField {
+	srcIPRaw := extractField(line, natLabelSrcIP)
+	srcPortRaw := extractField(line, natLabelSrcPort)
+	dstIPRaw := extractField(line, natLabelDstIP)
+	dstPortRaw := extractField(line, natLabelDstPort)
+	protocolRaw := extractField(line, natLabelProtocol)
+	natIPRaw := extractField(line, natLabelNATIP)
+	natPortRaw := extractField(line, natLabelNATPort)
+	actionRaw := extractField(line, natLabelAction)
+
+	if srcIPRaw == "" && srcPortRaw == "" && dstIPRaw == "" && dstPortRaw == "" &&
+		protocolRaw == "" && natIPRaw == "" && natPortRaw == "" && actionRaw == "" {
 		return NATLogRow{}, false
 	}
 
 	if ts, ok := parseNATTimestamp(line, meta.LogDate); ok {
 		row.Timestamp = ts
 	}
-	if srcIP, ok := parseIPv4(fields["src_ip"]); ok {
+	if srcIP, ok := parseIPv4(srcIPRaw); ok {
 		row.SrcIP = srcIP
 	}
-	if dstIP, ok := parseIPv4(fields["dst_ip"]); ok {
+	if dstIP, ok := parseIPv4(dstIPRaw); ok {
 		row.DstIP = dstIP
 	}
-	if natIP, ok := parseIPv4(fields["nat_ip"]); ok {
+	if natIP, ok := parseIPv4(natIPRaw); ok {
 		row.NATIP = natIP
 	}
 
-	row.SrcPort = parseUint16(fields["src_port"])
-	row.DstPort = parseUint16(fields["dst_port"])
-	row.NATPort = parseUint16(fields["nat_port"])
-	row.Protocol = fields["protocol"]
-	if action := fields["action"]; action != "" {
-		row.Action = action
+	row.SrcPort = parseUint16(srcPortRaw)
+	row.DstPort = parseUint16(dstPortRaw)
+	row.NATPort = parseUint16(natPortRaw)
+	row.Protocol = normalizeProtocol(protocolRaw)
+	if actionRaw != "" {
+		row.Action = actionRaw
 	}
 
 	return row, true
+}
+
+func extractField(line, label string) string {
+	_, after, found := strings.Cut(line, label)
+	if !found {
+		return ""
+	}
+
+	after = strings.TrimLeft(after, " \t")
+	value, _, _ := strings.Cut(after, " ")
+	return strings.Trim(value, ",;\r\n\t ")
 }
 
 func parseNATTimestamp(line string, fallbackDate time.Time) (time.Time, bool) {
@@ -132,6 +141,21 @@ func parseIPv4(raw string) (netip.Addr, bool) {
 	}
 
 	return addr, true
+}
+
+func normalizeProtocol(raw string) string {
+	value := strings.TrimSpace(raw)
+	value = strings.Trim(value, ",;")
+	switch strings.ToUpper(value) {
+	case "6", "TCP":
+		return "TCP"
+	case "17", "UDP":
+		return "UDP"
+	case "1", "ICMP":
+		return "ICMP"
+	default:
+		return strings.ToUpper(value)
+	}
 }
 
 func parseUint16(raw string) uint16 {

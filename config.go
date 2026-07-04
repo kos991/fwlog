@@ -30,7 +30,7 @@ func LoadConfig() Config {
 		IPMapEnabled:        getEnvBool("IP_MAP_ENABLED", true),
 		GeoIPEnabled:        getEnvBool("GEOIP_ENABLED", true),
 		AutoScanEnabled:     getEnvBool("AUTO_SCAN_ENABLED", false),
-		AutoScanMode:        getEnv("AUTO_SCAN_MODE", "hourly"),
+		AutoScanMode:        getEnv("AUTO_SCAN_MODE", "daily"),
 		AutoScanTimes:       getEnv("AUTO_SCAN_TIMES", "01:00"),
 		AutoScanIntervalSec: getEnvInt("AUTO_SCAN_INTERVAL_SEC", defaultAutoScanSec),
 		AutoScanTimezone:    getEnv("AUTO_SCAN_TIMEZONE", "Asia/Shanghai"),

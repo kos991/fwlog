@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // 这些路由测试依赖 `web/dist/index.html` 和打包后的 `/assets/*` 文件；
@@ -192,6 +194,21 @@ func TestRouterPasswordChangeRequiresCurrentPassword(t *testing.T) {
 		t.Fatalf("password change status = %d, body = %s", changeRes.Code, changeRes.Body.String())
 	}
 
+	sessionReq := httptest.NewRequest(http.MethodGet, "/api/session", nil)
+	sessionReq.AddCookie(cookies[0])
+	sessionRes := httptest.NewRecorder()
+	router.ServeHTTP(sessionRes, sessionReq)
+	if sessionRes.Code != http.StatusOK {
+		t.Fatalf("session status = %d, body = %s", sessionRes.Code, sessionRes.Body.String())
+	}
+	var sessionPayload SessionResponse
+	if err := json.NewDecoder(sessionRes.Body).Decode(&sessionPayload); err != nil {
+		t.Fatalf("decode session response: %v", err)
+	}
+	if sessionPayload.Authenticated {
+		t.Fatalf("password change should clear current session: %#v", sessionPayload)
+	}
+
 	oldLoginReq := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewBufferString(`{"password":"admin"}`))
 	oldLoginReq.Header.Set("Content-Type", "application/json")
 	oldLoginRes := httptest.NewRecorder()
@@ -249,6 +266,27 @@ func TestRouterLegacyAPIsReturnNotFound(t *testing.T) {
 	}
 }
 
+func TestIngestProgressSinceSupportsAllRange(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/ingest-progress?range=all", nil)
+	got := ingestProgressSince(req)
+	want := time.Date(1970, 1, 1, 0, 0, 0, 0, time.Local)
+	if !got.Equal(want) {
+		t.Fatalf("ingestProgressSince(range=all) = %v, want %v", got, want)
+	}
+}
+
+func TestDashboardMetricsSinceCanUseSeparateRange(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/health-dashboard?range=all&metrics_range=30d", nil)
+	got := dashboardMetricsSince(req)
+	all := time.Date(1970, 1, 1, 0, 0, 0, 0, time.Local)
+	if got.Equal(all) {
+		t.Fatalf("dashboardMetricsSince should use metrics_range instead of range=all")
+	}
+	if time.Since(got) < 29*24*time.Hour || time.Since(got) > 31*24*time.Hour {
+		t.Fatalf("dashboardMetricsSince = %v, want about 30 days ago", got)
+	}
+}
+
 func TestRouterAPIRootDoesNotFallBackToSPA(t *testing.T) {
 	app := NewApp(LoadConfig())
 	router := app.Router()
@@ -265,7 +303,173 @@ func TestRouterAPIRootDoesNotFallBackToSPA(t *testing.T) {
 	}
 }
 
-func TestRouterReloadIPDataReturnsFailureStatusWhenCustomMapLoadFails(t *testing.T) {
+func TestUpdateSettingsStoresStructuredValuesAsJSON(t *testing.T) {
+	app := NewApp(LoadConfig())
+	app.updateSettings(map[string]any{
+		"log_sources": []any{
+			map[string]any{
+				"source_id": "fw-a",
+				"log_tag":   "出口防火墙",
+				"log_dir":   "/data/fw-a",
+				"enabled":   true,
+			},
+		},
+	})
+
+	raw := app.getSettings()["log_sources"]
+	if strings.Contains(raw, "map[") {
+		t.Fatalf("structured settings must not be stored as Go fmt strings: %q", raw)
+	}
+
+	var sources []LogSource
+	if err := json.Unmarshal([]byte(raw), &sources); err != nil {
+		t.Fatalf("log_sources should be valid JSON, got %q: %v", raw, err)
+	}
+	if len(sources) != 1 || sources[0].SourceID != "fw-a" || sources[0].LogDir != "/data/fw-a" {
+		t.Fatalf("decoded sources = %#v", sources)
+	}
+}
+
+func TestRouterSettingsSaveDoesNotStartImportForEnabledLogSources(t *testing.T) {
+	app := NewApp(LoadConfig())
+	app.mu.Lock()
+	app.store = &ClickHouseStore{}
+	app.mu.Unlock()
+
+	started := make(chan struct{}, 1)
+	app.importRunner = func(_ context.Context, _ *ClickHouseStore, _ LogSource, _ bool) ([]string, []string, error) {
+		started <- struct{}{}
+		return []string{"2026-07-01"}, nil, nil
+	}
+	router := app.Router()
+
+	body := `{"log_sources":[{"source_id":"fw-a","log_tag":"edge-a","log_dir":"/data/fw-a","enabled":true},{"source_id":"fw-b","log_tag":"edge-b","log_dir":"/data/fw-b","enabled":false}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/settings", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("settings status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	select {
+	case <-started:
+		t.Fatal("saving settings must not start background import")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	settings := app.getSettings()
+	if !strings.Contains(settings["log_sources"], `"source_id":"fw-a"`) {
+		t.Fatalf("settings should persist log_sources, got %q", settings["log_sources"])
+	}
+}
+
+func TestRouterSyncUsesAllEnabledLogSources(t *testing.T) {
+	app := NewApp(LoadConfig())
+	app.mu.Lock()
+	app.store = &ClickHouseStore{}
+	app.mu.Unlock()
+	app.updateSettings(map[string]any{
+		"log_sources": []any{
+			map[string]any{"source_id": "fw-a", "log_tag": "edge-a", "log_dir": "/data/fw-a", "enabled": true},
+			map[string]any{"source_id": "fw-b", "log_tag": "edge-b", "log_dir": "/data/fw-b", "enabled": true},
+			map[string]any{"source_id": "fw-c", "log_tag": "edge-c", "log_dir": "/data/fw-c", "enabled": false},
+		},
+	})
+
+	importedSources := make(chan string, 2)
+	app.importRunner = func(_ context.Context, _ *ClickHouseStore, source LogSource, _ bool) ([]string, []string, error) {
+		importedSources <- source.SourceID
+		return []string{"2026-07-01"}, nil, nil
+	}
+	router := app.Router()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/sync", nil)
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusAccepted {
+		t.Fatalf("sync status = %d, body = %s", res.Code, res.Body.String())
+	}
+	got := make([]string, 0, 2)
+	for len(got) < 2 {
+		select {
+		case sourceID := <-importedSources:
+			got = append(got, sourceID)
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for enabled sources, got %#v", got)
+		}
+	}
+	if strings.Join(got, ",") != "fw-a,fw-b" {
+		t.Fatalf("imported sources = %#v", got)
+	}
+}
+
+func TestRouterSyncReturnsInProgressWhenBackgroundImportIsRunning(t *testing.T) {
+	app := NewApp(LoadConfig())
+	app.mu.Lock()
+	app.store = &ClickHouseStore{}
+	app.mu.Unlock()
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	runs := 0
+	app.importRunner = func(_ context.Context, _ *ClickHouseStore, _ LogSource, _ bool) ([]string, []string, error) {
+		runs++
+		if runs == 1 {
+			close(started)
+			<-release
+		}
+		return nil, nil, nil
+	}
+	router := app.Router()
+
+	app.updateSettings(map[string]any{
+		"log_sources": []any{
+			map[string]any{"source_id": "fw-a", "log_tag": "edge-a", "log_dir": "/data/fw-a", "enabled": true},
+		},
+	})
+
+	firstSyncReq := httptest.NewRequest(http.MethodPost, "/api/sync", nil)
+	firstSyncRes := httptest.NewRecorder()
+	router.ServeHTTP(firstSyncRes, firstSyncReq)
+	if firstSyncRes.Code != http.StatusAccepted {
+		t.Fatalf("first sync status = %d, body = %s", firstSyncRes.Code, firstSyncRes.Body.String())
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("background import did not start")
+	}
+	defer close(release)
+
+	syncReq := httptest.NewRequest(http.MethodPost, "/api/sync", nil)
+	syncRes := httptest.NewRecorder()
+	router.ServeHTTP(syncRes, syncReq)
+
+	if syncRes.Code != http.StatusAccepted {
+		t.Fatalf("sync status = %d, want 202, body = %s", syncRes.Code, syncRes.Body.String())
+	}
+	if runs != 1 {
+		t.Fatalf("sync should not start another import while one is running, runs = %d", runs)
+	}
+}
+
+func TestCurrentLogSourcesDoesNotFallbackWhenConfiguredSourcesAreDisabled(t *testing.T) {
+	app := NewApp(LoadConfig())
+	app.updateSettings(map[string]any{
+		"log_sources": []any{
+			map[string]any{"source_id": "fw-a", "log_tag": "edge-a", "log_dir": "/data/fw-a", "enabled": false},
+		},
+	})
+
+	if sources := app.currentLogSources(); len(sources) != 0 {
+		t.Fatalf("disabled configured sources should not fall back to default source: %#v", sources)
+	}
+}
+
+func TestRouterReloadIPDataIgnoresMissingCustomMap(t *testing.T) {
 	app := NewApp(LoadConfig())
 	app.updateSettings(map[string]any{
 		"custom_ip_map_path": "Z:/missing/custom.csv",
@@ -287,14 +491,14 @@ func TestRouterReloadIPDataReturnsFailureStatusWhenCustomMapLoadFails(t *testing
 	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode reload response: %v", err)
 	}
-	if payload.Loaded {
-		t.Fatalf("reload response should not claim success: %#v", payload)
+	if !payload.Loaded {
+		t.Fatalf("reload response should claim usable engine: %#v", payload)
 	}
-	if payload.Error == "" {
-		t.Fatalf("reload response should include error: %#v", payload)
+	if payload.Error != "" {
+		t.Fatalf("missing custom map should be non-fatal: %#v", payload)
 	}
-	if app.ipEngine != originalEngine {
-		t.Fatal("failed reload should keep the previous engine")
+	if app.ipEngine == originalEngine {
+		t.Fatal("reload should install a fresh usable engine")
 	}
 }
 

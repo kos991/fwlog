@@ -30,6 +30,8 @@ func TestQueryHandlerReturnsQueryResponseContract(t *testing.T) {
 			Total:       1,
 			Page:        3,
 			PageSize:    25,
+			NextCursor:  "next-token",
+			HasMore:     true,
 			QueryTimeMS: 18,
 			Visibility:  visibility,
 		},
@@ -52,6 +54,8 @@ func TestQueryHandlerReturnsQueryResponseContract(t *testing.T) {
 		"total":         {},
 		"page":          {},
 		"page_size":     {},
+		"next_cursor":   {},
+		"has_more":      {},
 		"query_time_ms": {},
 		"visibility":    {},
 	} {
@@ -61,6 +65,35 @@ func TestQueryHandlerReturnsQueryResponseContract(t *testing.T) {
 	}
 	if payload["total"].(float64) != 1 || payload["page"].(float64) != 3 || payload["page_size"].(float64) != 25 || payload["query_time_ms"].(float64) != 18 {
 		t.Fatalf("unexpected pagination payload: %#v", payload)
+	}
+	if payload["next_cursor"] != "next-token" || payload["has_more"] != true {
+		t.Fatalf("unexpected cursor payload: %#v", payload)
+	}
+}
+
+func TestQueryHandlerReturnsStructuredQueryError(t *testing.T) {
+	handler := NewQueryHandler(fakeQueryService{
+		err: &QueryError{
+			Code:    "query_busy",
+			Message: "查询并发过高，请稍后重试",
+			Status:  http.StatusTooManyRequests,
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/query", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	var payload map[string]any
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload["error"] != "query_busy" || payload["message"] == "" {
+		t.Fatalf("unexpected error payload: %#v", payload)
 	}
 }
 

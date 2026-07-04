@@ -1,7 +1,11 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -230,7 +234,7 @@ func TestBuildQuerySQLBuildsVisibleDatePredicatesAndParameterizedFilters(t *test
 	for _, want := range []string{
 		"(src_ip = ? OR dst_ip = ? OR nat_ip = ?)",
 		"(src_port = ? OR dst_port = ? OR nat_port = ?)",
-		"protocol = ?",
+		"protocol IN (?, ?, ?)",
 		"action = ?",
 		"log_tag = ?",
 	} {
@@ -253,6 +257,8 @@ func TestBuildQuerySQLBuildsVisibleDatePredicatesAndParameterizedFilters(t *test
 		uint16(8443),
 		uint16(8443),
 		"TCP",
+		"6",
+		"6,",
 		"allow",
 		"edge-a",
 	}
@@ -266,12 +272,131 @@ func TestBuildQuerySQLBuildsVisibleDatePredicatesAndParameterizedFilters(t *test
 	}
 }
 
+func TestQueryCursorRoundTripsAsBase64URLJSON(t *testing.T) {
+	cursor := QueryCursor{
+		Timestamp:    time.Date(2026, 7, 4, 12, 0, 0, 0, time.Local),
+		SourceID:     "default",
+		SourceFile:   "fw.log-20260704",
+		SourceOffset: 123456,
+	}
+
+	encoded, err := encodeQueryCursor(cursor)
+	if err != nil {
+		t.Fatalf("encodeQueryCursor returned error: %v", err)
+	}
+	if strings.ContainsAny(encoded, "+/=") {
+		t.Fatalf("cursor should use raw base64url encoding: %q", encoded)
+	}
+
+	decoded, err := decodeQueryCursor(encoded)
+	if err != nil {
+		t.Fatalf("decodeQueryCursor returned error: %v", err)
+	}
+	if !decoded.Timestamp.Equal(cursor.Timestamp) || decoded.SourceID != cursor.SourceID || decoded.SourceFile != cursor.SourceFile || decoded.SourceOffset != cursor.SourceOffset {
+		t.Fatalf("decoded cursor = %#v, want %#v", decoded, cursor)
+	}
+}
+
+func TestValidateQueryProtectionRejectsBroadUnfilteredQuery(t *testing.T) {
+	req := QueryRequest{
+		Start: time.Date(2026, 7, 1, 0, 0, 0, 0, time.Local),
+		End:   time.Date(2026, 7, 3, 0, 0, 0, 0, time.Local),
+	}
+
+	err := validateQueryProtection(req, QueryPageOptions{Page: 1, PageSize: 100})
+	if err == nil {
+		t.Fatal("validateQueryProtection should reject broad unfiltered query")
+	}
+	var queryErr *QueryError
+	if !errors.As(err, &queryErr) {
+		t.Fatalf("error = %T %v, want QueryError", err, err)
+	}
+	if queryErr.Code != "query_too_broad" || queryErr.Status != 400 {
+		t.Fatalf("query error = %#v", queryErr)
+	}
+}
+
+func TestValidateQueryProtectionAllowsFilteredSevenDayQuery(t *testing.T) {
+	req := QueryRequest{
+		Start: time.Date(2026, 7, 1, 0, 0, 0, 0, time.Local),
+		End:   time.Date(2026, 7, 8, 0, 0, 0, 0, time.Local),
+		SrcIP: "2.55.80.66",
+	}
+
+	if err := validateQueryProtection(req, QueryPageOptions{Page: 1, PageSize: 100}); err != nil {
+		t.Fatalf("filtered seven-day query should be allowed: %v", err)
+	}
+}
+
+func TestValidateQueryProtectionRejectsDeepLegacyPage(t *testing.T) {
+	req := QueryRequest{
+		Start: time.Date(2026, 7, 1, 0, 0, 0, 0, time.Local),
+		End:   time.Date(2026, 7, 1, 1, 0, 0, 0, time.Local),
+		SrcIP: "2.55.80.66",
+	}
+
+	err := validateQueryProtection(req, QueryPageOptions{Page: 21, PageSize: 100})
+	if err == nil {
+		t.Fatal("deep legacy pagination should be rejected")
+	}
+	var queryErr *QueryError
+	if !errors.As(err, &queryErr) || queryErr.Code != "query_too_broad" {
+		t.Fatalf("error = %#v, want query_too_broad", err)
+	}
+}
+
+func TestAcquireQuerySlotRejectsWhenBusy(t *testing.T) {
+	app := &App{querySem: make(chan struct{}, 1)}
+	app.querySem <- struct{}{}
+	service := appQueryService{app: app}
+
+	_, err := service.acquireQuerySlot(context.Background())
+	if err == nil {
+		t.Fatal("acquireQuerySlot should reject when the query semaphore is full")
+	}
+	var queryErr *QueryError
+	if !errors.As(err, &queryErr) {
+		t.Fatalf("error = %T %v, want QueryError", err, err)
+	}
+	if queryErr.Code != "query_busy" || queryErr.Status != http.StatusTooManyRequests {
+		t.Fatalf("query error = %#v", queryErr)
+	}
+}
+
+func TestEnrichQueryRecordsAddsLabelsAndNormalizesProtocol(t *testing.T) {
+	engine := NewIPEngine()
+	if err := engine.AddSegment("2.55.80.0/24", "办公网络"); err != nil {
+		t.Fatalf("add segment: %v", err)
+	}
+	records := []map[string]any{
+		{
+			"src_ip":   "2.55.80.9",
+			"dst_ip":   "8.8.8.8",
+			"protocol": "6,",
+		},
+	}
+
+	enrichQueryRecords(records, engine)
+
+	if records[0]["src_ip_label"] != "办公网络" {
+		t.Fatalf("source label not enriched: %#v", records[0])
+	}
+	if records[0]["protocol"] != "TCP" {
+		t.Fatalf("protocol not normalized: %#v", records[0])
+	}
+	if records[0]["dst_geo"] == "" {
+		t.Fatalf("destination geo should be filled: %#v", records[0])
+	}
+}
+
 func TestQueryResponseJSONFields(t *testing.T) {
 	resp := QueryResponse{
 		Records:     []map[string]any{{"id": 1, "src_ip": "10.0.0.1"}},
 		Total:       12,
 		Page:        2,
 		PageSize:    50,
+		NextCursor:  "next-token",
+		HasMore:     true,
 		QueryTimeMS: 37,
 		Visibility: QueryVisibility{
 			Partial: true,
@@ -290,12 +415,26 @@ func TestQueryResponseJSONFields(t *testing.T) {
 		"\"total\"",
 		"\"page\"",
 		"\"page_size\"",
+		"\"next_cursor\"",
+		"\"has_more\"",
 		"\"query_time_ms\"",
 		"\"visibility\"",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("response json missing %s: %s", want, text)
 		}
+	}
+}
+
+func TestParseQueryRequestFallsBackWhenPageSizeAll(t *testing.T) {
+	r := httptest.NewRequest("GET", "/api/query?start=2026-06-10&end=2026-06-10&page_size=all", nil)
+
+	_, _, pageSize, err := parseQueryRequest(r)
+	if err != nil {
+		t.Fatalf("parseQueryRequest returned error: %v", err)
+	}
+	if pageSize != 50 {
+		t.Fatalf("pageSize = %d, want fallback 50", pageSize)
 	}
 }
 

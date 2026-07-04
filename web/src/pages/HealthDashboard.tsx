@@ -1,15 +1,18 @@
 import React from 'react';
 import {
   CalendarOutlined,
+  ClockCircleOutlined,
   CloudUploadOutlined,
   DatabaseOutlined,
   FieldTimeOutlined,
   FileZipOutlined,
   HddOutlined,
+  InboxOutlined,
   SyncOutlined,
 } from '@ant-design/icons';
 import { Progress, Segmented, Tag, message } from 'antd';
 import { apiGet, type DistributionItem } from '../api';
+import { buildIngestProgressView } from '../ingestPresentation';
 
 type HealthDashboardResponse = {
   data_health: {
@@ -39,11 +42,18 @@ type HealthDashboardResponse = {
     progress_pct: number;
     error: string;
     next_auto_scan_at: string;
+    auto_scan_policy?: string;
+    auto_scan_enabled?: boolean;
+    auto_scan_mode?: string;
+    last_updated_at: string;
+    last_successful_ingest_at: string;
+    elapsed_sec: number;
+    eta_sec: number;
   };
   ip_distribution: {
     top_source_ips: DistributionItem[];
     top_destination_ips: DistributionItem[];
-    top_nat_ips: DistributionItem[];
+    top_nat_ips?: DistributionItem[];
     address_type_shares: DistributionItem[];
     log_tag_distribution: DistributionItem[];
   };
@@ -60,7 +70,7 @@ type HealthDashboardProps = {
   onOpenProgress: () => void;
 };
 
-type RankingKey = 'source' | 'destination' | 'nat' | 'country';
+type RankingKey = 'source' | 'destination' | 'country';
 
 type RankingRow = DistributionItem & {
   rank: number;
@@ -238,13 +248,18 @@ function CompactRankingPanel(props: {
           options={[
             { label: '源', value: 'source' },
             { label: '目标', value: 'destination' },
-            { label: 'NAT', value: 'nat' },
             { label: '地区', value: 'country' },
           ]}
         />
       </div>
       <div className="compact-rank-list">
-        {props.rows.slice(0, 8).map((row) => {
+        {props.rows.length === 0 ? (
+          <div className="compact-rank-empty">
+            <InboxOutlined />
+            <strong>暂无排行数据</strong>
+            <span>该维度当前没有可展示的统计结果</span>
+          </div>
+        ) : props.rows.slice(0, 8).map((row) => {
           const percent = Math.round((row.value / max) * 100);
           return (
             <div className="compact-rank-row" key={`${props.active}-${row.name}`}>
@@ -262,15 +277,40 @@ function CompactRankingPanel(props: {
   );
 }
 
+function hasDistributionPayload(data: HealthDashboardResponse) {
+  return Boolean(
+    data.ip_distribution?.top_source_ips?.length ||
+      data.ip_distribution?.top_destination_ips?.length ||
+      data.geo_distribution?.top_countries?.length,
+  );
+}
+
+function mergeDashboardPayload(
+  previous: HealthDashboardResponse | null,
+  next: HealthDashboardResponse,
+): HealthDashboardResponse {
+  if (!previous || hasDistributionPayload(next)) {
+    return next;
+  }
+  return {
+    ...next,
+    ip_distribution: previous.ip_distribution,
+    geo_distribution: previous.geo_distribution,
+  };
+}
+
 export function HealthDashboard(_props: HealthDashboardProps) {
   const [, setLoading] = React.useState(false);
   const [data, setData] = React.useState<HealthDashboardResponse | null>(null);
   const [rankingKey, setRankingKey] = React.useState<RankingKey>('source');
 
-  const load = React.useCallback(async () => {
+  const loadSummary = React.useCallback(async () => {
     try {
       setLoading(true);
-      setData(await apiGet<HealthDashboardResponse>('/api/health-dashboard'));
+      const payload = await apiGet<HealthDashboardResponse>(
+        '/api/health-dashboard?range=all&include_distributions=false',
+      );
+      setData((previous) => mergeDashboardPayload(previous, payload));
     } catch (error) {
       message.error(error instanceof Error ? error.message : '加载数据概览失败');
     } finally {
@@ -278,14 +318,42 @@ export function HealthDashboard(_props: HealthDashboardProps) {
     }
   }, []);
 
+  const loadRankings = React.useCallback(async () => {
+    try {
+      const payload = await apiGet<HealthDashboardResponse>(
+        '/api/health-dashboard?range=all&metrics_range=30d&include_distributions=true',
+      );
+      setData(payload);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '加载流量排行失败');
+    }
+  }, []);
+
   React.useEffect(() => {
-    void load();
-  }, [load]);
+    void loadSummary();
+    void loadRankings();
+    const rankingTimer = window.setInterval(() => void loadRankings(), 300000);
+    return () => {
+      window.clearInterval(rankingTimer);
+    };
+  }, [loadSummary, loadRankings]);
+
+  React.useEffect(() => {
+    const summaryTimer = window.setInterval(
+      () => void loadSummary(),
+      data?.ingest_health?.status === 'importing' ? 5000 : 30000,
+    );
+    return () => window.clearInterval(summaryTimer);
+  }, [loadSummary, data?.ingest_health?.status]);
 
   const health = data?.data_health;
   const ingest = data?.ingest_health;
   const queryRange = `${health?.queryable_start_date || '-'} ~ ${health?.queryable_end_date || '-'}`;
-  const ingestPercent = Math.round(ingest?.progress_pct ?? 0);
+  const ingestView = buildIngestProgressView(ingest);
+  const nextScanText = ingest?.auto_scan_enabled ? ingest?.next_auto_scan_at || '计算中' : '未启用';
+  const scanPolicyText = ingest?.auto_scan_policy || (ingest?.auto_scan_enabled ? '配置待完善' : '未启用');
+  const autoScanValue = ingest?.auto_scan_enabled ? scanPolicyText : '未启用';
+  const autoScanMeta = ingest?.auto_scan_enabled ? `下次 ${nextScanText}` : '不会自动触发';
   const trendValues = React.useMemo(
     () => [0, 2, 1, 1, 4, 152, 6, 0, 2, 128, 0, 0, 46, 0, 130, 8, 67, 3, 0, 2, 1, 5, 0, 0, 2, 0, 4, 0, 1, 3, 0, 138, 1, 2, 0, 1, 0, 2, 20, 0, 1, 6, 0, 2, 26, 1],
     [],
@@ -294,7 +362,6 @@ export function HealthDashboard(_props: HealthDashboardProps) {
     const sourceMap: Record<RankingKey, DistributionItem[] | undefined> = {
       source: data?.ip_distribution?.top_source_ips,
       destination: data?.ip_distribution?.top_destination_ips,
-      nat: data?.ip_distribution?.top_nat_ips,
       country: data?.geo_distribution?.top_countries,
     };
     return (sourceMap[rankingKey] || []).map((item, index) => ({ ...item, rank: index + 1 }));
@@ -358,11 +425,23 @@ export function HealthDashboard(_props: HealthDashboardProps) {
         <div className="status-grid">
           <div><span className="status-icon"><DatabaseOutlined /></span><span className="status-label">日志源</span><strong>{ingest?.log_tag || '-'}</strong></div>
           <div><span className="status-icon"><FieldTimeOutlined /></span><span className="status-label">当前日期</span><strong>{ingest?.current_date || '-'}</strong></div>
-          <div><span className="status-icon"><FileZipOutlined /></span><span className="status-label">当前文件</span><strong>{ingest?.current_file || '-'}</strong></div>
-          <div><span className="status-icon"><SyncOutlined /></span><span className="status-label">下次扫描</span><strong>{ingest?.next_auto_scan_at || '-'}</strong></div>
+          <div><span className="status-icon"><FileZipOutlined /></span><span className="status-label">当前文件</span><strong>{ingestView.currentFileText}</strong></div>
+          <div className="status-grid-note">
+            <span className="status-icon"><ClockCircleOutlined /></span>
+            <span className="status-label">自动扫描</span>
+            <strong>{autoScanValue}</strong>
+            <small>{autoScanMeta}</small>
+          </div>
         </div>
         <div className="ingest-progress-line">
-          <Progress percent={ingestPercent} />
+          <Progress percent={ingestView.displayPercent} format={() => ingestView.percentText} status={ingest?.status === 'failed' ? 'exception' : 'active'} />
+          <div className="ingest-progress-meta">
+            <span className="ingest-progress-note">{ingestView.detailText}</span>
+            <span className="ingest-progress-item"><FileZipOutlined /><strong className="mono-number">{ingestView.fileProgressText}</strong></span>
+            <span className="ingest-progress-item"><CloudUploadOutlined /><strong className="mono-number">{ingestView.rowsText}</strong></span>
+            <span className="ingest-progress-item"><HddOutlined /><strong className="mono-number">{ingestView.bytesText}</strong></span>
+            <span className="ingest-progress-item"><FieldTimeOutlined />更新 {ingestView.updatedText}</span>
+          </div>
         </div>
       </section>
 

@@ -1,10 +1,8 @@
 import React from 'react';
 import {
-  CalendarOutlined,
   ClockCircleOutlined,
   DatabaseOutlined,
   DeleteOutlined,
-  FieldTimeOutlined,
   FileTextOutlined,
   FolderOpenOutlined,
   GlobalOutlined,
@@ -18,7 +16,7 @@ import {
   TagsOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
-import { Button, DatePicker, Form, Input, InputNumber, Popconfirm, Segmented, Space, Switch, Tabs, Typography, message } from 'antd';
+import { Button, DatePicker, Form, Input, Popconfirm, Space, Switch, Tabs, Tag, TimePicker, Typography, message } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { apiGet, apiPost } from '../api';
 
@@ -44,14 +42,18 @@ type CidrAliasSetting = {
 type Settings = {
   log_dir?: string;
   log_tag?: string;
-  log_sources?: LogSourceSetting[];
+  log_sources?: LogSourceSetting[] | string;
   cidr_aliases?: CidrAliasSetting[] | string;
   custom_ip_map_path?: string;
   geoip_db_path?: string;
   auto_scan_enabled?: boolean | string;
+  auto_scan_mode?: string;
+  auto_scan_times?: string;
+  auto_scan_timezone?: string;
   auto_scan_interval_sec?: number | string;
   current_password?: string;
   new_password?: string;
+  confirm_new_password?: string;
 };
 
 function tabLabel(icon: React.ReactNode, text: string) {
@@ -69,6 +71,30 @@ function parseCidrAliases(value?: CidrAliasSetting[] | string): CidrAliasSetting
   }
 }
 
+function parseLogSources(value?: LogSourceSetting[] | string): LogSourceSetting[] {
+  if (Array.isArray(value)) return value;
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function firstAutoScanTime(value?: string) {
+  const first = String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .find((item) => /^([01]\d|2[0-3]):[0-5]\d$/.test(item));
+  return first || '01:00';
+}
+
+function autoScanTimeValue(value?: string) {
+  const [hour, minute] = firstAutoScanTime(value).split(':').map((item) => Number(item));
+  return dayjs().hour(hour).minute(minute).second(0).millisecond(0);
+}
+
 export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageProps) {
   const [form] = Form.useForm<Settings>();
   const [loading, setLoading] = React.useState(false);
@@ -76,13 +102,14 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   const geoipPath = Form.useWatch('geoip_db_path', form);
   const customIpPath = Form.useWatch('custom_ip_map_path', form);
   const autoScanEnabled = Form.useWatch('auto_scan_enabled', form);
-  const autoScanInterval = Form.useWatch('auto_scan_interval_sec', form);
+  const autoScanTime = Form.useWatch('auto_scan_times', form);
 
   const load = React.useCallback(async () => {
     try {
       setLoading(true);
       const settings = await apiGet<Settings>('/api/settings');
-      const logSources = settings.log_sources?.length ? settings.log_sources : [
+      const parsedLogSources = parseLogSources(settings.log_sources);
+      const logSources = parsedLogSources.length ? parsedLogSources : [
         {
           source_id: 'default',
           log_tag: settings.log_tag || '深信服 NAT',
@@ -96,6 +123,9 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
         log_sources: logSources,
         cidr_aliases: cidrAliases,
         auto_scan_enabled: settings.auto_scan_enabled === true || settings.auto_scan_enabled === 'true',
+        auto_scan_mode: 'daily',
+        auto_scan_times: firstAutoScanTime(settings.auto_scan_times),
+        auto_scan_timezone: settings.auto_scan_timezone || 'Asia/Shanghai',
         auto_scan_interval_sec: Number(settings.auto_scan_interval_sec || 3600),
       });
     } catch (error) {
@@ -113,14 +143,19 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
     try {
       setLoading(true);
       const values = form.getFieldsValue();
-      const firstSource = values.log_sources?.[0];
+      const logSources = parseLogSources(values.log_sources);
+      const firstSource = logSources[0];
       await apiPost('/api/settings', {
         ...values,
         cidr_aliases: JSON.stringify(values.cidr_aliases || []),
+        log_sources: JSON.stringify(logSources),
         log_dir: firstSource?.log_dir || values.log_dir,
         log_tag: firstSource?.log_tag || values.log_tag,
         auto_scan_enabled: String(Boolean(values.auto_scan_enabled)),
-        auto_scan_interval_sec: String(values.auto_scan_interval_sec || 3600),
+        auto_scan_mode: 'daily',
+        auto_scan_times: firstAutoScanTime(values.auto_scan_times),
+        auto_scan_timezone: values.auto_scan_timezone || 'Asia/Shanghai',
+        auto_scan_interval_sec: '86400',
       });
       message.success('设置已保存');
     } catch (error) {
@@ -144,6 +179,24 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
 
   const triggerRebuild = async () => {
     await trigger(`/api/rebuild${rebuildDate ? `?date=${rebuildDate.format('YYYY-MM-DD')}` : ''}`, '已触发指定日期重建');
+  };
+
+  const changePassword = async () => {
+    try {
+      const values = await form.validateFields(['current_password', 'new_password', 'confirm_new_password']);
+      setLoading(true);
+      await apiPost('/api/password', {
+        current_password: values.current_password,
+        new_password: values.new_password,
+      });
+      message.success('密码已更新，请重新登录');
+      onRequireLogin();
+    } catch (error) {
+      if (error && typeof error === 'object' && 'errorFields' in error) return;
+      message.error(error instanceof Error ? error.message : '更新密码失败');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -301,61 +354,67 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
               key: 'ops',
               label: tabLabel(<WarningOutlined />, '维护'),
               children: (
-                <section className="ops-section maintenance-card">
-                  <div className="maintenance-action-row">
-                    <div className="maintenance-field maintenance-switch-field">
-                      <label>自动扫描</label>
+                <section className="ops-section maintenance-card maintenance-ops-card">
+                  <div className="maintenance-plan-card">
+                    <div className="maintenance-card-head">
+                      <div>
+                        <span className="maintenance-card-kicker"><ClockCircleOutlined /> 自动扫描</span>
+                        <strong>扫描计划</strong>
+                      </div>
                       <div className="maintenance-switch-line">
-                      <Form.Item name="auto_scan_enabled" valuePropName="checked" noStyle>
-                        <Switch />
-                      </Form.Item>
-                        <strong>{autoScanEnabled ? '已开启' : '已关闭'}</strong>
+                        <Form.Item name="auto_scan_enabled" valuePropName="checked" noStyle>
+                          <Switch />
+                        </Form.Item>
+                        <Tag color={autoScanEnabled ? 'processing' : 'default'}>{autoScanEnabled ? '已开启' : '已关闭'}</Tag>
                       </div>
                     </div>
 
-                    <div className="maintenance-field">
-                      <label>扫描间隔（秒）</label>
-                      <Form.Item name="auto_scan_interval_sec" noStyle>
-                        <InputNumber min={60} />
-                      </Form.Item>
+                    <div className="maintenance-plan-grid">
+                      <div className="maintenance-field">
+                        <label>扫描时间</label>
+                        <TimePicker
+                          format="HH:mm"
+                          allowClear={false}
+                          value={autoScanTimeValue(autoScanTime)}
+                          onChange={(_, value) => form.setFieldValue('auto_scan_times', String(value || '01:00'))}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="maintenance-run-card">
+                    <div className="maintenance-card-head">
+                      <div>
+                        <span className="maintenance-card-kicker"><SyncOutlined /> 手动维护</span>
+                        <strong>入库操作</strong>
+                      </div>
                     </div>
 
-                    <div className="maintenance-field maintenance-quick-field">
-                      <label>常用间隔</label>
-                      <Segmented
-                        value={String(autoScanInterval || 3600)}
-                        options={[
-                          { label: '15 分钟', value: '900' },
-                          { label: '1 小时', value: '3600' },
-                          { label: '6 小时', value: '21600' },
-                        ]}
-                        onChange={(value) => form.setFieldValue('auto_scan_interval_sec', Number(value))}
-                      />
-                    </div>
+                    <div className="maintenance-run-grid">
+                      <div className="maintenance-field">
+                        <label>手动入库</label>
+                        <Button type="primary" icon={<SyncOutlined />} onClick={() => void trigger('/api/sync', '已开始入库')} loading={loading}>
+                          执行
+                        </Button>
+                      </div>
 
-                    <div className="maintenance-field">
-                      <label>手动入库</label>
-                      <Button type="primary" icon={<SyncOutlined />} onClick={() => void trigger('/api/sync', '已开始入库')} loading={loading}>
-                        执行
-                      </Button>
-                    </div>
+                      <div className="maintenance-field">
+                        <label>重建日期</label>
+                        <DatePicker value={rebuildDate} onChange={setRebuildDate} />
+                      </div>
 
-                    <div className="maintenance-field">
-                      <label>重建日期</label>
-                      <DatePicker value={rebuildDate} onChange={setRebuildDate} />
-                    </div>
-
-                    <div className="maintenance-field maintenance-danger-field">
-                      <label>操作</label>
-                      <Popconfirm
-                        title="确认重建该日期？"
-                        description={rebuildDate ? rebuildDate.format('YYYY-MM-DD') : '未选择日期'}
-                        okText="确认重建"
-                        cancelText="取消"
-                        onConfirm={() => void triggerRebuild()}
-                      >
-                        <Button danger icon={<WarningOutlined />} loading={loading}>重建</Button>
-                      </Popconfirm>
+                      <div className="maintenance-field maintenance-danger-field">
+                        <label>重建入库</label>
+                        <Popconfirm
+                          title="确认重建该日期？"
+                          description={rebuildDate ? rebuildDate.format('YYYY-MM-DD') : '未选择日期'}
+                          okText="确认重建"
+                          cancelText="取消"
+                          onConfirm={() => void triggerRebuild()}
+                        >
+                          <Button danger icon={<WarningOutlined />} loading={loading}>重建</Button>
+                        </Popconfirm>
+                      </div>
                     </div>
                   </div>
                 </section>
@@ -368,10 +427,32 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                 <section className="ops-section maintenance-card">
                   <div className="setting-grid">
                     <div className="setting-fields">
-                      <Form.Item name="current_password" label="当前密码"><Input.Password prefix={<KeyOutlined />} /></Form.Item>
-                      <Form.Item name="new_password" label="新密码"><Input.Password prefix={<SafetyCertificateOutlined />} /></Form.Item>
+                      <Form.Item name="current_password" label="当前密码" rules={[{ required: true, message: '请输入当前密码' }]}>
+                        <Input.Password prefix={<KeyOutlined />} />
+                      </Form.Item>
+                      <Form.Item name="new_password" label="新密码" rules={[{ required: true, message: '请输入新密码' }]}>
+                        <Input.Password prefix={<SafetyCertificateOutlined />} />
+                      </Form.Item>
+                      <Form.Item
+                        name="confirm_new_password"
+                        label="确认新密码"
+                        dependencies={['new_password']}
+                        rules={[
+                          { required: true, message: '请再次输入新密码' },
+                          ({ getFieldValue }) => ({
+                            validator(_, value) {
+                              if (!value || getFieldValue('new_password') === value) {
+                                return Promise.resolve();
+                              }
+                              return Promise.reject(new Error('两次输入的新密码不一致'));
+                            },
+                          }),
+                        ]}
+                      >
+                        <Input.Password prefix={<SafetyCertificateOutlined />} />
+                      </Form.Item>
                       <Space>
-                        <Button type="primary" icon={<KeyOutlined />} onClick={() => void trigger('/api/password', '密码已更新')} loading={loading}>更新密码</Button>
+                        <Button type="primary" icon={<KeyOutlined />} onClick={() => void changePassword()} loading={loading}>更新密码</Button>
                         <Button icon={<LogoutOutlined />} onClick={onRequireLogin}>退出登录</Button>
                       </Space>
                     </div>

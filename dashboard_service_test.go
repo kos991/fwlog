@@ -125,3 +125,75 @@ func TestBuildHealthDashboardSummarizesDateStates(t *testing.T) {
 		t.Fatalf("distribution metrics not copied: %#v", dashboard)
 	}
 }
+
+func TestBuildHealthDashboardDoesNotExposeNATRanking(t *testing.T) {
+	dashboard := BuildHealthDashboard(nil, DashboardMetrics{
+		TopNATIPs: []DistributionItem{{Name: "58.216.48.6", Value: 100}},
+	})
+
+	if len(dashboard.IPDistribution.TopNATIPs) != 0 {
+		t.Fatalf("NAT ranking should not be exposed on dashboard: %#v", dashboard.IPDistribution.TopNATIPs)
+	}
+}
+
+func TestEnrichGeoDistributionMetricsAggregatesDestinationCountries(t *testing.T) {
+	engine := NewIPEngine()
+	engine.AddOverride("8.8.8.8", "Google DNS", "美国 / Mountain View")
+	engine.AddOverride("1.1.1.1", "Cloudflare DNS", "美国 / Los Angeles")
+	engine.AddOverride("114.114.114.114", "114 DNS", "中国 / 江苏")
+
+	metrics := enrichGeoDistributionMetrics(DashboardMetrics{
+		TopDestinationIPs: []DistributionItem{
+			{Name: "8.8.8.8", Value: 10},
+			{Name: "1.1.1.1", Value: 7},
+			{Name: "114.114.114.114", Value: 5},
+		},
+	}, engine)
+
+	if len(metrics.TopCountries) < 2 {
+		t.Fatalf("countries should be populated from destination IPs: %#v", metrics.TopCountries)
+	}
+	if metrics.TopCountries[0].Name != "美国" || metrics.TopCountries[0].Value != 17 {
+		t.Fatalf("top country should aggregate same country: %#v", metrics.TopCountries)
+	}
+	if len(metrics.TopRegions) == 0 || metrics.TopRegions[0].Name == "" {
+		t.Fatalf("regions should be populated from destination locations: %#v", metrics.TopRegions)
+	}
+}
+
+func TestBuildAutoScanPlanForDailyTime(t *testing.T) {
+	now := time.Date(2026, 7, 4, 8, 30, 0, 0, time.Local)
+
+	plan := BuildAutoScanPlan(map[string]string{
+		"auto_scan_enabled":  "true",
+		"auto_scan_mode":     "daily",
+		"auto_scan_times":    "01:00,09:30",
+		"auto_scan_timezone": "Asia/Shanghai",
+	}, now)
+
+	if !plan.Enabled || plan.NextAt.Format("2006-01-02 15:04:05") != "2026-07-04 09:30:00" {
+		t.Fatalf("daily plan next time wrong: %#v", plan)
+	}
+	if plan.Policy != "01:00、09:30 自动扫描" {
+		t.Fatalf("daily policy = %q", plan.Policy)
+	}
+}
+
+func TestBuildAutoScanPlanUsesConfiguredScanTimeOnly(t *testing.T) {
+	now := time.Date(2026, 7, 4, 8, 30, 0, 0, time.Local)
+
+	plan := BuildAutoScanPlan(map[string]string{
+		"auto_scan_enabled":      "true",
+		"auto_scan_mode":         "interval",
+		"auto_scan_times":        "01:00",
+		"auto_scan_interval_sec": "21600",
+		"auto_scan_timezone":     "Asia/Shanghai",
+	}, now)
+
+	if !plan.Enabled || plan.NextAt.Format("2006-01-02 15:04:05") != "2026-07-05 01:00:00" {
+		t.Fatalf("scan time plan next time wrong: %#v", plan)
+	}
+	if plan.Policy != "01:00 自动扫描" {
+		t.Fatalf("scan time policy = %q", plan.Policy)
+	}
+}

@@ -94,10 +94,8 @@ func (e *IPEngine) GetTag(ipStr string) IPTag {
 		return IPTag{IP: ipStr, Label: "非法 IP", Location: "未知"}
 	}
 
-	for _, seg := range e.segments {
-		if seg.Network.Contains(ip) {
-			return IPTag{IP: ipStr, Label: seg.Label, Location: "内网"}
-		}
+	if tag, ok := e.matchSegment(ipStr, ip); ok {
+		return tag
 	}
 
 	if ip.IsPrivate() {
@@ -119,13 +117,33 @@ func (e *IPEngine) GetTag(ipStr string) IPTag {
 			if country != "" {
 				location = country
 				if city != "" {
-					location += "·" + city
+					location += " / " + city
 				}
 			}
 		}
 	}
 
 	return IPTag{IP: ipStr, Label: "公网 IP", Location: location}
+}
+
+func (e *IPEngine) matchSegment(ipStr string, ip net.IP) (IPTag, bool) {
+	var matched *networkSegment
+	matchedPrefix := -1
+	for i := range e.segments {
+		seg := &e.segments[i]
+		if !seg.Network.Contains(ip) {
+			continue
+		}
+		prefix, _ := seg.Network.Mask.Size()
+		if prefix >= matchedPrefix {
+			matched = seg
+			matchedPrefix = prefix
+		}
+	}
+	if matched == nil {
+		return IPTag{}, false
+	}
+	return IPTag{IP: ipStr, Label: matched.Label, Location: "内网"}, true
 }
 
 func (e *IPEngine) LoadCustomMap(filePath string) error {

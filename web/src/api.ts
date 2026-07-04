@@ -12,29 +12,24 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
 
 async function requestJSON<T>(path: string, init: RequestInit): Promise<T> {
   const apiBaseURL = import.meta.env.VITE_API_BASE_URL || '';
-  if (import.meta.env.DEV && !apiBaseURL) {
+  const useMock = String(import.meta.env.VITE_USE_MOCK || '').toLowerCase() === 'true';
+
+  if (useMock) {
     return mockResponse<T>(path);
   }
 
-  try {
-    const response = await fetch(`${apiBaseURL}${path}`, {
-      ...init,
-      credentials: 'include',
-      headers: {
-        Accept: 'application/json',
-        ...(init.headers || {}),
-      },
-    });
-    if (!response.ok) {
-      throw new Error(await response.text() || `请求失败：${response.status}`);
-    }
-    return (await response.json()) as T;
-  } catch (error) {
-    if (import.meta.env.DEV) {
-      return mockResponse<T>(path);
-    }
-    throw error;
+  const response = await fetch(`${apiBaseURL}${path}`, {
+    ...init,
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+      ...(init.headers || {}),
+    },
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
   }
+  return (await response.json()) as T;
 }
 
 function mockResponse<T>(path: string): T {
@@ -55,7 +50,7 @@ function mockResponse<T>(path: string): T {
         queryable_start_date: '2026-06-01',
         queryable_end_date: '2026-07-01',
         last_successful_ingest_time: '2026-07-02 08:30:18',
-        clickhouse_disk_used_bytes: 42_860_000_000,
+        clickhouse_disk_used_bytes: 42860000000,
         today_rows: 812430,
         yesterday_rows: 1259044,
       },
@@ -67,71 +62,23 @@ function mockResponse<T>(path: string): T {
         current_file: 'firewall.log-20260701.gz',
         files_total: 12,
         files_done: 8,
-        bytes_total: 9_800_000_000,
-        bytes_done: 6_200_000_000,
+        bytes_total: 9800000000,
+        bytes_done: 6200000000,
         rows_imported: 812430,
         progress_pct: 63,
         error: '',
         next_auto_scan_at: '2026-07-02 09:30:00',
       },
       ip_distribution: {
-        top_source_ips: [
-          { name: '10.10.2.18', value: 481230 },
-          { name: '10.10.9.77', value: 359021 },
-          { name: '10.12.1.44', value: 283402 },
-          { name: '10.10.3.91', value: 221980 },
-          { name: '10.12.6.20', value: 198450 },
-          { name: '10.11.8.56', value: 176230 },
-          { name: '10.10.14.8', value: 154902 },
-          { name: '10.13.2.70', value: 130441 },
-        ],
-        top_destination_ips: [
-          { name: '114.114.114.114', value: 221980 },
-          { name: '223.5.5.5', value: 198450 },
-          { name: '119.29.29.29', value: 176880 },
-          { name: '8.8.8.8', value: 154210 },
-          { name: '180.76.76.76', value: 127960 },
-          { name: '1.1.1.1', value: 100230 },
-          { name: '101.226.4.6', value: 92330 },
-          { name: '202.96.128.86', value: 80120 },
-        ],
-        top_nat_ips: [
-          { name: '172.16.0.12', value: 845301 },
-          { name: '172.16.0.18', value: 612480 },
-          { name: '172.16.0.21', value: 501220 },
-          { name: '172.16.0.32', value: 388120 },
-          { name: '172.16.0.45', value: 290230 },
-          { name: '172.16.0.52', value: 210440 },
-          { name: '172.16.0.61', value: 155860 },
-          { name: '172.16.0.70', value: 98040 },
-        ],
-        address_type_shares: [
-          { name: '内网', value: 72 },
-          { name: '公网', value: 28 },
-        ],
+        top_source_ips: [{ name: '10.10.2.18', value: 481230 }],
+        top_destination_ips: [{ name: '114.114.114.114', value: 221980 }],
+        top_nat_ips: [{ name: '172.16.0.12', value: 845301 }],
+        address_type_shares: [{ name: '内网', value: 72 }, { name: '公网', value: 28 }],
         log_tag_distribution: [{ name: '深信服 NAT', value: 18625430 }],
       },
       geo_distribution: {
-        top_countries: [
-          { name: '中国', value: 821330 },
-          { name: '美国', value: 128440 },
-          { name: '日本', value: 82420 },
-          { name: '德国', value: 61980 },
-          { name: '新加坡', value: 58410 },
-          { name: '巴西', value: 42330 },
-          { name: '韩国', value: 39870 },
-          { name: '英国', value: 35120 },
-        ],
-        top_regions: [
-          { name: '广东', value: 312900 },
-          { name: '浙江', value: 188040 },
-          { name: '江苏', value: 162800 },
-          { name: '上海', value: 130420 },
-          { name: '北京', value: 112560 },
-          { name: '四川', value: 88430 },
-          { name: '湖北', value: 70320 },
-          { name: '福建', value: 58190 },
-        ],
+        top_countries: [{ name: '中国', value: 821330 }],
+        top_regions: [{ name: '广东', value: 312900 }],
         unrecognized_ip_rate: 0.08,
         geoip_loaded: true,
         geoip_status: '已加载',
@@ -165,6 +112,8 @@ function mockResponse<T>(path: string): T {
       total: 1,
       page: 1,
       page_size: 50,
+      next_cursor: '',
+      has_more: false,
       query_time_ms: 18,
       visibility: {
         partial: true,
@@ -190,8 +139,8 @@ function mockResponse<T>(path: string): T {
       current_file: 'firewall.log-20260701.gz',
       files_total: 12,
       files_done: 8,
-      bytes_total: 9_800_000_000,
-      bytes_done: 6_200_000_000,
+      bytes_total: 9800000000,
+      bytes_done: 6200000000,
       rows_imported: 812430,
       progress_pct: 63,
       error: '',
@@ -205,16 +154,8 @@ function mockResponse<T>(path: string): T {
     return {
       log_dir: '/data/sangfor_fw_log',
       log_tag: '深信服 NAT',
-      log_sources: [
-        { source_id: 'sangfor-main', log_tag: '深信服 NAT', log_dir: '/data/sangfor_fw_log', enabled: true },
-        { source_id: 'branch-fw', log_tag: '分部防火墙', log_dir: '/data/branch_fw_log', enabled: true },
-        { source_id: 'vpn-edge', log_tag: 'VPN 出口', log_dir: '/data/vpn_edge_log', enabled: false },
-      ],
-      cidr_aliases: [
-        { cidr: '10.10.0.0/16', alias: '办公网段', enabled: true },
-        { cidr: '10.12.0.0/16', alias: '生产网段', enabled: true },
-        { cidr: '172.16.0.0/24', alias: 'NAT 地址池', enabled: false },
-      ],
+      log_sources: [{ source_id: 'sangfor-main', log_tag: '深信服 NAT', log_dir: '/data/sangfor_fw_log', enabled: true }],
+      cidr_aliases: [{ cidr: '10.10.0.0/16', alias: '办公网段', enabled: true }],
       custom_ip_map_path: '/opt/nat-query/custom_ip_map.csv',
       geoip_db_path: '/data/index/GeoLite2-City.mmdb',
       auto_scan_enabled: 'false',
@@ -232,6 +173,25 @@ export function buildQueryString(params: Record<string, unknown>): string {
   });
   const text = query.toString();
   return text ? `?${text}` : '';
+}
+
+async function readErrorMessage(response: Response): Promise<string> {
+  const text = await response.text();
+  if (!text) {
+    return `请求失败，状态码 ${response.status}`;
+  }
+  try {
+    const payload = JSON.parse(text) as { message?: unknown; error?: unknown };
+    if (typeof payload.message === 'string' && payload.message.trim()) {
+      return payload.message;
+    }
+    if (typeof payload.error === 'string' && payload.error.trim()) {
+      return payload.error;
+    }
+  } catch {
+    // 非 JSON 时保留原始响应，方便排查网关或静态服务错误。
+  }
+  return text;
 }
 
 export type QueryVisibility = {

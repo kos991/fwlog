@@ -1,8 +1,11 @@
 package main
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -14,6 +17,13 @@ const (
 	notQueryableReason       = "当天状态不可查询，已跳过"
 	noVisibleImportReason    = "当天尚无可见入库数据，已跳过"
 	noVisibleRangeError      = "没有可查询的已入库时间范围"
+)
+
+const (
+	queryTimeout           = 10 * time.Second
+	maxLegacyQueryPage     = 20
+	maxUnfilteredQuerySpan = 24 * time.Hour
+	maxFilteredQuerySpan   = 7 * 24 * time.Hour
 )
 
 type QueryRequest struct {
@@ -30,6 +40,47 @@ type QueryRequest struct {
 	Protocol string
 	Action   string
 	LogTag   string
+	Cursor   *QueryCursor
+}
+
+type QueryCursor struct {
+	Timestamp    time.Time `json:"timestamp"`
+	SourceID     string    `json:"source_id"`
+	SourceFile   string    `json:"source_file"`
+	SourceOffset uint64    `json:"source_offset"`
+}
+
+type QueryPageOptions struct {
+	Page     int
+	PageSize int
+	Cursor   *QueryCursor
+}
+
+type QueryError struct {
+	Code    string `json:"error"`
+	Message string `json:"message"`
+	Status  int    `json:"-"`
+}
+
+func (e *QueryError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return e.Message
+}
+
+func (r QueryRequest) HasFilters() bool {
+	return r.IP != "" ||
+		r.SrcIP != "" ||
+		r.DstIP != "" ||
+		r.NATIP != "" ||
+		r.Port != 0 ||
+		r.SrcPort != 0 ||
+		r.DstPort != 0 ||
+		r.NATPort != 0 ||
+		r.Protocol != "" ||
+		r.Action != "" ||
+		r.LogTag != ""
 }
 
 type VisibleRange struct {
@@ -57,8 +108,89 @@ type QueryResponse struct {
 	Total       int              `json:"total"`
 	Page        int              `json:"page"`
 	PageSize    int              `json:"page_size"`
+	NextCursor  string           `json:"next_cursor,omitempty"`
+	HasMore     bool             `json:"has_more"`
 	QueryTimeMS int64            `json:"query_time_ms"`
 	Visibility  QueryVisibility  `json:"visibility"`
+}
+
+func encodeQueryCursor(cursor QueryCursor) (string, error) {
+	payload, err := json.Marshal(struct {
+		Timestamp    string `json:"timestamp"`
+		SourceID     string `json:"source_id"`
+		SourceFile   string `json:"source_file"`
+		SourceOffset uint64 `json:"source_offset"`
+	}{
+		Timestamp:    formatDateTime(cursor.Timestamp),
+		SourceID:     cursor.SourceID,
+		SourceFile:   cursor.SourceFile,
+		SourceOffset: cursor.SourceOffset,
+	})
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(payload), nil
+}
+
+func decodeQueryCursor(value string) (*QueryCursor, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return nil, fmt.Errorf("invalid cursor")
+	}
+	var wire struct {
+		Timestamp    string `json:"timestamp"`
+		SourceID     string `json:"source_id"`
+		SourceFile   string `json:"source_file"`
+		SourceOffset uint64 `json:"source_offset"`
+	}
+	if err := json.Unmarshal(payload, &wire); err != nil {
+		return nil, fmt.Errorf("invalid cursor")
+	}
+	timestamp, err := parseTimeQuery(wire.Timestamp, time.Time{})
+	if err != nil || timestamp.IsZero() {
+		return nil, fmt.Errorf("invalid cursor")
+	}
+	return &QueryCursor{
+		Timestamp:    timestamp,
+		SourceID:     wire.SourceID,
+		SourceFile:   wire.SourceFile,
+		SourceOffset: wire.SourceOffset,
+	}, nil
+}
+
+func validateQueryProtection(req QueryRequest, options QueryPageOptions) error {
+	if options.Page > maxLegacyQueryPage && options.Cursor == nil {
+		return &QueryError{
+			Code:    "query_too_broad",
+			Message: "分页过深，请使用下一页游标继续查询，或缩小查询范围",
+			Status:  http.StatusBadRequest,
+		}
+	}
+
+	span := req.End.Sub(req.Start)
+	limit := maxUnfilteredQuerySpan
+	if req.HasFilters() {
+		limit = maxFilteredQuerySpan
+	}
+	if span > limit {
+		return &QueryError{
+			Code:    "query_too_broad",
+			Message: fmt.Sprintf("查询时间范围过大，请将时间范围缩小到 %s 以内，或增加 IP/端口/协议等筛选条件", humanDuration(limit)),
+			Status:  http.StatusBadRequest,
+		}
+	}
+	return nil
+}
+
+func humanDuration(value time.Duration) string {
+	if value%(24*time.Hour) == 0 {
+		return fmt.Sprintf("%d 天", int(value/(24*time.Hour)))
+	}
+	return value.String()
 }
 
 func BuildVisibleRanges(start, end time.Time, states []DateIngestState) QueryVisibility {
@@ -180,8 +312,9 @@ func BuildQuerySQL(req QueryRequest, visibility QueryVisibility) (string, []any,
 		args = append(args, req.NATPort)
 	}
 	if req.Protocol != "" {
-		sql.WriteString(" AND protocol = ?")
-		args = append(args, req.Protocol)
+		sql.WriteString(" AND protocol IN (?, ?, ?)")
+		protocol := normalizeProtocol(req.Protocol)
+		args = append(args, protocol, protocolNumber(protocol), protocolNumber(protocol)+",")
 	}
 	if req.Action != "" {
 		sql.WriteString(" AND action = ?")
@@ -193,6 +326,19 @@ func BuildQuerySQL(req QueryRequest, visibility QueryVisibility) (string, []any,
 	}
 
 	return sql.String(), args, nil
+}
+
+func protocolNumber(protocol string) string {
+	switch normalizeProtocol(protocol) {
+	case "TCP":
+		return "6"
+	case "UDP":
+		return "17"
+	case "ICMP":
+		return "1"
+	default:
+		return protocol
+	}
 }
 
 func appendSkippedDate(visibility *QueryVisibility, logDate time.Time, status IngestStatus, reason string) {

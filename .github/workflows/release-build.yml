@@ -103,25 +103,9 @@ jobs:
           PY
 
   build:
-    name: Build ${{ matrix.name }}
-    runs-on: ${{ matrix.runs-on }}
+    name: Build Linux amd64
+    runs-on: ubuntu-24.04
     needs: prepare-release
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: linux-amd64
-            runs-on: ubuntu-24.04
-            goos: linux
-            goarch: amd64
-          - name: linux-arm64
-            runs-on: ubuntu-24.04-arm
-            goos: linux
-            goarch: arm64
-          - name: windows-amd64
-            runs-on: windows-2022
-            goos: windows
-            goarch: amd64
 
     steps:
       - name: Checkout repository
@@ -152,145 +136,20 @@ jobs:
         run: go test ./...
 
       - name: Build Linux binary
-        if: matrix.goos == 'linux'
         shell: bash
         env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
+          GOOS: linux
+          GOARCH: amd64
           CGO_ENABLED: "0"
         run: |
           set -euo pipefail
           mkdir -p release
           asset="nat-query-service_${GOOS}_${GOARCH}"
           go build -trimpath -ldflags "-s -w" -o "release/$asset" .
-          if [[ "${GOARCH}" == "amd64" ]]; then
-            cp nat-query-service.service release/
-            cp scripts/deploy-142-from-release.sh release/
-          fi
-
-      - name: Build Windows binary
-        if: matrix.goos == 'windows'
-        shell: pwsh
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: "0"
-        run: |
-          New-Item -ItemType Directory -Force -Path release | Out-Null
-          go build -trimpath -ldflags "-s -w" -o "release\nat-query-service_windows_amd64.exe" .
+          cp nat-query-service.service release/
+          cp scripts/deploy-142-from-release.sh release/
 
       - name: Upload release asset
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="${{ needs.prepare-release.outputs.version }}"
-          gh release view "$version" --repo "$GH_REPO" >/dev/null
-          gh release upload "$version" release/* --repo "$GH_REPO" --clobber
-
-  build-kylin:
-    name: Build Kylin V10 SP1 ${{ matrix.arch-name }}
-    runs-on: ${{ matrix.runs-on }}
-    needs: prepare-release
-    continue-on-error: true
-    container:
-      image: ${{ matrix.container }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch-name: x86_64
-            runs-on: ubuntu-24.04
-            container: quay.io/pypa/manylinux_2_28_x86_64
-            goarch: amd64
-            asset-arch: x86_64
-          - arch-name: aarch64
-            runs-on: ubuntu-24.04-arm
-            container: quay.io/pypa/manylinux_2_28_aarch64
-            goarch: arm64
-            asset-arch: aarch64
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-
-      - name: Install frontend dependencies
-        working-directory: web
-        run: npm ci
-
-      - name: Build frontend assets
-        working-directory: web
-        run: npm run build
-
-      - name: Run Go tests
-        run: go test ./...
-
-      - name: Show compatibility baseline
-        shell: bash
-        run: |
-          set -euo pipefail
-          uname -a
-          ldd --version | sed -n '1p'
-          gcc --version | sed -n '1p'
-
-      - name: Build Kylin compatible package
-        shell: bash
-        env:
-          GOOS: linux
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: "0"
-          ASSET_ARCH: ${{ matrix.asset-arch }}
-        run: |
-          set -euo pipefail
-          mkdir -p release "pkg_temp/kylin-v10-sp1-${ASSET_ARCH}"
-
-          package_dir="pkg_temp/kylin-v10-sp1-${ASSET_ARCH}"
-          binary="nat-query-service"
-          asset="nat-query-service_kylin-v10-sp1_${ASSET_ARCH}.tar.gz"
-
-          go build -trimpath -ldflags "-s -w" -o "${package_dir}/${binary}" .
-          cp nat-query-service.service "${package_dir}/"
-
-          cat > "${package_dir}/README_KYLIN_V10_SP1.txt" <<'EOF'
-          NAT Query Service - Kylin V10 SP1
-
-          Target:
-          - Kylin Linux Advanced Server V10 SP1
-          - systemd deployment
-
-          Install:
-          1. install -d /opt/nat-query /data/sangfor_fw_log /data/index /data/export
-          2. install -m 0755 nat-query-service /opt/nat-query/nat-query-service
-          3. install -m 0644 nat-query-service.service /etc/systemd/system/nat-query-service.service
-          4. systemctl daemon-reload
-          5. systemctl enable --now nat-query-service
-
-          Default access:
-          - http://SERVER_IP:8080
-
-          Runtime data:
-          - /data/sangfor_fw_log
-          - /data/export
-          EOF
-
-          tar -C "$package_dir" -czf "release/$asset" .
-
-      - name: Upload Kylin release asset
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}

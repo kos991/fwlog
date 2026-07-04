@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"time"
 )
 
@@ -135,7 +137,7 @@ func (s *ClickHouseStore) LatestFileState(ctx context.Context, path string) (Fil
 }
 
 func isNoRowsError(err error) bool {
-	return err != nil && err.Error() == "clickhouse: no rows in result"
+	return errors.Is(err, sql.ErrNoRows) || (err != nil && err.Error() == "clickhouse: no rows in result")
 }
 
 func DateStateUpsertSQL() string {
@@ -190,9 +192,9 @@ func DateStateListQuery() string {
     argMax(retry_count, updated_at) AS retry_count,
     argMax(next_retry_at, updated_at) AS next_retry_at,
     argMax(error, updated_at) AS error,
-    max(updated_at) AS updated_at
+    max(updated_at) AS latest_updated_at
 FROM ingest_dates
-WHERE log_date >= ?
+WHERE log_date >= toDate(?)
 GROUP BY source_id, log_date
 ORDER BY log_date DESC, source_id ASC`
 }

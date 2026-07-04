@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -22,7 +23,13 @@ type App struct {
 	ipStatus     IPDataStatus
 	passwordHash string
 	sessionToken string
+	importRunner importRunnerFunc
+	importMu     sync.Mutex
+	importing    bool
+	querySem     chan struct{}
 }
+
+type importRunnerFunc func(context.Context, *ClickHouseStore, LogSource, bool) ([]string, []string, error)
 
 func NewApp(cfg Config) *App {
 	passwordHash, err := HashPassword(loadAdminPassword())
@@ -36,6 +43,8 @@ func NewApp(cfg Config) *App {
 		ipEngine:     NewIPEngine(),
 		ipStatus:     defaultIPDataStatus(cfg),
 		passwordHash: passwordHash,
+		importRunner: importArchivedDates,
+		querySem:     make(chan struct{}, 4),
 	}
 }
 
@@ -82,10 +91,18 @@ func (a *App) Connect(ctx context.Context) error {
 	if err := store.EnsureTables(ctx); err != nil {
 		return fmt.Errorf("ensure clickhouse tables: %w", err)
 	}
+	savedSettings, err := store.LoadSettings(ctx)
+	if err != nil {
+		return fmt.Errorf("load settings: %w", err)
+	}
 
 	a.mu.Lock()
 	a.store = store
+	for key, value := range savedSettings {
+		a.settings[key] = value
+	}
 	a.mu.Unlock()
+	a.reloadIPDataFromSettings()
 	return nil
 }
 
@@ -158,6 +175,14 @@ func settingsHandler(app *App) http.Handler {
 				}
 			}
 			app.updateSettings(payload)
+			if err := app.saveSettings(r.Context(), payload); err != nil {
+				writeJSONStatus(w, http.StatusInternalServerError, map[string]any{
+					"error":   "settings_save_failed",
+					"message": err.Error(),
+				})
+				return
+			}
+			app.reloadIPDataFromSettings()
 			writeJSON(w, app.getSettings())
 		default:
 			w.Header().Set("Allow", "GET, POST")
@@ -188,24 +213,18 @@ func (a *App) importHandler(rebuild bool) http.Handler {
 			})
 			return
 		}
-
-		source := a.currentLogSource()
-		imported, skipped, err := importArchivedDates(r.Context(), store, source, rebuild)
-		if err != nil {
-			writeJSONStatus(w, http.StatusInternalServerError, map[string]any{
-				"error":          "import_failed",
-				"message":        err.Error(),
-				"imported_dates": imported,
-				"skipped_dates":  skipped,
+		if !a.startBackgroundImport(rebuild) {
+			writeJSONStatus(w, http.StatusAccepted, map[string]any{
+				"status":  string(StatusImporting),
+				"message": "已有入库任务正在执行",
+				"rebuild": rebuild,
 			})
 			return
 		}
-
-		writeJSON(w, map[string]any{
-			"status":         string(StatusSucceeded),
-			"imported_dates": imported,
-			"skipped_dates":  skipped,
-			"rebuild":        rebuild,
+		writeJSONStatus(w, http.StatusAccepted, map[string]any{
+			"status":  string(StatusImporting),
+			"message": "入库任务已开始",
+			"rebuild": rebuild,
 		})
 	})
 }
@@ -235,16 +254,150 @@ func (a *App) currentStore() *ClickHouseStore {
 }
 
 func (a *App) currentLogSource() LogSource {
+	sources := a.currentLogSources()
+	if len(sources) > 0 {
+		return sources[0]
+	}
+	return a.legacyLogSource()
+}
+
+func (a *App) currentLogSources() []LogSource {
+	a.mu.RLock()
+	settings := make(map[string]string, len(a.settings))
+	for key, value := range a.settings {
+		settings[key] = value
+	}
+	a.mu.RUnlock()
+
+	if sources, configured := parseEnabledLogSources(settings["log_sources"]); configured {
+		return sources
+	}
+	return []LogSource{legacyLogSourceFromSettings(settings, a.cfg)}
+}
+
+func (a *App) legacyLogSource() LogSource {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
+	return legacyLogSourceFromSettings(a.settings, a.cfg)
+}
 
+func legacyLogSourceFromSettings(settings map[string]string, cfg Config) LogSource {
 	return LogSource{
-		SourceID:  settingOrFallback(a.settings, "source_id", "default"),
-		LogDir:    settingOrFallback(a.settings, "log_dir", a.cfg.LogDir),
-		LogTag:    settingOrFallback(a.settings, "log_tag", a.cfg.LogTag),
+		SourceID:  settingOrFallback(settings, "source_id", "default"),
+		LogDir:    settingOrFallback(settings, "log_dir", cfg.LogDir),
+		LogTag:    settingOrFallback(settings, "log_tag", cfg.LogTag),
 		Enabled:   true,
 		UpdatedAt: time.Now(),
 	}
+}
+
+func parseEnabledLogSources(raw string) ([]LogSource, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, false
+	}
+
+	type logSourcePayload struct {
+		SourceID string `json:"source_id"`
+		LogDir   string `json:"log_dir"`
+		LogTag   string `json:"log_tag"`
+		Enabled  *bool  `json:"enabled"`
+	}
+
+	var payload []logSourcePayload
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return nil, false
+	}
+
+	now := time.Now()
+	sources := make([]LogSource, 0, len(payload))
+	for _, item := range payload {
+		sourceID := strings.TrimSpace(item.SourceID)
+		logDir := strings.TrimSpace(item.LogDir)
+		logTag := strings.TrimSpace(item.LogTag)
+		if sourceID == "" && logDir == "" && logTag == "" {
+			continue
+		}
+		if sourceID == "" {
+			sourceID = "default"
+		}
+		enabled := true
+		if item.Enabled != nil {
+			enabled = *item.Enabled
+		}
+		if !enabled {
+			continue
+		}
+		sources = append(sources, LogSource{
+			SourceID:  sourceID,
+			LogDir:    logDir,
+			LogTag:    logTag,
+			Enabled:   true,
+			UpdatedAt: now,
+		})
+	}
+	return sources, true
+}
+
+func (a *App) startBackgroundImport(rebuild bool) bool {
+	store := a.currentStore()
+	if store == nil {
+		return false
+	}
+	if !a.tryBeginImport() {
+		return false
+	}
+	go func() {
+		defer a.endImport()
+		ctx := context.Background()
+		_, _, _, _, _ = a.importConfiguredSources(ctx, store, rebuild)
+	}()
+	return true
+}
+
+func (a *App) tryBeginImport() bool {
+	a.importMu.Lock()
+	defer a.importMu.Unlock()
+	if a.importing {
+		return false
+	}
+	a.importing = true
+	return true
+}
+
+func (a *App) endImport() {
+	a.importMu.Lock()
+	defer a.importMu.Unlock()
+	a.importing = false
+}
+
+func (a *App) importConfiguredSources(ctx context.Context, store *ClickHouseStore, rebuild bool) ([]string, []string, map[string][]string, map[string][]string, error) {
+	sources := a.currentLogSources()
+	importedAll := make([]string, 0)
+	skippedAll := make([]string, 0)
+	importedBySource := make(map[string][]string, len(sources))
+	skippedBySource := make(map[string][]string, len(sources))
+
+	runner := a.importRunner
+	if runner == nil {
+		runner = importArchivedDates
+	}
+
+	for _, source := range sources {
+		imported, skipped, err := runner(ctx, store, source, rebuild)
+		if len(imported) > 0 {
+			importedBySource[source.SourceID] = imported
+			importedAll = append(importedAll, imported...)
+		}
+		if len(skipped) > 0 {
+			skippedBySource[source.SourceID] = skipped
+			skippedAll = append(skippedAll, skipped...)
+		}
+		if err != nil {
+			return importedAll, skippedAll, importedBySource, skippedBySource, err
+		}
+	}
+	return importedAll, skippedAll, importedBySource, skippedBySource, nil
 }
 
 func (a *App) updateSettings(payload map[string]any) {
@@ -264,9 +417,48 @@ func (a *App) updateSettings(payload map[string]any) {
 		case float64:
 			a.settings[key] = fmt.Sprintf("%.0f", typed)
 		default:
-			a.settings[key] = fmt.Sprint(typed)
+			encoded, err := json.Marshal(typed)
+			if err != nil {
+				a.settings[key] = fmt.Sprint(typed)
+				continue
+			}
+			a.settings[key] = string(encoded)
 		}
 	}
+}
+
+func (a *App) reloadIPDataFromSettings() IPDataStatus {
+	cfg := a.currentIPDataConfig()
+
+	a.mu.RLock()
+	oldEngine := a.ipEngine
+	a.mu.RUnlock()
+
+	nextEngine, status := ReloadIPEngine(cfg, oldEngine)
+
+	a.mu.Lock()
+	a.ipEngine = nextEngine
+	a.ipStatus = status
+	a.mu.Unlock()
+
+	return status
+}
+
+func (a *App) saveSettings(ctx context.Context, payload map[string]any) error {
+	if len(payload) == 0 {
+		return nil
+	}
+	store := a.currentStore()
+	if store == nil || store.conn == nil {
+		return nil
+	}
+	settings := make(map[string]string, len(payload))
+	a.mu.RLock()
+	for key := range payload {
+		settings[key] = a.settings[key]
+	}
+	a.mu.RUnlock()
+	return store.SaveSettings(ctx, settings)
 }
 
 func (a *App) currentIPDataConfig() Config {
@@ -276,9 +468,22 @@ func (a *App) currentIPDataConfig() Config {
 	cfg := a.cfg
 	cfg.CustomIPMapPath = settingOrFallback(a.settings, "custom_ip_map_path", cfg.CustomIPMapPath)
 	cfg.GeoIPDBPath = settingOrFallback(a.settings, "geoip_db_path", cfg.GeoIPDBPath)
+	cfg.CIDRAliases = parseCIDRAliases(a.settings["cidr_aliases"])
 	cfg.IPMapEnabled = settingBoolOrFallback(a.settings, "ip_map_enabled", cfg.IPMapEnabled)
 	cfg.GeoIPEnabled = settingBoolOrFallback(a.settings, "geoip_enabled", cfg.GeoIPEnabled)
 	return cfg
+}
+
+func parseCIDRAliases(raw string) []CIDRAliasSetting {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var aliases []CIDRAliasSetting
+	if err := json.Unmarshal([]byte(raw), &aliases); err != nil {
+		return nil
+	}
+	return aliases
 }
 
 func settingOrFallback(settings map[string]string, key, fallback string) string {
@@ -363,9 +568,25 @@ func (s appQueryService) Query(r *http.Request) (QueryResponse, error) {
 	if err != nil {
 		return QueryResponse{}, err
 	}
+	pageOptions := QueryPageOptions{Page: page, PageSize: pageSize, Cursor: req.Cursor}
+	if err := validateQueryProtection(req, pageOptions); err != nil {
+		return QueryResponse{}, err
+	}
 
-	states, err := store.ListDateStates(r.Context(), startOfDay(req.Start))
+	release, err := s.acquireQuerySlot(r.Context())
 	if err != nil {
+		return QueryResponse{}, err
+	}
+	defer release()
+
+	ctx, cancel := context.WithTimeout(r.Context(), queryTimeout)
+	defer cancel()
+
+	states, err := store.ListDateStates(ctx, startOfDay(req.Start))
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return QueryResponse{}, queryTimeoutError()
+		}
 		return QueryResponse{}, err
 	}
 
@@ -383,9 +604,21 @@ func (s appQueryService) Query(r *http.Request) (QueryResponse, error) {
 	}
 
 	startedAt := time.Now()
-	records, err := store.QueryNATLogs(r.Context(), querySQL, args, page, pageSize)
+	sortMode := QuerySortTimeDesc
+	records, hasMore, err := store.QueryNATLogs(ctx, querySQL, args, pageOptions, sortMode)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return QueryResponse{}, queryTimeoutError()
+		}
 		return QueryResponse{}, err
+	}
+	s.enrichRecords(records)
+	nextCursor := ""
+	if hasMore {
+		nextCursor, err = nextCursorFromRecords(records)
+		if err != nil {
+			return QueryResponse{}, err
+		}
 	}
 
 	return QueryResponse{
@@ -393,9 +626,37 @@ func (s appQueryService) Query(r *http.Request) (QueryResponse, error) {
 		Total:       len(records),
 		Page:        page,
 		PageSize:    pageSize,
+		NextCursor:  nextCursor,
+		HasMore:     hasMore,
 		QueryTimeMS: time.Since(startedAt).Milliseconds(),
 		Visibility:  visibility,
 	}, nil
+}
+
+func (s appQueryService) acquireQuerySlot(ctx context.Context) (func(), error) {
+	if s.app == nil || s.app.querySem == nil {
+		return func() {}, nil
+	}
+	select {
+	case s.app.querySem <- struct{}{}:
+		return func() { <-s.app.querySem }, nil
+	case <-ctx.Done():
+		return nil, queryTimeoutError()
+	default:
+		return nil, &QueryError{
+			Code:    "query_busy",
+			Message: "查询并发过高，请稍后重试",
+			Status:  http.StatusTooManyRequests,
+		}
+	}
+}
+
+func queryTimeoutError() error {
+	return &QueryError{
+		Code:    "query_timeout",
+		Message: "查询超时，请缩小时间范围或增加筛选条件",
+		Status:  http.StatusGatewayTimeout,
+	}
 }
 
 func (s appQueryService) appStore() *ClickHouseStore {
@@ -405,6 +666,86 @@ func (s appQueryService) appStore() *ClickHouseStore {
 	s.app.mu.RLock()
 	defer s.app.mu.RUnlock()
 	return s.app.store
+}
+
+func (s appQueryService) enrichRecords(records []map[string]any) {
+	if s.app == nil {
+		return
+	}
+	s.app.mu.RLock()
+	engine := s.app.ipEngine
+	s.app.mu.RUnlock()
+	enrichQueryRecords(records, engine)
+}
+
+func enrichQueryRecords(records []map[string]any, engine *IPEngine) {
+	if engine == nil {
+		return
+	}
+	for _, record := range records {
+		if protocol, ok := record["protocol"].(string); ok {
+			record["protocol"] = normalizeProtocol(protocol)
+		}
+		if srcIP, ok := record["src_ip"].(string); ok && srcIP != "" && srcIP != "0.0.0.0" {
+			record["src_ip_label"] = engine.GetTag(srcIP).Label
+		}
+		if dstIP, ok := record["dst_ip"].(string); ok && dstIP != "" && dstIP != "0.0.0.0" {
+			record["dst_geo"] = engine.GetTag(dstIP).Location
+		}
+	}
+}
+
+func nextCursorFromRecords(records []map[string]any) (string, error) {
+	if len(records) == 0 {
+		return "", nil
+	}
+	last := records[len(records)-1]
+	timestampText, ok := last["timestamp"].(string)
+	if !ok || strings.TrimSpace(timestampText) == "" {
+		return "", fmt.Errorf("cannot build cursor: missing timestamp")
+	}
+	timestamp, err := parseTimeQuery(timestampText, time.Time{})
+	if err != nil {
+		return "", fmt.Errorf("cannot build cursor: %w", err)
+	}
+	sourceID, _ := last["source_id"].(string)
+	sourceFile, _ := last["source_file"].(string)
+	sourceOffset, err := uint64FromAny(last["source_offset"])
+	if err != nil {
+		return "", fmt.Errorf("cannot build cursor: %w", err)
+	}
+	return encodeQueryCursor(QueryCursor{
+		Timestamp:    timestamp,
+		SourceID:     sourceID,
+		SourceFile:   sourceFile,
+		SourceOffset: sourceOffset,
+	})
+}
+
+func uint64FromAny(value any) (uint64, error) {
+	switch typed := value.(type) {
+	case uint64:
+		return typed, nil
+	case uint:
+		return uint64(typed), nil
+	case int:
+		if typed < 0 {
+			return 0, fmt.Errorf("invalid source_offset")
+		}
+		return uint64(typed), nil
+	case int64:
+		if typed < 0 {
+			return 0, fmt.Errorf("invalid source_offset")
+		}
+		return uint64(typed), nil
+	case float64:
+		if typed < 0 || typed != float64(uint64(typed)) {
+			return 0, fmt.Errorf("invalid source_offset")
+		}
+		return uint64(typed), nil
+	default:
+		return 0, fmt.Errorf("missing source_offset")
+	}
 }
 
 type appDashboardService struct {
@@ -422,12 +763,14 @@ func (s appDashboardService) HealthDashboard(r *http.Request) (HealthDashboardRe
 		return HealthDashboardResponse{}, err
 	}
 
-	metrics, err := store.DashboardMetrics(r.Context())
+	metrics, err := store.DashboardMetrics(r.Context(), dashboardMetricsSince(r), parseBoolQuery(r, "include_distributions", true))
 	if err != nil {
 		return HealthDashboardResponse{}, err
 	}
 	metrics.GeoIPLoaded = s.geoIPLoaded()
 	metrics.GeoIPStatus = s.geoIPStatus()
+	metrics = s.withGeoDistributions(metrics)
+	metrics = s.withAutoScanPlan(metrics)
 
 	return BuildHealthDashboard(states, metrics), nil
 }
@@ -439,11 +782,11 @@ func (s appDashboardService) IngestProgress(r *http.Request) (IngestProgressResp
 		return BuildIngestProgress(nil, includeReady), nil
 	}
 
-	states, err := store.ListDateStates(r.Context(), time.Now().AddDate(0, 0, -30))
+	states, err := store.ListDateStates(r.Context(), ingestProgressSince(r))
 	if err != nil {
 		return IngestProgressResponse{}, err
 	}
-	return BuildIngestProgress(states, includeReady), nil
+	return BuildIngestProgress(states, includeReady, s.withAutoScanPlan(DashboardMetrics{})), nil
 }
 
 func (s appDashboardService) appStore() *ClickHouseStore {
@@ -473,6 +816,35 @@ func (s appDashboardService) geoIPStatus() string {
 	return s.app.ipStatus.Error
 }
 
+func (s appDashboardService) withGeoDistributions(metrics DashboardMetrics) DashboardMetrics {
+	if s.app == nil {
+		return metrics
+	}
+	s.app.mu.RLock()
+	engine := s.app.ipEngine
+	s.app.mu.RUnlock()
+	return enrichGeoDistributionMetrics(metrics, engine)
+}
+
+func (s appDashboardService) withAutoScanPlan(metrics DashboardMetrics) DashboardMetrics {
+	if s.app == nil {
+		return metrics
+	}
+	s.app.mu.RLock()
+	settings := make(map[string]string, len(s.app.settings))
+	for key, value := range s.app.settings {
+		settings[key] = value
+	}
+	s.app.mu.RUnlock()
+
+	plan := BuildAutoScanPlan(settings, time.Now())
+	metrics.NextAutoScanAt = plan.NextAt
+	metrics.AutoScanPolicy = plan.Policy
+	metrics.AutoScanEnabled = plan.Enabled
+	metrics.AutoScanMode = plan.Mode
+	return metrics
+}
+
 func emptyQueryResponse() QueryResponse {
 	return QueryResponse{
 		Records:  []map[string]any{},
@@ -490,7 +862,7 @@ func parseQueryRequest(r *http.Request) (QueryRequest, int, int, error) {
 	values := r.URL.Query()
 	now := time.Now()
 
-	start, err := parseTimeQuery(values.Get("start"), now.AddDate(0, 0, -7))
+	start, err := parseTimeQuery(values.Get("start"), now.Add(-maxUnfilteredQuerySpan))
 	if err != nil {
 		return QueryRequest{}, 0, 0, err
 	}
@@ -513,6 +885,10 @@ func parseQueryRequest(r *http.Request) (QueryRequest, int, int, error) {
 		Action:   strings.TrimSpace(values.Get("action")),
 		LogTag:   strings.TrimSpace(values.Get("log_tag")),
 	}
+	req.Cursor, err = decodeQueryCursor(values.Get("cursor"))
+	if err != nil {
+		return QueryRequest{}, 0, 0, err
+	}
 
 	var errPort error
 	req.Port, errPort = parseUint16Query(values.Get("port"))
@@ -533,10 +909,7 @@ func parseQueryRequest(r *http.Request) (QueryRequest, int, int, error) {
 	}
 
 	page := parsePositiveInt(values.Get("page"), 1)
-	pageSize := parsePositiveInt(values.Get("page_size"), 50)
-	if pageSize > 500 {
-		pageSize = 500
-	}
+	pageSize := parseQueryPageSize(values.Get("page_size"), 50)
 
 	return req, page, pageSize, nil
 }
@@ -584,6 +957,18 @@ func parsePositiveInt(value string, fallback int) int {
 	return parsed
 }
 
+func parseQueryPageSize(value string, fallback int) int {
+	value = strings.TrimSpace(value)
+	if strings.EqualFold(value, "all") || value == "0" {
+		return fallback
+	}
+	pageSize := parsePositiveInt(value, fallback)
+	if pageSize > 500 {
+		return 500
+	}
+	return pageSize
+}
+
 func parseBoolQuery(r *http.Request, key string, fallback bool) bool {
 	value := strings.TrimSpace(r.URL.Query().Get(key))
 	if value == "" {
@@ -597,7 +982,19 @@ func parseBoolQuery(r *http.Request, key string, fallback bool) bool {
 }
 
 func dashboardSince(r *http.Request) time.Time {
-	switch r.URL.Query().Get("range") {
+	return dashboardRangeSince(r.URL.Query().Get("range"))
+}
+
+func dashboardMetricsSince(r *http.Request) time.Time {
+	value := strings.TrimSpace(r.URL.Query().Get("metrics_range"))
+	if value != "" {
+		return dashboardRangeSince(value)
+	}
+	return dashboardSince(r)
+}
+
+func dashboardRangeSince(value string) time.Time {
+	switch strings.TrimSpace(value) {
 	case "today":
 		return startOfDay(time.Now())
 	case "yesterday":
@@ -609,6 +1006,13 @@ func dashboardSince(r *http.Request) time.Time {
 	default:
 		return time.Now().AddDate(0, 0, -7)
 	}
+}
+
+func ingestProgressSince(r *http.Request) time.Time {
+	if strings.TrimSpace(r.URL.Query().Get("range")) != "" {
+		return dashboardSince(r)
+	}
+	return time.Now().AddDate(0, 0, -30)
 }
 
 type appSecurityService struct {
@@ -635,25 +1039,12 @@ func (s appSecurityService) ChangePassword(r *http.Request) (SessionResponse, er
 
 	s.app.mu.Lock()
 	s.app.passwordHash = passwordHash
-	authenticated := s.app.sessionToken != ""
+	s.app.sessionToken = ""
 	s.app.mu.Unlock()
 
-	return SessionResponse{Authenticated: authenticated}, nil
+	return SessionResponse{Authenticated: false}, nil
 }
 
 func (s appSecurityService) ReloadIPData(_ *http.Request) (IPDataStatus, error) {
-	cfg := s.app.currentIPDataConfig()
-
-	s.app.mu.RLock()
-	oldEngine := s.app.ipEngine
-	s.app.mu.RUnlock()
-
-	nextEngine, status := ReloadIPEngine(cfg, oldEngine)
-
-	s.app.mu.Lock()
-	s.app.ipEngine = nextEngine
-	s.app.ipStatus = status
-	s.app.mu.Unlock()
-
-	return status, nil
+	return s.app.reloadIPDataFromSettings(), nil
 }

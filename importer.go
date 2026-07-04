@@ -15,7 +15,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
 
-const defaultImportBatchSize = 1000
+const defaultImportBatchSize = 20000
 
 type clickHouseWriter interface {
 	PrepareBatch(ctx context.Context, query string, opts ...driver.PrepareBatchOption) (driver.Batch, error)
@@ -51,7 +51,10 @@ func (i *Importer) AppendBatch(ctx context.Context, rows []NATLogRow) error {
 		return err
 	}
 
-	batch, err := writer.PrepareBatch(ctx, `INSERT INTO nat_logs`)
+	batch, err := writer.PrepareBatch(ctx, `INSERT INTO nat_logs (
+    source_id, log_tag, log_date, timestamp, src_ip, src_port, dst_ip, dst_port,
+    nat_ip, nat_port, protocol, action, source_file, source_offset, batch_id
+)`)
 	if err != nil {
 		return err
 	}
@@ -88,7 +91,7 @@ func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.T
 	}
 
 	now := i.nowOrDefault()()
-	if err := writer.Exec(ctx, "ALTER TABLE nat_logs DROP PARTITION ?", date.Format("2006-01-02")); err != nil {
+	if err := writer.Exec(ctx, dropLogDatePartitionSQL(date)); err != nil {
 		return err
 	}
 	i.sleepOrDefault()(time.Second)
@@ -107,12 +110,18 @@ func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.T
 		return failErr
 	}
 
+	var totalBytes uint64
+	for _, file := range targetFiles {
+		totalBytes += uint64(file.Size)
+	}
+
 	if err := i.writeDateState(ctx, DateIngestState{
 		SourceID:   source.SourceID,
 		LogTag:     source.LogTag,
 		LogDate:    date,
 		Status:     StatusImporting,
 		FilesTotal: uint64(len(targetFiles)),
+		BytesTotal: totalBytes,
 		UpdatedAt:  now,
 	}); err != nil {
 		return err
@@ -120,12 +129,25 @@ func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.T
 
 	var totalRows uint64
 	var filesDone uint64
-	var totalBytes uint64
-	for _, file := range targetFiles {
-		totalBytes += uint64(file.Size)
-	}
+	var bytesDone uint64
 
 	for _, file := range targetFiles {
+		if err := i.writeDateState(ctx, DateIngestState{
+			SourceID:     source.SourceID,
+			LogTag:       source.LogTag,
+			LogDate:      date,
+			Status:       StatusImporting,
+			FilesTotal:   uint64(len(targetFiles)),
+			FilesDone:    filesDone,
+			RowsImported: totalRows,
+			BytesTotal:   totalBytes,
+			BytesDone:    bytesDone,
+			CurrentFile:  filepath.Base(file.Path),
+			ProgressPct:  float64(filesDone) / float64(len(targetFiles)) * 100,
+			UpdatedAt:    i.nowOrDefault()(),
+		}); err != nil {
+			return err
+		}
 		if err := i.writeFileState(ctx, FileIngestState{
 			Path:       file.Path,
 			SourceID:   source.SourceID,
@@ -151,6 +173,7 @@ func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.T
 
 		filesDone++
 		totalRows += rowsImported
+		bytesDone += uint64(file.Size)
 		if err := i.writeFileState(ctx, FileIngestState{
 			Path:         file.Path,
 			SourceID:     source.SourceID,
@@ -161,6 +184,22 @@ func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.T
 			BytesTotal:   uint64(file.Size),
 			BytesDone:    uint64(file.Size),
 			ProgressPct:  100,
+			UpdatedAt:    i.nowOrDefault()(),
+		}); err != nil {
+			return err
+		}
+		if err := i.writeDateState(ctx, DateIngestState{
+			SourceID:     source.SourceID,
+			LogTag:       source.LogTag,
+			LogDate:      date,
+			Status:       StatusImporting,
+			FilesTotal:   uint64(len(targetFiles)),
+			FilesDone:    filesDone,
+			RowsImported: totalRows,
+			BytesTotal:   totalBytes,
+			BytesDone:    bytesDone,
+			CurrentFile:  filepath.Base(file.Path),
+			ProgressPct:  float64(filesDone) / float64(len(targetFiles)) * 100,
 			UpdatedAt:    i.nowOrDefault()(),
 		}); err != nil {
 			return err
@@ -180,6 +219,10 @@ func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.T
 		ProgressPct:  100,
 		UpdatedAt:    i.nowOrDefault()(),
 	})
+}
+
+func dropLogDatePartitionSQL(date time.Time) string {
+	return fmt.Sprintf("ALTER TABLE nat_logs DROP PARTITION '%s'", date.Format("2006-01-02"))
 }
 
 func (i *Importer) importFile(ctx context.Context, source LogSource, date time.Time, file LogFileSnapshot) (uint64, error) {
