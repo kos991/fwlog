@@ -14,12 +14,12 @@ import (
 )
 
 func TestValidUpgradeVersionRequiresReleaseTag(t *testing.T) {
-	for _, version := range []string{"v1.1.0", "v2.0.0"} {
+	for _, version := range []string{"v1", "v1.1", "v1.1.0", "v2.0.0"} {
 		if !validUpgradeVersion(version) {
 			t.Fatalf("%s should be a valid upgrade version", version)
 		}
 	}
-	for _, version := range []string{"", "1.1.0", "latest", "v1", "v1.1.0;reboot"} {
+	for _, version := range []string{"", "1.1.0", "latest", "v1.1.1.1", "v1.1.0;reboot"} {
 		if validUpgradeVersion(version) {
 			t.Fatalf("%s should be rejected as an upgrade version", version)
 		}

@@ -86,7 +86,7 @@ type githubReleaseAsset struct {
 type upgradeRunnerFunc func(context.Context, upgradeTarget) UpgradeStatus
 
 func validUpgradeVersion(version string) bool {
-	return regexp.MustCompile(`^v\d+\.\d+\.\d+$`).MatchString(strings.TrimSpace(version))
+	return regexp.MustCompile(`^v\d+(\.\d+){0,2}$`).MatchString(strings.TrimSpace(version))
 }
 
 func releaseUpgradeAssets(release githubRelease) (upgradeAssets, []string) {
@@ -178,7 +178,7 @@ func (a *App) upgradeRunHandler() http.Handler {
 		if !validUpgradeVersion(version) {
 			writeJSONStatus(w, http.StatusBadRequest, map[string]any{
 				"error":   "invalid_version",
-				"message": "升级版本必须使用 vX.Y.Z 格式",
+				"message": "version must use vN, vX.Y, or vX.Y.Z format",
 			})
 			return
 		}
