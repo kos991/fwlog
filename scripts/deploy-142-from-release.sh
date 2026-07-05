@@ -19,6 +19,10 @@ curl -fL --retry 3 --retry-delay 5 \
   "${base_url}/nat-query-service.service" \
   -o "${work_dir}/nat-query-service.service"
 
+if systemctl is-active --quiet nat-query-service 2>/dev/null; then
+  systemctl stop nat-query-service
+fi
+
 install -m 0755 "${work_dir}/nat-query-service" /opt/nat-query/nat-query-service
 install -m 0644 "${work_dir}/nat-query-service.service" /etc/systemd/system/nat-query-service.service
 

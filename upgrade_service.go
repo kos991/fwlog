@@ -339,13 +339,7 @@ func executeSystemUpgrade(ctx context.Context, target upgradeTarget, status *Upg
 	}
 	status.BackupPath = backupPath
 
-	if err := os.Chmod(downloadPath, 0o755); err != nil {
-		return err
-	}
-	if err := copyFile(downloadPath, installedBinaryPath); err != nil {
-		return err
-	}
-	if err := os.Chmod(installedBinaryPath, 0o755); err != nil {
+	if err := replaceFileAtomic(downloadPath, installedBinaryPath, 0o755); err != nil {
 		return err
 	}
 
@@ -395,4 +389,42 @@ func copyFile(sourcePath, targetPath string) error {
 
 	_, err = io.Copy(target, source)
 	return err
+}
+
+func replaceFileAtomic(sourcePath, targetPath string, mode os.FileMode) error {
+	source, err := os.Open(sourcePath)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+
+	dir := filepath.Dir(targetPath)
+	temp, err := os.CreateTemp(dir, "."+filepath.Base(targetPath)+".*.new")
+	if err != nil {
+		return err
+	}
+	tempPath := temp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tempPath)
+		}
+	}()
+
+	if _, err := io.Copy(temp, source); err != nil {
+		_ = temp.Close()
+		return err
+	}
+	if err := temp.Chmod(mode); err != nil {
+		_ = temp.Close()
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tempPath, targetPath); err != nil {
+		return err
+	}
+	cleanup = false
+	return nil
 }

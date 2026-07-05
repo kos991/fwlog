@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -51,6 +54,37 @@ func TestReleaseReportsMissingUpgradeAssets(t *testing.T) {
 
 	if len(missing) != 2 {
 		t.Fatalf("missing assets = %#v, want service and deploy script", missing)
+	}
+}
+
+func TestReplaceFileAtomicSwapsBinaryContent(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "downloaded")
+	targetPath := filepath.Join(dir, "nat-query-service")
+	if err := os.WriteFile(sourcePath, []byte("new-binary"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	if err := os.WriteFile(targetPath, []byte("old-binary"), 0o755); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+
+	if err := replaceFileAtomic(sourcePath, targetPath, 0o755); err != nil {
+		t.Fatalf("replace file: %v", err)
+	}
+
+	content, err := os.ReadFile(targetPath)
+	if err != nil {
+		t.Fatalf("read target: %v", err)
+	}
+	if string(content) != "new-binary" {
+		t.Fatalf("target content = %q", content)
+	}
+	info, err := os.Stat(targetPath)
+	if err != nil {
+		t.Fatalf("stat target: %v", err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o755 {
+		t.Fatalf("target mode = %v, want 0755", info.Mode().Perm())
 	}
 }
 

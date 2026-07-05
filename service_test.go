@@ -22,6 +22,9 @@ func TestSystemdServiceAllowsRuntimeDataDirectory(t *testing.T) {
 	if !contains(paths, "/data") {
 		t.Fatalf("ReadWritePaths must include /data so the service can create /data/index and /data/export; got %q", match[1])
 	}
+	if !contains(paths, "/opt/nat-query") {
+		t.Fatalf("ReadWritePaths must include /opt/nat-query so the service can replace its binary during Release upgrades; got %q", match[1])
+	}
 }
 
 func contains(values []string, want string) bool {
@@ -68,6 +71,25 @@ func TestReleaseWorkflowMatchesClickHouseBuildFlow(t *testing.T) {
 			"cp scripts/deploy-142-from-release.sh release/",
 		},
 	)
+}
+
+func TestReleaseDeployScriptStopsServiceBeforeReplacingBinary(t *testing.T) {
+	content, err := os.ReadFile("scripts/deploy-142-from-release.sh")
+	if err != nil {
+		t.Fatalf("read deploy script: %v", err)
+	}
+	text := string(content)
+	for _, want := range []string{
+		"systemctl stop nat-query-service",
+		"install -m 0755 \"${work_dir}/nat-query-service\" /opt/nat-query/nat-query-service",
+		"systemctl restart nat-query-service",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("deploy script missing %q", want)
+		}
+	}
+	assertComesBefore(t, "scripts/deploy-142-from-release.sh", text, "systemctl stop nat-query-service", "install -m 0755 \"${work_dir}/nat-query-service\" /opt/nat-query/nat-query-service")
+	assertComesBefore(t, "scripts/deploy-142-from-release.sh", text, "install -m 0755 \"${work_dir}/nat-query-service\" /opt/nat-query/nat-query-service", "systemctl restart nat-query-service")
 }
 
 func assertWorkflowMatchesBuildFlow(t *testing.T, path string, required []string) {
