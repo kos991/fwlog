@@ -20,6 +20,7 @@ import {
 import { Button, DatePicker, Form, Input, Popconfirm, Space, Switch, Tabs, Tag, TimePicker, Typography, message } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { apiGet, apiPost, type UpgradeCheckResponse, type UpgradeStatus } from '../api';
+import { buildUpgradeView } from '../upgradePresentation';
 
 const { Text } = Typography;
 
@@ -52,6 +53,7 @@ type Settings = {
   auto_scan_times?: string;
   auto_scan_timezone?: string;
   auto_scan_interval_sec?: number | string;
+  upgrade_auto_check_enabled?: boolean | string;
   current_password?: string;
   new_password?: string;
   confirm_new_password?: string;
@@ -100,14 +102,18 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   const [form] = Form.useForm<Settings>();
   const [loading, setLoading] = React.useState(false);
   const [upgradeLoading, setUpgradeLoading] = React.useState(false);
+  const [upgradeAutoCheckSaving, setUpgradeAutoCheckSaving] = React.useState(false);
   const [upgradeStatus, setUpgradeStatus] = React.useState<UpgradeStatus | null>(null);
   const [upgradeCheck, setUpgradeCheck] = React.useState<UpgradeCheckResponse | null>(null);
-  const [upgradeVersion, setUpgradeVersion] = React.useState('');
+  const [upgradeCheckError, setUpgradeCheckError] = React.useState('');
+  const [upgradeLastCheckedAt, setUpgradeLastCheckedAt] = React.useState<Date | null>(null);
   const [rebuildDate, setRebuildDate] = React.useState<Dayjs | null>(dayjs());
+  const autoUpgradeCheckStartedRef = React.useRef(false);
   const geoipPath = Form.useWatch('geoip_db_path', form);
   const customIpPath = Form.useWatch('custom_ip_map_path', form);
   const autoScanEnabled = Form.useWatch('auto_scan_enabled', form);
   const autoScanTime = Form.useWatch('auto_scan_times', form);
+  const upgradeAutoCheckEnabled = Form.useWatch('upgrade_auto_check_enabled', form);
 
   const load = React.useCallback(async () => {
     try {
@@ -132,6 +138,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
         auto_scan_times: firstAutoScanTime(settings.auto_scan_times),
         auto_scan_timezone: settings.auto_scan_timezone || 'Asia/Shanghai',
         auto_scan_interval_sec: Number(settings.auto_scan_interval_sec || 3600),
+        upgrade_auto_check_enabled: settings.upgrade_auto_check_enabled === true || settings.upgrade_auto_check_enabled === 'true',
       });
     } catch (error) {
       message.error(error instanceof Error ? error.message : '加载设置失败');
@@ -147,10 +154,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   const loadUpgradeStatus = React.useCallback(async () => {
     const status = await apiGet<UpgradeStatus>('/api/upgrade/status');
     setUpgradeStatus(status);
-    if (!upgradeVersion && status.target_version) {
-      setUpgradeVersion(status.target_version);
-    }
-  }, [upgradeVersion]);
+  }, []);
 
   React.useEffect(() => {
     void loadUpgradeStatus().catch(() => undefined);
@@ -163,6 +167,16 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
     }, 3000);
     return () => window.clearInterval(timer);
   }, [loadUpgradeStatus, upgradeStatus?.state]);
+
+  const upgradeView = buildUpgradeView({
+    status: upgradeStatus,
+    check: upgradeCheck,
+    isChecking: upgradeLoading,
+    lastCheckedAt: upgradeLastCheckedAt,
+    autoCheckEnabled: upgradeAutoCheckEnabled === true,
+  });
+  const canCheckUpgrade = upgradeStatus?.state !== 'running' && !upgradeLoading;
+  const canRunUpgrade = upgradeView.showUpgradeAction && upgradeStatus?.state !== 'running' && !upgradeLoading;
 
   const save = async () => {
     try {
@@ -181,6 +195,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
         auto_scan_times: firstAutoScanTime(values.auto_scan_times),
         auto_scan_timezone: values.auto_scan_timezone || 'Asia/Shanghai',
         auto_scan_interval_sec: '86400',
+        upgrade_auto_check_enabled: String(Boolean(values.upgrade_auto_check_enabled)),
       });
       message.success('设置已保存');
     } catch (error) {
@@ -209,32 +224,72 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   const checkUpgrade = async () => {
     try {
       setUpgradeLoading(true);
+      setUpgradeCheckError('');
       const response = await apiGet<UpgradeCheckResponse>('/api/upgrade/check');
       setUpgradeCheck(response);
       setUpgradeStatus(response.status);
-      if (response.latest_version) {
-        setUpgradeVersion(response.latest_version);
+      setUpgradeLastCheckedAt(new Date());
+      if (response.update_available && response.assets_ready) {
+        message.success(`发现可升级版本 ${response.latest_version}`);
+      } else if (response.update_available) {
+        message.warning('发现新版本，但 Release 资产不齐，暂不能升级');
+      } else {
+        message.success('当前已是最新版本');
       }
-      message.success(response.update_available ? '发现可升级版本' : '当前已是最新版本');
     } catch (error) {
+      setUpgradeCheckError(error instanceof Error ? error.message : '检查更新失败');
       message.error(error instanceof Error ? error.message : '检查更新失败');
     } finally {
       setUpgradeLoading(false);
     }
   };
 
+  React.useEffect(() => {
+    if (upgradeAutoCheckEnabled !== true) return;
+    if (autoUpgradeCheckStartedRef.current) return;
+    if (upgradeStatus?.state === 'running') return;
+    autoUpgradeCheckStartedRef.current = true;
+    void checkUpgrade();
+  }, [upgradeAutoCheckEnabled, upgradeStatus?.state]);
+
+  const saveUpgradeAutoCheckEnabled = async (checked: boolean) => {
+    const previous = upgradeAutoCheckEnabled === true;
+    if (checked) autoUpgradeCheckStartedRef.current = true;
+    form.setFieldsValue({ upgrade_auto_check_enabled: checked });
+    try {
+      setUpgradeAutoCheckSaving(true);
+      await apiPost('/api/settings', { upgrade_auto_check_enabled: String(checked) });
+      message.success(checked ? '已开启自动检查更新' : '已关闭自动检查更新');
+      if (checked) {
+        void checkUpgrade();
+      }
+    } catch (error) {
+      autoUpgradeCheckStartedRef.current = previous;
+      form.setFieldsValue({ upgrade_auto_check_enabled: previous });
+      message.error(error instanceof Error ? error.message : '保存自动检查设置失败');
+    } finally {
+      setUpgradeAutoCheckSaving(false);
+    }
+  };
+
   const runUpgrade = async () => {
-    const version = upgradeVersion.trim();
+    const version = upgradeView.state === 'available' ? upgradeView.latestVersion.trim() : '';
+    if (!version) {
+      message.error('请先检查更新并确认 Release 资产齐全');
+      return;
+    }
     if (!/^v\d+\.\d+\.\d+$/.test(version)) {
-      message.error('升级版本必须使用 vX.Y.Z 格式');
+      message.error('检查到的升级版本必须使用 vX.Y.Z 格式');
       return;
     }
     try {
       setUpgradeLoading(true);
+      setUpgradeCheckError('');
       const status = await apiPost<UpgradeStatus>('/api/upgrade/run', { version });
       setUpgradeStatus(status);
       message.success('升级任务已开始');
     } catch (error) {
+      setUpgradeCheckError(error instanceof Error ? error.message : '启动升级失败');
       message.error(error instanceof Error ? error.message : '启动升级失败');
     } finally {
       setUpgradeLoading(false);
@@ -489,55 +544,61 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                       </Tag>
                     </div>
 
-                    <div className="maintenance-run-grid">
-                      <div className="maintenance-field">
-                        <label>当前版本</label>
-                        <Input value={upgradeCheck?.current_version || upgradeStatus?.current_version || '-'} readOnly />
+                    <div className="maintenance-upgrade-panel">
+                      <div className="maintenance-upgrade-version-row">
+                        <Text type="secondary">当前版本</Text>
+                        <strong>{upgradeView.currentVersion}</strong>
                       </div>
 
-                      <div className="maintenance-field">
-                        <label>目标版本</label>
-                        <Input
-                          value={upgradeVersion}
-                          onChange={(event) => setUpgradeVersion(event.target.value)}
-                          placeholder="v1.1.0"
-                        />
-                      </div>
-
-                      <div className="maintenance-field">
-                        <label>检查更新</label>
-                        <Button icon={<ReloadOutlined />} onClick={() => void checkUpgrade()} loading={upgradeLoading}>
-                          检查
-                        </Button>
-                      </div>
-
-                      <div className="maintenance-field maintenance-danger-field">
-                        <label>执行升级</label>
-                        <Popconfirm
-                          title="确认升级并重启服务？"
-                          description={upgradeVersion || '未填写版本'}
-                          okText="确认升级"
-                          cancelText="取消"
-                          onConfirm={() => void runUpgrade()}
+                      <div className="maintenance-upgrade-actions">
+                        <Button
+                          icon={<ReloadOutlined />}
+                          onClick={() => void checkUpgrade()}
+                          loading={upgradeLoading}
+                          disabled={!canCheckUpgrade}
                         >
-                          <Button
-                            type="primary"
-                            icon={<CloudDownloadOutlined />}
-                            loading={upgradeLoading || upgradeStatus?.state === 'running'}
+                          {upgradeView.primaryText}
+                        </Button>
+                        {upgradeView.showUpgradeAction ? (
+                          <Popconfirm
+                            title="确认升级并重启服务？"
+                            description={upgradeView.latestVersion}
+                            okText="确认升级"
+                            cancelText="取消"
+                            onConfirm={() => void runUpgrade()}
                           >
-                            升级
-                          </Button>
-                        </Popconfirm>
+                            <Button
+                              type="primary"
+                              icon={<CloudDownloadOutlined />}
+                              loading={upgradeLoading || upgradeStatus?.state === 'running'}
+                              disabled={!canRunUpgrade}
+                            >
+                              {upgradeView.upgradeButtonText}
+                            </Button>
+                          </Popconfirm>
+                        ) : null}
+                      </div>
+
+                      <div className="maintenance-upgrade-auto-row">
+                        <div>
+                          <strong>自动检查更新</strong>
+                          <Text type="secondary">进入设置页时自动检查；不会自动安装。</Text>
+                        </div>
+                        <Switch
+                          checked={upgradeAutoCheckEnabled === true}
+                          loading={upgradeAutoCheckSaving}
+                          onChange={(checked) => void saveUpgradeAutoCheckEnabled(checked)}
+                        />
                       </div>
                     </div>
 
                     <div className="maintenance-upgrade-note">
-                      <Text type={upgradeStatus?.state === 'failed' ? 'danger' : 'secondary'}>
-                        {upgradeStatus?.error || upgradeStatus?.message || upgradeCheck?.message || '升级只替换 Linux amd64 二进制，任务执行后服务会自动重启。'}
+                      <Text type={upgradeCheckError || upgradeView.state === 'failed' || upgradeView.state === 'asset_missing' ? 'danger' : upgradeView.state === 'available' ? 'warning' : upgradeView.state === 'latest' || upgradeView.state === 'succeeded' ? 'success' : 'secondary'}>
+                        {upgradeCheckError || upgradeView.message}
                       </Text>
-                      {upgradeCheck?.latest_version ? <Text type="secondary">最新版本：{upgradeCheck.latest_version}</Text> : null}
-                      {upgradeCheck?.missing_assets?.length ? <Text type="danger">缺少资产：{upgradeCheck.missing_assets.join(', ')}</Text> : null}
+                      <Text type="secondary">{upgradeView.lastCheckedText} / {upgradeView.sourceText}</Text>
                     </div>
+
                   </div>
                 </section>
               ),

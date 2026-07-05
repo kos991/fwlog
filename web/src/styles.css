@@ -1764,6 +1764,57 @@ body {
   overflow-wrap: anywhere;
 }
 
+.maintenance-upgrade-panel {
+  display: grid;
+  gap: 18px;
+  padding: 18px 20px;
+  border: 1px solid var(--fw-line-soft);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.maintenance-upgrade-version-row,
+.maintenance-upgrade-auto-row,
+.maintenance-upgrade-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+}
+
+.maintenance-upgrade-version-row strong {
+  color: #0f172a;
+  font-size: 18px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.maintenance-upgrade-actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.maintenance-upgrade-actions .ant-btn {
+  min-width: 148px;
+}
+
+.maintenance-upgrade-auto-row {
+  align-items: flex-start;
+}
+
+.maintenance-upgrade-auto-row > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.maintenance-upgrade-auto-row strong {
+  color: #0f172a;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
 .maintenance-switch-line {
   display: flex;
   align-items: center;
@@ -1782,7 +1833,7 @@ body {
   width: 100%;
 }
 
-.maintenance-danger-field .ant-btn {
+.maintenance-danger-field .ant-btn.ant-btn-dangerous {
   background: #fff;
 }
 
@@ -1832,6 +1883,16 @@ body {
   .maintenance-plan-grid,
   .maintenance-run-grid {
     grid-template-columns: 1fr;
+  }
+
+  .maintenance-upgrade-version-row,
+  .maintenance-upgrade-auto-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .maintenance-upgrade-actions .ant-btn {
+    width: 100%;
   }
 
   .source-row-header {

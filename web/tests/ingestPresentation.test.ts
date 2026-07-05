@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { buildIngestProgressView } from '../src/ingestPresentation';
+import { buildIngestProgressView } from '../src/ingestPresentation.ts';
 
 const view = buildIngestProgressView({
   status: 'importing',

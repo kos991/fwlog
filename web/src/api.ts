@@ -182,6 +182,7 @@ function mockResponse<T>(path: string): T {
       geoip_db_path: '/data/index/GeoLite2-City.mmdb',
       auto_scan_enabled: 'false',
       auto_scan_interval_sec: '3600',
+      upgrade_auto_check_enabled: 'false',
     } as T;
   }
   return {} as T;
