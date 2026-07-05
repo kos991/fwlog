@@ -13,10 +13,11 @@ on:
 
 jobs:
   test-and-build:
-    name: Test and build Linux amd64
+    name: Test and build server packages
     runs-on: ubuntu-24.04
     env:
       TZ: Asia/Shanghai
+      CLICKHOUSE_VERSION: 25.8.27.1
 
     steps:
       - name: Checkout repository
@@ -46,14 +47,34 @@ jobs:
       - name: Run Go tests
         run: go test ./...
 
-      - name: Build Linux amd64 binary
+      - name: Install package build tools
         run: |
-          mkdir -p dist
-          go build -trimpath -ldflags "-s -w" -o dist/nat-query-service-linux-amd64 .
+          sudo apt-get update
+          sudo apt-get install -y rpm
 
-      - name: Upload Linux amd64 artifact
+      - name: Build Linux amd64 binary
+        shell: bash
+        env:
+          GOOS: linux
+          GOARCH: amd64
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          go build -trimpath -ldflags "-s -w" -o dist/nat-query-service_linux_amd64 .
+
+      - name: Build RPM and DEB server packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash packaging/build-server-packages.sh --version 0.0.0 --binary dist/nat-query-service_linux_amd64 --output dist
+
+      - name: Upload server package artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: linux-amd64
-          path: dist/nat-query-service-linux-amd64
+          name: server-packages-amd64
+          path: |
+            dist/nat-query-service_linux_amd64
+            dist/nat-query-service_kylin-server_amd64.rpm
+            dist/nat-query-service_debian-server_amd64.deb
           if-no-files-found: error

@@ -32,8 +32,8 @@ func TestReleaseHasRequiredLinuxUpgradeAssets(t *testing.T) {
 		HTMLURL: "https://github.com/kos991/fwlog/releases/tag/v1.1.0",
 		Assets: []githubReleaseAsset{
 			{Name: linuxUpgradeAssetName, BrowserDownloadURL: "https://example.test/linux"},
-			{Name: "nat-query-service.service", BrowserDownloadURL: "https://example.test/service"},
-			{Name: "deploy-142-from-release.sh", BrowserDownloadURL: "https://example.test/deploy"},
+			{Name: kylinServerPackageAssetName, BrowserDownloadURL: "https://example.test/kylin-server"},
+			{Name: debianServerPackageAssetName, BrowserDownloadURL: "https://example.test/debian-server"},
 		},
 	}
 
@@ -42,7 +42,7 @@ func TestReleaseHasRequiredLinuxUpgradeAssets(t *testing.T) {
 	if len(missing) != 0 {
 		t.Fatalf("missing assets = %#v", missing)
 	}
-	if assets.BinaryURL != "https://example.test/linux" || assets.ServiceURL == "" || assets.DeployScriptURL == "" {
+	if assets.BinaryURL != "https://example.test/linux" || assets.KylinServerPackageURL != "https://example.test/kylin-server" || assets.DebianServerPackageURL != "https://example.test/debian-server" {
 		t.Fatalf("assets = %#v", assets)
 	}
 }
@@ -52,8 +52,8 @@ func TestReleaseReportsMissingUpgradeAssets(t *testing.T) {
 		Assets: []githubReleaseAsset{{Name: linuxUpgradeAssetName, BrowserDownloadURL: "https://example.test/linux"}},
 	})
 
-	if len(missing) != 2 {
-		t.Fatalf("missing assets = %#v, want service and deploy script", missing)
+	if len(missing) != 2 || missing[0] != kylinServerPackageAssetName || missing[1] != debianServerPackageAssetName {
+		t.Fatalf("missing assets = %#v, want server packages", missing)
 	}
 }
 

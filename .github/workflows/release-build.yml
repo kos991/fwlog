@@ -103,11 +103,12 @@ jobs:
           PY
 
   build:
-    name: Build Linux amd64
+    name: Build server packages
     runs-on: ubuntu-24.04
     needs: prepare-release
     env:
       TZ: Asia/Shanghai
+      CLICKHOUSE_VERSION: 25.8.27.1
 
     steps:
       - name: Checkout repository
@@ -137,7 +138,12 @@ jobs:
       - name: Run Go tests
         run: go test ./...
 
-      - name: Build Linux binary
+      - name: Install package build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm
+
+      - name: Build Linux binary and server packages
         shell: bash
         env:
           GOOS: linux
@@ -149,8 +155,7 @@ jobs:
           asset="nat-query-service_${GOOS}_${GOARCH}"
           version="${{ needs.prepare-release.outputs.version }}"
           go build -trimpath -ldflags "-s -w -X main.appVersion=$version" -o "release/$asset" .
-          cp nat-query-service.service release/
-          cp scripts/deploy-142-from-release.sh release/
+          bash packaging/build-server-packages.sh --version "$version" --binary "release/$asset" --output release
 
       - name: Upload release asset
         env:
@@ -161,4 +166,10 @@ jobs:
           set -euo pipefail
           version="${{ needs.prepare-release.outputs.version }}"
           gh release view "$version" --repo "$GH_REPO" >/dev/null
+          allowed_assets=$'nat-query-service_linux_amd64\nnat-query-service_kylin-server_amd64.rpm\nnat-query-service_debian-server_amd64.deb'
+          while IFS= read -r asset_name; do
+            if [[ -n "$asset_name" ]] && ! grep -Fxq "$asset_name" <<< "$allowed_assets"; then
+              gh release delete-asset "$version" "$asset_name" --repo "$GH_REPO" --yes
+            fi
+          done < <(gh release view "$version" --repo "$GH_REPO" --json assets --jq '.assets[].name')
           gh release upload "$version" release/* --repo "$GH_REPO" --clobber

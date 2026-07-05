@@ -17,12 +17,12 @@ import (
 )
 
 const (
-	githubRepoOwner       = "kos991"
-	githubRepoName        = "fwlog"
-	linuxUpgradeAssetName = "nat-query-service_linux_amd64"
-	serviceAssetName      = "nat-query-service.service"
-	deployScriptAssetName = "deploy-142-from-release.sh"
-	installedBinaryPath   = "/opt/nat-query/nat-query-service"
+	githubRepoOwner              = "kos991"
+	githubRepoName               = "fwlog"
+	linuxUpgradeAssetName        = "nat-query-service_linux_amd64"
+	kylinServerPackageAssetName  = "nat-query-service_kylin-server_amd64.rpm"
+	debianServerPackageAssetName = "nat-query-service_debian-server_amd64.deb"
+	installedBinaryPath          = "/opt/nat-query/nat-query-service"
 )
 
 var appVersion = "dev"
@@ -67,9 +67,9 @@ type upgradeRunRequest struct {
 }
 
 type upgradeAssets struct {
-	BinaryURL       string
-	ServiceURL      string
-	DeployScriptURL string
+	BinaryURL              string
+	KylinServerPackageURL  string
+	DebianServerPackageURL string
 }
 
 type githubRelease struct {
@@ -96,16 +96,16 @@ func releaseUpgradeAssets(release githubRelease) (upgradeAssets, []string) {
 	}
 
 	missing := make([]string, 0)
-	for _, name := range []string{linuxUpgradeAssetName, serviceAssetName, deployScriptAssetName} {
+	for _, name := range []string{linuxUpgradeAssetName, kylinServerPackageAssetName, debianServerPackageAssetName} {
 		if strings.TrimSpace(found[name]) == "" {
 			missing = append(missing, name)
 		}
 	}
 
 	return upgradeAssets{
-		BinaryURL:       found[linuxUpgradeAssetName],
-		ServiceURL:      found[serviceAssetName],
-		DeployScriptURL: found[deployScriptAssetName],
+		BinaryURL:              found[linuxUpgradeAssetName],
+		KylinServerPackageURL:  found[kylinServerPackageAssetName],
+		DebianServerPackageURL: found[debianServerPackageAssetName],
 	}, missing
 }
 

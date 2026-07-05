@@ -47,8 +47,12 @@ func TestCIWorkflowMatchesClickHouseBuildFlow(t *testing.T) {
 			"npm ci",
 			"npm run build",
 			"go test ./...",
-			"go build -trimpath -ldflags \"-s -w\" -o dist/nat-query-service-linux-amd64 .",
-			"name: linux-amd64",
+			"sudo apt-get install -y rpm",
+			"go build -trimpath -ldflags \"-s -w\" -o dist/nat-query-service_linux_amd64 .",
+			"packaging/build-server-packages.sh --version 0.0.0 --binary dist/nat-query-service_linux_amd64 --output dist",
+			"dist/nat-query-service_kylin-server_amd64.rpm",
+			"dist/nat-query-service_debian-server_amd64.deb",
+			"name: server-packages-amd64",
 		},
 	)
 }
@@ -67,10 +71,32 @@ func TestReleaseWorkflowMatchesClickHouseBuildFlow(t *testing.T) {
 			"GOOS: linux",
 			"GOARCH: amd64",
 			"-X main.appVersion",
-			"cp nat-query-service.service release/",
-			"cp scripts/deploy-142-from-release.sh release/",
+			"sudo apt-get install -y rpm",
+			"packaging/build-server-packages.sh --version \"$version\" --binary \"release/$asset\" --output release",
+			"nat-query-service_kylin-server_amd64.rpm",
+			"nat-query-service_debian-server_amd64.deb",
+			"gh release delete-asset",
 		},
 	)
+}
+
+func TestServerPackageAssetsAreRequiredForUpgradeChecks(t *testing.T) {
+	release := githubRelease{
+		Assets: []githubReleaseAsset{
+			{Name: linuxUpgradeAssetName, BrowserDownloadURL: "https://example.test/binary"},
+			{Name: kylinServerPackageAssetName, BrowserDownloadURL: "https://example.test/rpm"},
+			{Name: debianServerPackageAssetName, BrowserDownloadURL: "https://example.test/deb"},
+		},
+	}
+
+	assets, missing := releaseUpgradeAssets(release)
+
+	if len(missing) != 0 {
+		t.Fatalf("missing assets = %#v", missing)
+	}
+	if assets.BinaryURL == "" || assets.KylinServerPackageURL == "" || assets.DebianServerPackageURL == "" {
+		t.Fatalf("assets = %#v", assets)
+	}
 }
 
 func TestReleaseDeployScriptStopsServiceBeforeReplacingBinary(t *testing.T) {

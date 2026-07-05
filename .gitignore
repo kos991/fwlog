@@ -2,6 +2,8 @@
 /dist/
 /pkg_temp/
 /release/
+/tmp/
+/.cache/
 
 # Locally downloaded native dependencies used for packaging
 /third_party/
