@@ -23,7 +23,7 @@ const (
 	queryTimeout           = 10 * time.Second
 	maxLegacyQueryPage     = 20
 	maxUnfilteredQuerySpan = 24 * time.Hour
-	maxFilteredQuerySpan   = 7 * 24 * time.Hour
+	maxFilteredQuerySpan   = 31 * 24 * time.Hour
 )
 
 type QueryRequest struct {
@@ -173,17 +173,25 @@ func validateQueryProtection(req QueryRequest, options QueryPageOptions) error {
 
 	span := req.End.Sub(req.Start)
 	limit := maxUnfilteredQuerySpan
-	if req.HasFilters() {
+	hasFilters := req.HasFilters()
+	if hasFilters {
 		limit = maxFilteredQuerySpan
 	}
 	if span > limit {
 		return &QueryError{
 			Code:    "query_too_broad",
-			Message: fmt.Sprintf("查询时间范围过大，请将时间范围缩小到 %s 以内，或增加 IP/端口/协议等筛选条件", humanDuration(limit)),
+			Message: queryProtectionMessage(hasFilters),
 			Status:  http.StatusBadRequest,
 		}
 	}
 	return nil
+}
+
+func queryProtectionMessage(hasFilters bool) string {
+	if hasFilters {
+		return fmt.Sprintf("查询时间范围过大。带筛选查询最多支持 %s，请缩小时间范围后重试。", humanDuration(maxFilteredQuerySpan))
+	}
+	return fmt.Sprintf("查询时间范围过大。无筛选查询最多支持 %s；填写 IP、端口、协议、结果或日志名称后，带筛选查询最多支持 %s。", humanDuration(maxUnfilteredQuerySpan), humanDuration(maxFilteredQuerySpan))
 }
 
 func humanDuration(value time.Duration) string {

@@ -77,6 +77,25 @@ func TestReleaseWorkflowMatchesClickHouseBuildFlow(t *testing.T) {
 	)
 }
 
+func TestServerPackageBuildBundlesGeoIPDatabase(t *testing.T) {
+	buildScript := readRepoFile(t, "packaging", "build-server-packages.sh")
+	for _, want := range []string{
+		"GEOIP_DB_URL",
+		"https://github.com/P3TERX/GeoLite.mmdb/releases/latest/download/GeoLite2-City.mmdb",
+		"GeoLite2-City.mmdb",
+		"$rootfs/data/index/GeoLite2-City.mmdb",
+	} {
+		if !strings.Contains(buildScript, want) {
+			t.Fatalf("packaging/build-server-packages.sh missing %q", want)
+		}
+	}
+
+	rpmSpec := readRepoFile(t, "packaging", "rpm", "nat-query-service.spec")
+	if !strings.Contains(rpmSpec, "/data/index/GeoLite2-City.mmdb") {
+		t.Fatal("RPM spec must include /data/index/GeoLite2-City.mmdb")
+	}
+}
+
 func TestServerPackageAssetsAreRequiredForUpgradeChecks(t *testing.T) {
 	release := githubRelease{
 		Assets: []githubReleaseAsset{

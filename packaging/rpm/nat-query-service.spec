@@ -62,4 +62,5 @@ fi
 %dir /data
 %dir /data/sangfor_fw_log
 %dir /data/index
+/data/index/GeoLite2-City.mmdb
 %dir /data/export

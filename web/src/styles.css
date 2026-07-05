@@ -1369,6 +1369,30 @@ body {
   max-width: none;
 }
 
+.query-limit-hint {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px solid #dbe8ff;
+  border-radius: 8px;
+  background: #f6f9ff;
+  color: #526071;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.query-limit-hint .anticon {
+  color: #2563eb;
+  font-size: 14px;
+}
+
+.query-limit-hint span {
+  min-width: 0;
+}
+
 .time-range-item {
   min-width: 0;
 }
@@ -1766,14 +1790,29 @@ body {
 
 .maintenance-upgrade-panel {
   display: grid;
-  gap: 18px;
-  padding: 18px 20px;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.maintenance-upgrade-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 0.55fr);
+  gap: 10px;
+}
+
+.maintenance-upgrade-info {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  min-height: 72px;
+  padding: 12px 14px;
   border: 1px solid var(--fw-line-soft);
   border-radius: 8px;
   background: #ffffff;
 }
 
-.maintenance-upgrade-version-row,
 .maintenance-upgrade-auto-row,
 .maintenance-upgrade-actions {
   display: flex;
@@ -1783,9 +1822,15 @@ body {
   min-width: 0;
 }
 
-.maintenance-upgrade-version-row strong {
+.maintenance-upgrade-info span {
+  color: #6b7280;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.maintenance-upgrade-info strong {
   color: #0f172a;
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1.2;
   overflow-wrap: anywhere;
 }
@@ -1800,7 +1845,11 @@ body {
 }
 
 .maintenance-upgrade-auto-row {
-  align-items: flex-start;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid var(--fw-line-soft);
+  border-radius: 8px;
+  background: #ffffff;
 }
 
 .maintenance-upgrade-auto-row > div {

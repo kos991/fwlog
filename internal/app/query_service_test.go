@@ -314,17 +314,40 @@ func TestValidateQueryProtectionRejectsBroadUnfilteredQuery(t *testing.T) {
 	if queryErr.Code != "query_too_broad" || queryErr.Status != 400 {
 		t.Fatalf("query error = %#v", queryErr)
 	}
+	if !strings.Contains(queryErr.Message, "无筛选查询最多支持 1 天") || !strings.Contains(queryErr.Message, "带筛选查询最多支持 31 天") {
+		t.Fatalf("message = %q, want unfiltered and filtered limits", queryErr.Message)
+	}
 }
 
-func TestValidateQueryProtectionAllowsFilteredSevenDayQuery(t *testing.T) {
+func TestValidateQueryProtectionAllowsFilteredMonthQuery(t *testing.T) {
 	req := QueryRequest{
 		Start: time.Date(2026, 7, 1, 0, 0, 0, 0, time.Local),
-		End:   time.Date(2026, 7, 8, 0, 0, 0, 0, time.Local),
+		End:   time.Date(2026, 8, 1, 0, 0, 0, 0, time.Local),
 		SrcIP: "2.55.80.66",
 	}
 
 	if err := validateQueryProtection(req, QueryPageOptions{Page: 1, PageSize: 100}); err != nil {
-		t.Fatalf("filtered seven-day query should be allowed: %v", err)
+		t.Fatalf("filtered month query should be allowed: %v", err)
+	}
+}
+
+func TestValidateQueryProtectionExplainsFilteredLimit(t *testing.T) {
+	req := QueryRequest{
+		Start: time.Date(2026, 7, 1, 0, 0, 0, 0, time.Local),
+		End:   time.Date(2026, 8, 2, 0, 0, 0, 0, time.Local),
+		SrcIP: "2.55.80.66",
+	}
+
+	err := validateQueryProtection(req, QueryPageOptions{Page: 1, PageSize: 100})
+	if err == nil {
+		t.Fatal("filtered query beyond one month should be rejected")
+	}
+	var queryErr *QueryError
+	if !errors.As(err, &queryErr) {
+		t.Fatalf("error = %T %v, want QueryError", err, err)
+	}
+	if !strings.Contains(queryErr.Message, "带筛选查询最多支持 31 天") || strings.Contains(queryErr.Message, "增加 IP/端口/协议") {
+		t.Fatalf("message = %q, want filtered limit without suggesting filters", queryErr.Message)
 	}
 }
 

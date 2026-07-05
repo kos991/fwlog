@@ -16,6 +16,9 @@ Environment:
   CLICKHOUSE_TGZ_URL    Override ClickHouse common-static tarball URL.
   CLICKHOUSE_BINARY     Use an existing ClickHouse binary instead of downloading.
   CLICKHOUSE_CACHE_DIR  Download cache directory. Default: .cache/clickhouse
+  GEOIP_DB_PATH         Use an existing GeoLite2-City.mmdb instead of downloading.
+  GEOIP_DB_URL          Override GeoLite2-City.mmdb URL. Default: P3TERX latest release.
+  GEOIP_CACHE_DIR       Download cache directory. Default: .cache/geoip
 USAGE
 }
 
@@ -115,9 +118,35 @@ clickhouse_binary() {
     echo "$found"
 }
 
+geoip_database() {
+    if [[ -n "${GEOIP_DB_PATH:-}" ]]; then
+        if [[ ! -f "$GEOIP_DB_PATH" ]]; then
+            echo "GEOIP_DB_PATH not found: $GEOIP_DB_PATH" >&2
+            exit 1
+        fi
+        echo "$GEOIP_DB_PATH"
+        return
+    fi
+
+    local cache_dir="${GEOIP_CACHE_DIR:-$repo_root/.cache/geoip}"
+    local db_path="$cache_dir/GeoLite2-City.mmdb"
+    local url="${GEOIP_DB_URL:-https://github.com/P3TERX/GeoLite.mmdb/releases/latest/download/GeoLite2-City.mmdb}"
+
+    mkdir -p "$cache_dir"
+    if [[ ! -f "$db_path" ]]; then
+        curl -fL --retry 3 --retry-delay 5 "$url" -o "$db_path"
+    fi
+    if [[ ! -s "$db_path" ]]; then
+        echo "GeoLite2-City.mmdb is empty: $db_path" >&2
+        exit 1
+    fi
+    echo "$db_path"
+}
+
 stage_rootfs() {
     local rootfs="$1"
     local ch_bin="$2"
+    local geoip_db="$3"
 
     install -d "$rootfs/opt/nat-query/clickhouse/bin" \
         "$rootfs/opt/nat-query/clickhouse/etc" \
@@ -137,6 +166,7 @@ stage_rootfs() {
     install -m 0644 "$repo_root/packaging/systemd/fwlog-clickhouse.service" "$rootfs/etc/systemd/system/fwlog-clickhouse.service"
     install -m 0644 "$repo_root/packaging/clickhouse/config.xml" "$rootfs/opt/nat-query/clickhouse/etc/config.xml"
     install -m 0644 "$repo_root/packaging/clickhouse/users.xml" "$rootfs/opt/nat-query/clickhouse/etc/users.xml"
+    install -m 0644 "$geoip_db" "$rootfs/data/index/GeoLite2-City.mmdb"
 }
 
 build_deb() {
@@ -220,8 +250,9 @@ build_rpm() {
 }
 
 ch_bin="$(clickhouse_binary)"
+geoip_db="$(geoip_database)"
 rootfs="$work_dir/rootfs"
-stage_rootfs "$rootfs" "$ch_bin"
+stage_rootfs "$rootfs" "$ch_bin" "$geoip_db"
 build_deb "$rootfs"
 build_rpm "$rootfs"
 

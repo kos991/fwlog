@@ -1,5 +1,5 @@
 import React from 'react';
-import { DownOutlined, SearchOutlined, UpOutlined } from '@ant-design/icons';
+import { DownOutlined, InfoCircleOutlined, SearchOutlined, UpOutlined } from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
 import { Alert, Button, DatePicker, Descriptions, Form, Input, Select, Tag, message } from 'antd';
@@ -428,6 +428,11 @@ export function LogSearchPage(_props: LogSearchPageProps) {
             <Form.Item name="log_tag" label="日志名称"><Input /></Form.Item>
           </div>
           )}
+          <div className="query-limit-hint" aria-label="查询范围说明">
+            <InfoCircleOutlined />
+            <span>无筛选查询最多支持 1 天。</span>
+            <span>填写任一 IP、端口、协议、结果或日志名称后，最多支持 31 天。</span>
+          </div>
         </Form>
       </section>
 

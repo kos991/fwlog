@@ -537,17 +537,23 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                     <div className="maintenance-card-head">
                       <div>
                         <span className="maintenance-card-kicker"><CloudDownloadOutlined /> 自动升级</span>
-                        <strong>Release 升级</strong>
+                        <strong>版本升级</strong>
                       </div>
                       <Tag color={upgradeStatus?.state === 'running' ? 'processing' : upgradeStatus?.state === 'failed' ? 'error' : upgradeStatus?.state === 'succeeded' ? 'success' : 'default'}>
-                        {upgradeStatus?.state || 'idle'}
+                        {upgradeView.stateText}
                       </Tag>
                     </div>
 
                     <div className="maintenance-upgrade-panel">
-                      <div className="maintenance-upgrade-version-row">
-                        <Text type="secondary">当前版本</Text>
-                        <strong>{upgradeView.currentVersion}</strong>
+                      <div className="maintenance-upgrade-summary">
+                        <div className="maintenance-upgrade-info">
+                          <span>当前版本</span>
+                          <strong>{upgradeView.currentVersion}</strong>
+                        </div>
+                        <div className="maintenance-upgrade-info">
+                          <span>更新状态</span>
+                          <strong>{upgradeView.stateText}</strong>
+                        </div>
                       </div>
 
                       <div className="maintenance-upgrade-actions">
@@ -582,7 +588,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                       <div className="maintenance-upgrade-auto-row">
                         <div>
                           <strong>自动检查更新</strong>
-                          <Text type="secondary">进入设置页时自动检查；不会自动安装。</Text>
+                          <Text type="secondary">进入设置页时检查新版本，不会自动安装。</Text>
                         </div>
                         <Switch
                           checked={upgradeAutoCheckEnabled === true}
@@ -596,7 +602,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                       <Text type={upgradeCheckError || upgradeView.state === 'failed' || upgradeView.state === 'asset_missing' ? 'danger' : upgradeView.state === 'available' ? 'warning' : upgradeView.state === 'latest' || upgradeView.state === 'succeeded' ? 'success' : 'secondary'}>
                         {upgradeCheckError || upgradeView.message}
                       </Text>
-                      <Text type="secondary">{upgradeView.lastCheckedText} / {upgradeView.sourceText}</Text>
+                      <Text type="secondary">{upgradeView.lastCheckedText} · {upgradeView.sourceText}</Text>
                     </div>
 
                   </div>

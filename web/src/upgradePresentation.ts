@@ -20,6 +20,7 @@ type BuildUpgradeViewInput = {
 
 export type UpgradeView = {
   state: UpgradePanelState;
+  stateText: string;
   currentVersion: string;
   latestVersion: string;
   primaryText: string;
@@ -39,6 +40,7 @@ export function buildUpgradeView(input: BuildUpgradeViewInput): UpgradeView {
 
   return {
     state,
+    stateText: resolveStateText(state),
     currentVersion,
     latestVersion,
     primaryText: input.isChecking ? '检查中' : '检查更新',
@@ -47,8 +49,8 @@ export function buildUpgradeView(input: BuildUpgradeViewInput): UpgradeView {
     message: buildMessage(input, state, latestVersion),
     lastCheckedText: input.lastCheckedAt ? `上次检查：${formatLocalDateTime(input.lastCheckedAt)}` : '上次检查：尚未检查',
     sourceText: input.autoCheckEnabled
-      ? '已开启自动检查；从 GitHub Releases 检查更新'
-      : '从 GitHub Releases 检查更新',
+      ? '已开启自动检查；从发布版本检查更新'
+      : '从发布版本检查更新',
     statusTone: resolveStatusTone(state),
   };
 }
@@ -84,14 +86,14 @@ function buildMessage(input: BuildUpgradeViewInput, state: UpgradePanelState, la
   }
   if (state === 'asset_missing') {
     const missing = input.check?.missing_assets || [];
-    return missing.length ? `缺少资产：${missing.join(', ')}` : input.check?.message || 'Release 资产不齐，暂不能升级。';
+    return missing.length ? `缺少发布资产：${missing.join(', ')}` : input.check?.message || '发布资产不完整，暂不能升级。';
   }
   if (state === 'available') {
-    return latestVersion ? `发现可升级版本 ${latestVersion}。` : '发现可升级版本。';
+    return latestVersion ? `发现新版本：${latestVersion}，可手动升级。` : '发现新版本，可手动升级。';
   }
   if (state === 'latest') return '当前已是最新版本。';
-  if (state === 'checking') return '正在从 GitHub Releases 检查更新。';
-  return '升级只会在确认后手动执行；自动检查不会自动安装。';
+  if (state === 'checking') return '正在检查发布版本。';
+  return '点击检查更新后，如发现新版本会显示升级按钮。';
 }
 
 function resolveStatusTone(state: UpgradePanelState): UpgradeView['statusTone'] {
@@ -100,6 +102,27 @@ function resolveStatusTone(state: UpgradePanelState): UpgradeView['statusTone'] 
   if (state === 'available' || state === 'asset_missing') return 'warning';
   if (state === 'failed') return 'error';
   return 'default';
+}
+
+function resolveStateText(state: UpgradePanelState) {
+  switch (state) {
+    case 'checking':
+      return '检查中';
+    case 'available':
+      return '可升级';
+    case 'latest':
+      return '已是最新';
+    case 'asset_missing':
+      return '资产缺失';
+    case 'running':
+      return '升级中';
+    case 'failed':
+      return '升级失败';
+    case 'succeeded':
+      return '升级完成';
+    default:
+      return '未检查';
+  }
 }
 
 function formatLocalDateTime(value: Date) {
