@@ -154,7 +154,7 @@ jobs:
           mkdir -p release
           asset="nat-query-service_${GOOS}_${GOARCH}"
           version="${{ needs.prepare-release.outputs.version }}"
-          go build -trimpath -ldflags "-s -w -X main.appVersion=$version" -o "release/$asset" .
+          go build -trimpath -ldflags "-s -w -X nat-query-service/internal/app.appVersion=$version" -o "release/$asset" ./cmd/nat-query-service
           bash packaging/build-server-packages.sh --version "$version" --binary "release/$asset" --output release
 
       - name: Upload release asset

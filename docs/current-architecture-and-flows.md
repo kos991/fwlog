@@ -4,16 +4,16 @@
 
 主要代码依据：
 
-- `main.go`
-- `app.go`
-- `clickhouse_store.go`
-- `importer.go`
-- `query_service.go`
-- `dashboard_service.go`
-- `log_scanner.go`
-- `ip_engine.go`
-- `upgrade_service.go`
-- `session_auth.go`
+- `cmd/nat-query-service/main.go`
+- `internal/app/app.go`
+- `internal/app/clickhouse_store.go`
+- `internal/app/importer.go`
+- `internal/app/query_service.go`
+- `internal/app/dashboard_service.go`
+- `internal/app/log_scanner.go`
+- `internal/app/ip_engine.go`
+- `internal/app/upgrade_service.go`
+- `internal/app/session_auth.go`
 - `web/src/main.tsx`
 - `web/src/layout/AppLayout.tsx`
 - `web/src/api.ts`
@@ -111,7 +111,7 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    Main[main.go<br/>LoadConfig + NewApp + Run] --> App[App]
+    Main[cmd/nat-query-service/main.go<br/>LoadConfig + NewApp + Run] --> App[internal/app.App]
     App --> Connect[Connect<br/>OpenClickHouse + EnsureTables + LoadSettings]
     App --> Router[Router<br/>注册 HTTP 接口]
     App --> Settings[settings map<br/>运行时配置]

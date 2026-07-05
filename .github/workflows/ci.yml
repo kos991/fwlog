@@ -61,7 +61,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          go build -trimpath -ldflags "-s -w" -o dist/nat-query-service_linux_amd64 .
+          go build -trimpath -ldflags "-s -w" -o dist/nat-query-service_linux_amd64 ./cmd/nat-query-service
 
       - name: Build RPM and DEB server packages
         shell: bash
