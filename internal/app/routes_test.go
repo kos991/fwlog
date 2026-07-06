@@ -229,6 +229,40 @@ func TestRouterPasswordChangeRequiresCurrentPassword(t *testing.T) {
 	}
 }
 
+func TestAppUsesPersistedAdminPasswordHash(t *testing.T) {
+	app := NewApp(LoadConfig())
+	passwordHash, err := HashPassword("saved-admin-password")
+	if err != nil {
+		t.Fatalf("HashPassword returned error: %v", err)
+	}
+
+	app.applySavedSettings(map[string]string{
+		adminPasswordHashSettingKey: passwordHash,
+	})
+
+	if app.verifyPassword("admin") {
+		t.Fatal("default admin password should not work after loading persisted password hash")
+	}
+	if !app.verifyPassword("saved-admin-password") {
+		t.Fatal("persisted password hash should be used for login")
+	}
+	if _, ok := app.getSettings()[adminPasswordHashSettingKey]; ok {
+		t.Fatal("admin password hash must not be returned by /api/settings")
+	}
+}
+
+func TestAppIgnoresMalformedPersistedAdminPasswordHash(t *testing.T) {
+	app := NewApp(LoadConfig())
+
+	app.applySavedSettings(map[string]string{
+		adminPasswordHashSettingKey: "not-a-password-hash",
+	})
+
+	if !app.verifyPassword("admin") {
+		t.Fatal("malformed persisted password hash should not replace the default admin password")
+	}
+}
+
 func TestRouterPasswordChangeReturnsUnauthenticatedJSONWhenSessionMissing(t *testing.T) {
 	app := NewApp(LoadConfig())
 	router := app.Router()

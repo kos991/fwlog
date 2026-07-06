@@ -29,6 +29,8 @@ type App struct {
 
 type importRunnerFunc func(context.Context, *ClickHouseStore, LogSource, bool) ([]string, []string, error)
 
+const adminPasswordHashSettingKey = "admin_password_hash"
+
 var (
 	openClickHouse       = OpenClickHouse
 	connectRetryAttempts = 30
@@ -68,12 +70,28 @@ func (a *App) Connect(ctx context.Context) error {
 
 	a.mu.Lock()
 	a.store = store
-	for key, value := range savedSettings {
-		a.settings[key] = value
-	}
+	a.applySavedSettingsLocked(savedSettings)
 	a.mu.Unlock()
 	a.reloadIPDataFromSettings()
 	return nil
+}
+
+func (a *App) applySavedSettings(savedSettings map[string]string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.applySavedSettingsLocked(savedSettings)
+}
+
+func (a *App) applySavedSettingsLocked(savedSettings map[string]string) {
+	for key, value := range savedSettings {
+		if key == adminPasswordHashSettingKey {
+			if looksLikePasswordHash(value) {
+				a.passwordHash = value
+			}
+			continue
+		}
+		a.settings[key] = value
+	}
 }
 
 func (a *App) openClickHouseWithRetry(ctx context.Context) (*ClickHouseStore, error) {

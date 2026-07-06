@@ -52,6 +52,9 @@ func (a *App) getSettings() map[string]string {
 
 	settings := make(map[string]string, len(a.settings)+7)
 	for key, value := range a.settings {
+		if key == adminPasswordHashSettingKey {
+			continue
+		}
 		settings[key] = value
 	}
 	settings["rebuild_status"] = string(StatusIdle)
@@ -123,6 +126,16 @@ func (a *App) saveSettings(ctx context.Context, payload map[string]any) error {
 	}
 	a.mu.RUnlock()
 	return store.SaveSettings(ctx, settings)
+}
+
+func (a *App) saveAdminPasswordHash(ctx context.Context, passwordHash string) error {
+	store := a.currentStore()
+	if store == nil || store.conn == nil {
+		return nil
+	}
+	return store.SaveSettings(ctx, map[string]string{
+		adminPasswordHashSettingKey: passwordHash,
+	})
 }
 
 func (a *App) currentIPDataConfig() Config {
