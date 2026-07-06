@@ -104,6 +104,22 @@ func TestBuildHealthDashboardSummarizesDateStates(t *testing.T) {
 		TopSourceIPs:            []DistributionItem{{Name: "10.0.0.1", Value: 10}},
 		TopCountries:            []DistributionItem{{Name: "中国", Value: 8}},
 		GeoIPLoaded:             true,
+		SystemHealth: SystemHealth{
+			CPU: CPUHealth{
+				Status:      "ok",
+				LoadPercent: 35.5,
+				Cores:       8,
+			},
+			Memory: MemoryHealth{
+				Status:      "warning",
+				UsedPercent: 78.2,
+			},
+			Database: DatabaseHealth{
+				Status:       "busy",
+				Version:      "25.8.27.1",
+				ActiveMerges: 1,
+			},
+		},
 	})
 
 	if dashboard.DataHealth.TotalLogs != 300 {
@@ -123,6 +139,9 @@ func TestBuildHealthDashboardSummarizesDateStates(t *testing.T) {
 	}
 	if len(dashboard.IPDistribution.TopSourceIPs) != 1 || len(dashboard.GeoDistribution.TopCountries) != 1 || !dashboard.GeoDistribution.GeoIPLoaded {
 		t.Fatalf("distribution metrics not copied: %#v", dashboard)
+	}
+	if dashboard.SystemHealth.CPU.LoadPercent != 35.5 || dashboard.SystemHealth.Memory.Status != "warning" || dashboard.SystemHealth.Database.Version != "25.8.27.1" {
+		t.Fatalf("system health not copied: %#v", dashboard.SystemHealth)
 	}
 }
 

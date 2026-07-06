@@ -15,7 +15,7 @@ test('shows unchecked state before a release check runs', () => {
   assert.equal(view.currentVersion, 'dev-20260705');
   assert.equal(view.primaryText, '检查更新');
   assert.equal(view.showUpgradeAction, false);
-  assert.equal(view.message, '升级只会在确认后手动执行；自动检查不会自动安装。');
+  assert.equal(view.message, '点击检查更新后，如发现新版本会显示升级按钮。');
 });
 
 test('shows an upgrade action only when a newer release has all assets', () => {
@@ -75,7 +75,7 @@ test('blocks upgrade when release assets are missing', () => {
 
   assert.equal(view.state, 'asset_missing');
   assert.equal(view.showUpgradeAction, false);
-  assert.equal(view.message, '缺少资产：nat-query-service_linux_amd64');
+  assert.equal(view.message, '缺少发布资产：nat-query-service_linux_amd64');
 });
 
 test('prioritizes running and failed backend status messages', () => {

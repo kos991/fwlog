@@ -278,6 +278,15 @@ func TestIngestProgressSinceSupportsAllRange(t *testing.T) {
 	}
 }
 
+func TestIngestProgressSinceDefaultsToAllProblemDates(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/ingest-progress", nil)
+	got := ingestProgressSince(req)
+	want := time.Date(1970, 1, 1, 0, 0, 0, 0, time.Local)
+	if !got.Equal(want) {
+		t.Fatalf("ingestProgressSince(default) = %v, want %v", got, want)
+	}
+}
+
 func TestDashboardMetricsSinceCanUseSeparateRange(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/health-dashboard?range=all&metrics_range=30d", nil)
 	got := dashboardMetricsSince(req)

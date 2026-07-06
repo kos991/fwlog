@@ -79,8 +79,11 @@ export function IncrementalProgressPage() {
   }, [load, data?.status]);
 
   const currentProgressView = buildIngestProgressView(data);
-  const nextScanText = data?.auto_scan_enabled ? data?.next_auto_scan_at || '计算中' : '未启用';
-  const scanPolicyText = data?.auto_scan_policy || (data?.auto_scan_enabled ? '配置待完善' : '未启用');
+  const autoScanEnabled = data?.auto_scan_enabled === true;
+  const nextScanLabel = autoScanEnabled ? '下次扫描' : '自动扫描';
+  const nextScanText = autoScanEnabled ? data?.next_auto_scan_at || '计算中' : '未启用';
+  const scanPolicyLabel = autoScanEnabled ? '扫描策略' : '触发方式';
+  const scanPolicyText = autoScanEnabled ? data?.auto_scan_policy || '配置待完善' : '手动入库';
 
   return (
     <div className="page-stack">
@@ -123,12 +126,12 @@ export function IncrementalProgressPage() {
           </div>
           <div className="progress-summary-item">
             <span className="status-icon"><SyncOutlined /></span>
-            <Text type="secondary">下次扫描</Text>
+            <Text type="secondary">{nextScanLabel}</Text>
             <strong>{nextScanText}</strong>
           </div>
           <div className="progress-summary-item">
             <span className="status-icon"><CalendarOutlined /></span>
-            <Text type="secondary">扫描策略</Text>
+            <Text type="secondary">{scanPolicyLabel}</Text>
             <strong>{scanPolicyText}</strong>
           </div>
         </div>

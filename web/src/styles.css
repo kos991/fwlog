@@ -491,6 +491,83 @@ body {
   height: 96px;
 }
 
+.system-health-strip {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(150px, 1fr));
+  gap: 8px;
+  width: min(560px, 100%);
+}
+
+.system-health-card {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 2px 8px;
+  align-items: center;
+  min-width: 0;
+  min-height: 62px;
+  padding: 9px 10px;
+  border: 1px solid var(--fw-line);
+  border-radius: var(--fw-radius);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.system-health-icon {
+  grid-row: span 3;
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: var(--system-soft);
+  color: var(--system-color);
+  font-size: 13px;
+}
+
+.system-health-label,
+.system-health-card small {
+  min-width: 0;
+  overflow: hidden;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.system-health-card strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fw-text);
+  font-family: var(--fw-mono);
+  font-size: 17px;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.system-health-ok {
+  --system-color: #2563eb;
+  --system-soft: rgba(37, 99, 235, 0.1);
+}
+
+.system-health-warning {
+  --system-color: #ca8a04;
+  --system-soft: rgba(202, 138, 4, 0.13);
+}
+
+.system-health-critical {
+  --system-color: #dc2626;
+  --system-soft: rgba(220, 38, 38, 0.12);
+}
+
+.system-health-unknown {
+  --system-color: #64748b;
+  --system-soft: rgba(100, 116, 139, 0.12);
+}
+
 .flow-line {
   fill: none;
   stroke: url("#flowLine");
@@ -1923,6 +2000,7 @@ body {
   .two-column,
   .analysis-section,
   .progress-summary-grid,
+  .system-health-strip,
   .status-grid,
   .primary-filter-grid,
   .filter-grid,
