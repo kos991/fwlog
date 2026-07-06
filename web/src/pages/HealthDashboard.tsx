@@ -3,6 +3,7 @@ import {
   CalendarOutlined,
   ClockCircleOutlined,
   CloudUploadOutlined,
+  DashboardOutlined,
   DatabaseOutlined,
   FieldTimeOutlined,
   FileZipOutlined,
@@ -49,6 +50,32 @@ type HealthDashboardResponse = {
     last_successful_ingest_at: string;
     elapsed_sec: number;
     eta_sec: number;
+  };
+  system_health?: {
+    cpu: {
+      status: string;
+      load_percent: number;
+      load_average: number;
+      cores: number;
+      description: string;
+    };
+    memory: {
+      status: string;
+      total_bytes: number;
+      available_bytes: number;
+      used_percent: number;
+      description: string;
+    };
+    database: {
+      status: string;
+      version: string;
+      active_queries: number;
+      active_merges: number;
+      active_parts: number;
+      total_rows: number;
+      disk_used_bytes: number;
+      description: string;
+    };
   };
   ip_distribution: {
     top_source_ips: DistributionItem[];
@@ -100,6 +127,63 @@ function formatBytes(bytes?: number) {
     unit += 1;
   }
   return `${size.toFixed(size >= 100 ? 0 : 1)} ${units[unit]}`;
+}
+
+function formatPercent(value?: number) {
+  if (value === undefined || Number.isNaN(value)) return '-';
+  return `${value.toFixed(value >= 10 ? 0 : 1)}%`;
+}
+
+function healthTone(status?: string) {
+  if (status === 'critical') return 'critical';
+  if (status === 'warning' || status === 'busy') return 'warning';
+  if (status === 'ok') return 'ok';
+  return 'unknown';
+}
+
+function SystemStatusStrip({ health }: { health?: HealthDashboardResponse['system_health'] }) {
+  const cpu = health?.cpu;
+  const memory = health?.memory;
+  const database = health?.database;
+  const items = [
+    {
+      key: 'cpu',
+      icon: <DashboardOutlined />,
+      label: 'CPU',
+      value: formatPercent(cpu?.load_percent),
+      meta: cpu?.cores ? `${cpu.cores} 核 · ${cpu.description || '负载采集中'}` : cpu?.description || '负载采集中',
+      tone: healthTone(cpu?.status),
+    },
+    {
+      key: 'memory',
+      icon: <HddOutlined />,
+      label: '内存',
+      value: formatPercent(memory?.used_percent),
+      meta: memory?.total_bytes ? `可用 ${formatBytes(memory.available_bytes)} / ${formatBytes(memory.total_bytes)}` : memory?.description || '内存采集中',
+      tone: healthTone(memory?.status),
+    },
+    {
+      key: 'database',
+      icon: <DatabaseOutlined />,
+      label: '数据库',
+      value: database?.status === 'busy' ? '整理中' : database?.status === 'ok' ? '正常' : '未知',
+      meta: database?.version ? `CH ${database.version} · ${database.active_parts ?? 0} parts` : database?.description || '连接检查中',
+      tone: healthTone(database?.status),
+    },
+  ];
+
+  return (
+    <div className="system-health-strip" aria-label="系统资源状态">
+      {items.map((item) => (
+        <article className={`system-health-card system-health-${item.tone}`} key={item.key}>
+          <span className="system-health-icon">{item.icon}</span>
+          <span className="system-health-label">{item.label}</span>
+          <strong>{item.value}</strong>
+          <small>{item.meta}</small>
+        </article>
+      ))}
+    </div>
+  );
 }
 
 function Sparkline({ values, className = '' }: { values: number[]; className?: string }) {
@@ -375,7 +459,7 @@ export function HealthDashboard(_props: HealthDashboardProps) {
           <h1>数据概览</h1>
           <span>入库范围、查询状态和 NAT 流量排行</span>
         </div>
-        <DashboardFlowArt />
+        <SystemStatusStrip health={data?.system_health} />
       </section>
 
       <section className="metric-grid">

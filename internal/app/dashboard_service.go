@@ -9,6 +9,7 @@ import (
 type HealthDashboardResponse struct {
 	DataHealth      DataHealth      `json:"data_health"`
 	IngestHealth    IngestHealth    `json:"ingest_health"`
+	SystemHealth    SystemHealth    `json:"system_health"`
 	IPDistribution  IPDistribution  `json:"ip_distribution"`
 	GeoDistribution GeoDistribution `json:"geo_distribution"`
 }
@@ -67,6 +68,39 @@ type GeoDistribution struct {
 	GeoIPStatus        string             `json:"geoip_status"`
 }
 
+type SystemHealth struct {
+	CPU      CPUHealth      `json:"cpu"`
+	Memory   MemoryHealth   `json:"memory"`
+	Database DatabaseHealth `json:"database"`
+}
+
+type CPUHealth struct {
+	Status      string  `json:"status"`
+	LoadPercent float64 `json:"load_percent"`
+	LoadAverage float64 `json:"load_average"`
+	Cores       int     `json:"cores"`
+	Description string  `json:"description"`
+}
+
+type MemoryHealth struct {
+	Status         string  `json:"status"`
+	TotalBytes     uint64  `json:"total_bytes"`
+	AvailableBytes uint64  `json:"available_bytes"`
+	UsedPercent    float64 `json:"used_percent"`
+	Description    string  `json:"description"`
+}
+
+type DatabaseHealth struct {
+	Status        string `json:"status"`
+	Version       string `json:"version"`
+	ActiveQueries uint64 `json:"active_queries"`
+	ActiveMerges  uint64 `json:"active_merges"`
+	ActiveParts   uint64 `json:"active_parts"`
+	TotalRows     uint64 `json:"total_rows"`
+	DiskUsedBytes uint64 `json:"disk_used_bytes"`
+	Description   string `json:"description"`
+}
+
 type DistributionItem struct {
 	Name  string `json:"name"`
 	Value uint64 `json:"value"`
@@ -86,6 +120,7 @@ type DashboardMetrics struct {
 	UnrecognizedIPRate      float64
 	GeoIPLoaded             bool
 	GeoIPStatus             string
+	SystemHealth            SystemHealth
 	LastAutoScanAt          time.Time
 	NextAutoScanAt          time.Time
 	AutoScanPolicy          string
@@ -120,6 +155,7 @@ func BuildHealthDashboard(states []DateIngestState, metrics DashboardMetrics) He
 	return HealthDashboardResponse{
 		DataHealth:      buildDataHealth(states, metrics),
 		IngestHealth:    buildIngestHealth(states, metrics),
+		SystemHealth:    buildSystemHealth(metrics),
 		IPDistribution:  buildIPDistribution(metrics),
 		GeoDistribution: buildGeoDistribution(metrics),
 	}
@@ -264,6 +300,10 @@ func buildGeoDistribution(metrics DashboardMetrics) GeoDistribution {
 		GeoIPLoaded:        metrics.GeoIPLoaded,
 		GeoIPStatus:        metrics.GeoIPStatus,
 	}
+}
+
+func buildSystemHealth(metrics DashboardMetrics) SystemHealth {
+	return metrics.SystemHealth
 }
 
 func enrichGeoDistributionMetrics(metrics DashboardMetrics, engine *IPEngine) DashboardMetrics {

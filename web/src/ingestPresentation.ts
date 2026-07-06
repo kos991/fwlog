@@ -54,8 +54,9 @@ export function buildIngestProgressView(ingest?: IngestProgressInput | null): In
   const rawPercent = Math.max(0, Math.min(100, ingest?.progress_pct ?? 0));
   const percent = Math.round(rawPercent);
   const isStarting = ingest?.status === 'importing' && percent === 0 && filesTotal > 0;
+  const isFinalizing = ingest?.status === 'importing' && rawPercent >= 99 && filesTotal > 0 && filesDone < filesTotal;
   const displayPercent = isStarting ? (rawPercent > 0 ? 1 : 2) : percent;
-  const percentText = rawPercent > 0 && rawPercent < 1 ? '<1%' : isStarting ? '处理中' : `${percent}%`;
+  const percentText = isFinalizing ? '收尾中' : rawPercent > 0 && rawPercent < 1 ? '<1%' : isStarting ? '处理中' : `${percent}%`;
   const currentFileText = ingest?.current_file || '等待当前文件';
 
   let detailText = '暂无入库任务';
@@ -63,6 +64,8 @@ export function buildIngestProgressView(ingest?: IngestProgressInput | null): In
     detailText = '入库失败，请查看维护操作';
   } else if (percent === 0 && filesTotal > 0) {
     detailText = `已发现 ${formatCount(filesTotal)} 个文件，等待解析或写入`;
+  } else if (isFinalizing) {
+    detailText = `正在处理最后 ${formatCount(filesTotal - filesDone)} 个文件`;
   } else if (filesTotal > 0) {
     detailText = `正在处理 ${formatCount(filesDone)} / ${formatCount(filesTotal)} 个文件`;
   } else if (ingest?.status === 'importing') {

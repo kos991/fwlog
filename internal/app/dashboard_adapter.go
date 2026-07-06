@@ -29,6 +29,7 @@ func (s appDashboardService) HealthDashboard(r *http.Request) (HealthDashboardRe
 	metrics.GeoIPStatus = s.geoIPStatus()
 	metrics = s.withGeoDistributions(metrics)
 	metrics = s.withAutoScanPlan(metrics)
+	metrics.SystemHealth = collectSystemHealth(metrics.SystemHealth.Database)
 
 	return BuildHealthDashboard(states, metrics), nil
 }
@@ -134,5 +135,5 @@ func ingestProgressSince(r *http.Request) time.Time {
 	if strings.TrimSpace(r.URL.Query().Get("range")) != "" {
 		return dashboardSince(r)
 	}
-	return time.Now().AddDate(0, 0, -30)
+	return time.Date(1970, 1, 1, 0, 0, 0, 0, time.Local)
 }

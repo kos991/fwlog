@@ -34,3 +34,14 @@ const subOnePercentView = buildIngestProgressView({
 assert.equal(subOnePercentView.percent, 0);
 assert.equal(subOnePercentView.displayPercent, 1);
 assert.equal(subOnePercentView.percentText, '<1%');
+
+const finalizingView = buildIngestProgressView({
+  status: 'importing',
+  files_total: 165,
+  files_done: 164,
+  progress_pct: 99.39,
+});
+
+assert.equal(finalizingView.displayPercent, 99);
+assert.equal(finalizingView.percentText, '收尾中');
+assert.equal(finalizingView.detailText, '正在处理最后 1 个文件');

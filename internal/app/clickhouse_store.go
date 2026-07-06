@@ -233,6 +233,10 @@ func (s *ClickHouseStore) DashboardMetrics(ctx context.Context, distributionSinc
 	if err != nil {
 		return DashboardMetrics{}, err
 	}
+	metrics.SystemHealth.Database, err = s.databaseHealth(ctx, metrics.ClickHouseDiskUsedBytes)
+	if err != nil {
+		return DashboardMetrics{}, err
+	}
 	metrics.TodayRows, err = s.countRowsForDate(ctx, time.Now())
 	if err != nil {
 		return DashboardMetrics{}, err
@@ -266,6 +270,36 @@ func (s *ClickHouseStore) clickHouseDiskUsedBytes(ctx context.Context) (uint64, 
 	var bytes uint64
 	err := s.conn.QueryRow(ctx, ClickHouseDiskUsageSQL()).Scan(&bytes)
 	return bytes, err
+}
+
+func (s *ClickHouseStore) databaseHealth(ctx context.Context, diskUsedBytes uint64) (DatabaseHealth, error) {
+	health := DatabaseHealth{
+		Status:        "ok",
+		DiskUsedBytes: diskUsedBytes,
+		Description:   "ClickHouse 正常",
+	}
+
+	if err := s.conn.QueryRow(ctx, "SELECT version()").Scan(&health.Version); err != nil {
+		return DatabaseHealth{}, err
+	}
+	if err := s.conn.QueryRow(ctx, "SELECT count() FROM system.processes").Scan(&health.ActiveQueries); err != nil {
+		return DatabaseHealth{}, err
+	}
+	if err := s.conn.QueryRow(ctx, "SELECT count() FROM system.merges WHERE database = currentDatabase()").Scan(&health.ActiveMerges); err != nil {
+		return DatabaseHealth{}, err
+	}
+	if err := s.conn.QueryRow(ctx, "SELECT count() FROM system.parts WHERE active AND database = currentDatabase()").Scan(&health.ActiveParts); err != nil {
+		return DatabaseHealth{}, err
+	}
+	if err := s.conn.QueryRow(ctx, "SELECT count() FROM nat_logs").Scan(&health.TotalRows); err != nil {
+		return DatabaseHealth{}, err
+	}
+
+	if health.ActiveMerges > 0 {
+		health.Status = "busy"
+		health.Description = "后台整理中"
+	}
+	return health, nil
 }
 
 func ClickHouseDiskUsageSQL() string {
