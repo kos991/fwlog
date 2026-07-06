@@ -1,6 +1,8 @@
 package app
 
 import (
+	"context"
+	"errors"
 	"os"
 	"regexp"
 	"strings"
@@ -21,6 +23,48 @@ func TestSystemdServiceAllowsRuntimeDataDirectory(t *testing.T) {
 	}
 	if !contains(paths, "/opt/nat-query") {
 		t.Fatalf("ReadWritePaths must include /opt/nat-query so the service can replace its binary during Release upgrades; got %q", match[1])
+	}
+}
+
+func TestSystemdServiceDefaultsAutoScanOff(t *testing.T) {
+	content := readRepoFile(t, "nat-query-service.service")
+
+	if !strings.Contains(content, `Environment="AUTO_SCAN_ENABLED=false"`) {
+		t.Fatal("nat-query-service.service must explicitly default AUTO_SCAN_ENABLED to false for new installs")
+	}
+}
+
+func TestOpenClickHouseWithRetryRetriesStartupFailures(t *testing.T) {
+	oldOpen := openClickHouse
+	oldAttempts := connectRetryAttempts
+	oldDelay := connectRetryDelay
+	defer func() {
+		openClickHouse = oldOpen
+		connectRetryAttempts = oldAttempts
+		connectRetryDelay = oldDelay
+	}()
+
+	attempts := 0
+	openClickHouse = func(context.Context, Config) (*ClickHouseStore, error) {
+		attempts++
+		if attempts < 3 {
+			return nil, errors.New("connection refused")
+		}
+		return &ClickHouseStore{}, nil
+	}
+	connectRetryAttempts = 3
+	connectRetryDelay = 0
+
+	app := NewApp(Config{})
+	store, err := app.openClickHouseWithRetry(context.Background())
+	if err != nil {
+		t.Fatalf("openClickHouseWithRetry returned error: %v", err)
+	}
+	if store == nil {
+		t.Fatal("openClickHouseWithRetry returned nil store")
+	}
+	if attempts != 3 {
+		t.Fatalf("attempts = %d, want 3", attempts)
 	}
 }
 
