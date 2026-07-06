@@ -96,7 +96,32 @@ func decodePasswordChangeRequest(r *http.Request) (passwordChangeRequest, error)
 	if strings.TrimSpace(payload.NewPassword) == "" {
 		return passwordChangeRequest{}, errors.New("new_password 不能为空")
 	}
+	if err := validateNewAdminPassword(payload.NewPassword); err != nil {
+		return passwordChangeRequest{}, err
+	}
 	return payload, nil
+}
+
+func validateNewAdminPassword(password string) error {
+	if len(password) < 6 || len(password) > 18 {
+		return errors.New(`新密码长度范围需在 6-18 个字符内`)
+	}
+	for _, char := range password {
+		if char >= 'a' && char <= 'z' {
+			continue
+		}
+		if char >= 'A' && char <= 'Z' {
+			continue
+		}
+		if char >= '0' && char <= '9' {
+			continue
+		}
+		if char == '-' || char == '_' || char == '.' {
+			continue
+		}
+		return errors.New(`新密码仅允许 a-z A-Z 0-9 和 "-_." 等字符`)
+	}
+	return nil
 }
 
 func decodeJSONBody(r *http.Request, target any) error {

@@ -65,6 +65,22 @@ func VerifyPassword(encoded, password string) bool {
 	return subtle.ConstantTimeCompare(got, want) == 1
 }
 
+func looksLikePasswordHash(encoded string) bool {
+	parts := strings.Split(encoded, "$")
+	if len(parts) != 4 || parts[0] != passwordHashVersion {
+		return false
+	}
+	iterations, err := strconv.Atoi(parts[1])
+	if err != nil || iterations <= 0 {
+		return false
+	}
+	if _, err := base64.RawStdEncoding.DecodeString(parts[2]); err != nil {
+		return false
+	}
+	sum, err := base64.RawStdEncoding.DecodeString(parts[3])
+	return err == nil && len(sum) > 0
+}
+
 func derivePasswordKey(salt []byte, password string, iterations, keyLen int) []byte {
 	if keyLen <= 0 {
 		return nil

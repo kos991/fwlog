@@ -26,6 +26,9 @@ func (s appSecurityService) ChangePassword(r *http.Request) (SessionResponse, er
 	if err != nil {
 		return SessionResponse{Authenticated: true}, err
 	}
+	if err := s.app.saveAdminPasswordHash(r.Context(), passwordHash); err != nil {
+		return SessionResponse{Authenticated: true}, fmt.Errorf("保存管理员密码失败: %w", err)
+	}
 
 	s.app.mu.Lock()
 	s.app.passwordHash = passwordHash

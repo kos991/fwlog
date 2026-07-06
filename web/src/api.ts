@@ -69,32 +69,10 @@ function mockResponse<T>(path: string): T {
         error: '',
         next_auto_scan_at: '2026-07-02 09:30:00',
       },
-      system_health: {
-        cpu: {
-          status: 'ok',
-          load_percent: 36.8,
-          load_average: 2.4,
-          cores: 8,
-          description: 'CPU 负载正常',
-        },
-        memory: {
-          status: 'ok',
-          total_bytes: 6979321856,
-          available_bytes: 5368709120,
-          used_percent: 23.1,
-          description: '内存余量正常',
-        },
-        database: {
-          status: 'busy',
-          version: '25.8.27.1',
-          active_queries: 1,
-          active_merges: 1,
-          active_parts: 83,
-          total_rows: 36516546,
-          disk_used_bytes: 288207603,
-          description: '后台整理中',
-        },
-      },
+      log_trend: [
+        12, 18, 9, 28, 65, 81, 44, 39, 55, 61, 48, 72,
+        88, 94, 76, 69, 83, 102, 97, 86, 64, 42, 31, 20,
+      ].map((value, index) => ({ name: `${String(index).padStart(2, '0')}:00`, value })),
       ip_distribution: {
         top_source_ips: [{ name: '10.10.2.18', value: 481230 }],
         top_destination_ips: [{ name: '114.114.114.114', value: 221980 }],

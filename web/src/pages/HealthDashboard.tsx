@@ -77,6 +77,7 @@ type HealthDashboardResponse = {
       description: string;
     };
   };
+  log_trend?: DistributionItem[];
   ip_distribution: {
     top_source_ips: DistributionItem[];
     top_destination_ips: DistributionItem[];
@@ -438,10 +439,10 @@ export function HealthDashboard(_props: HealthDashboardProps) {
   const scanPolicyText = ingest?.auto_scan_policy || (ingest?.auto_scan_enabled ? '配置待完善' : '未启用');
   const autoScanValue = ingest?.auto_scan_enabled ? scanPolicyText : '未启用';
   const autoScanMeta = ingest?.auto_scan_enabled ? `下次 ${nextScanText}` : '不会自动触发';
-  const trendValues = React.useMemo(
-    () => [0, 2, 1, 1, 4, 152, 6, 0, 2, 128, 0, 0, 46, 0, 130, 8, 67, 3, 0, 2, 1, 5, 0, 0, 2, 0, 4, 0, 1, 3, 0, 138, 1, 2, 0, 1, 0, 2, 20, 0, 1, 6, 0, 2, 26, 1],
-    [],
-  );
+  const trendValues = React.useMemo(() => {
+    const values = data?.log_trend?.map((item) => item.value) || [];
+    return values.length > 0 ? values : Array.from({ length: 24 }, () => 0);
+  }, [data?.log_trend]);
   const rankingRows = React.useMemo(() => {
     const sourceMap: Record<RankingKey, DistributionItem[] | undefined> = {
       source: data?.ip_distribution?.top_source_ips,
