@@ -494,19 +494,21 @@ body {
 .system-health-strip {
   position: relative;
   z-index: 1;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(120px, 1fr));
-  gap: 14px;
-  width: min(520px, 100%);
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  width: auto;
+  max-width: 680px;
 }
 
 .system-health-card {
   display: grid;
-  grid-template-columns: 8px minmax(0, 1fr);
-  gap: 2px 7px;
-  align-items: center;
+  gap: 3px;
   min-width: 0;
-  min-height: 40px;
+  width: 126px;
+  min-height: 44px;
   padding: 2px 0;
   border: 0;
   border-radius: 0;
@@ -514,12 +516,17 @@ body {
   box-shadow: none;
 }
 
+.system-health-card-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
 .system-health-icon {
-  grid-row: 1 / span 2;
-  align-self: start;
+  flex: 0 0 6px;
   width: 6px;
   height: 6px;
-  margin-top: 6px;
   border-radius: 999px;
   background: var(--system-color);
   box-shadow: 0 0 0 4px var(--system-soft);
@@ -529,26 +536,38 @@ body {
   display: none;
 }
 
-.system-health-label,
-.system-health-card small {
+.system-health-label {
   min-width: 0;
-  overflow: hidden;
   color: #6b7280;
   font-size: 12px;
   line-height: 1.2;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .system-health-card strong {
   min-width: 0;
-  overflow: hidden;
+  margin-left: auto;
   color: var(--fw-text);
   font-family: var(--fw-mono);
   font-size: 15px;
   line-height: 1.15;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.system-health-line {
+  display: block;
+  width: 118px;
+  height: 30px;
+  overflow: visible;
+}
+
+.system-health-line polyline {
+  fill: none;
+  stroke: var(--system-color);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.45;
+  vector-effect: non-scaling-stroke;
 }
 
 .system-health-ok {
@@ -2003,7 +2022,6 @@ body {
   .two-column,
   .analysis-section,
   .progress-summary-grid,
-  .system-health-strip,
   .status-grid,
   .primary-filter-grid,
   .filter-grid,

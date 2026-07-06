@@ -142,6 +142,43 @@ function healthTone(status?: string) {
   return 'unknown';
 }
 
+function clampMetric(value: number) {
+  if (Number.isNaN(value)) return 0;
+  return Math.max(0, Math.min(100, value));
+}
+
+function statusLineValues(value: number) {
+  const current = clampMetric(value);
+  const low = Math.max(2, current * 0.14);
+  const mid = Math.max(4, current * 0.38);
+  const peak = Math.max(12, current);
+  return [low, low + 1, low, mid, low + 2, low + 1, peak, low + 3, low + 1, low + 2, low, low + 4];
+}
+
+function databaseStatusScore(status?: string) {
+  if (status === 'critical') return 88;
+  if (status === 'warning' || status === 'busy') return 58;
+  if (status === 'ok') return 24;
+  return 12;
+}
+
+function MiniStatusLine({ values }: { values: number[] }) {
+  const width = 118;
+  const height = 30;
+  const max = Math.max(...values, 100);
+  const points = values.map((value, index) => {
+    const x = (index / Math.max(values.length - 1, 1)) * width;
+    const y = height - 2 - (clampMetric(value) / max) * (height - 4);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+
+  return (
+    <svg className="system-health-line" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true">
+      <polyline points={points.join(' ')} />
+    </svg>
+  );
+}
+
 function SystemStatusStrip({ health }: { health?: HealthDashboardResponse['system_health'] }) {
   const cpu = health?.cpu;
   const memory = health?.memory;
@@ -154,6 +191,7 @@ function SystemStatusStrip({ health }: { health?: HealthDashboardResponse['syste
       value: formatPercent(cpu?.load_percent),
       meta: cpu?.cores ? `${cpu.cores} 核 · ${cpu.description || '负载采集中'}` : cpu?.description || '负载采集中',
       tone: healthTone(cpu?.status),
+      lineValues: statusLineValues(cpu?.load_percent ?? 0),
     },
     {
       key: 'memory',
@@ -162,6 +200,7 @@ function SystemStatusStrip({ health }: { health?: HealthDashboardResponse['syste
       value: formatPercent(memory?.used_percent),
       meta: memory?.total_bytes ? `可用 ${formatBytes(memory.available_bytes)} / ${formatBytes(memory.total_bytes)}` : memory?.description || '内存采集中',
       tone: healthTone(memory?.status),
+      lineValues: statusLineValues(memory?.used_percent ?? 0),
     },
     {
       key: 'database',
@@ -170,17 +209,20 @@ function SystemStatusStrip({ health }: { health?: HealthDashboardResponse['syste
       value: database?.status === 'busy' ? '整理中' : database?.status === 'ok' ? '正常' : '未知',
       meta: database?.version ? `CH ${database.version} · ${database.active_parts ?? 0} parts` : database?.description || '连接检查中',
       tone: healthTone(database?.status),
+      lineValues: statusLineValues(databaseStatusScore(database?.status)),
     },
   ];
 
   return (
     <div className="system-health-strip" aria-label="系统资源状态">
       {items.map((item) => (
-        <article className={`system-health-card system-health-${item.tone}`} key={item.key}>
-          <span className="system-health-icon">{item.icon}</span>
-          <span className="system-health-label">{item.label}</span>
-          <strong>{item.value}</strong>
-          <small>{item.meta}</small>
+        <article className={`system-health-card system-health-${item.tone}`} key={item.key} title={`${item.label} ${item.value}，${item.meta}`}>
+          <div className="system-health-card-head">
+            <span className="system-health-icon">{item.icon}</span>
+            <span className="system-health-label">{item.label}</span>
+            <strong>{item.value}</strong>
+          </div>
+          <MiniStatusLine values={item.lineValues} />
         </article>
       ))}
     </div>

@@ -21,13 +21,32 @@ FWLog NAT query service bundled with a private ClickHouse runtime for server ins
 mkdir -p %{buildroot}
 cp -a . %{buildroot}/
 
+%pre
+backup="/data/nat-query/backups/app_settings-before-package.tsv"
+client="/opt/nat-query/clickhouse/bin/clickhouse"
+if [ -x "$client" ]; then
+    mkdir -p "$(dirname "$backup")"
+    chmod 700 "$(dirname "$backup")" || true
+    "$client" client --query "SELECT key, value, now() FROM app_settings FINAL FORMAT TabSeparated" > "$backup.tmp" 2>/dev/null && mv "$backup.tmp" "$backup" && chmod 600 "$backup" || rm -f "$backup.tmp"
+fi
+exit 0
+
 %post
 if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload || true
     systemctl enable fwlog-clickhouse.service nat-query-service.service || true
     if [ -d /run/systemd/system ]; then
-        systemctl restart fwlog-clickhouse.service
-        systemctl restart nat-query-service.service
+        systemctl restart fwlog-clickhouse.service || true
+        client="/opt/nat-query/clickhouse/bin/clickhouse"
+        for i in $(seq 1 60); do
+            "$client" client --query "SELECT 1" >/dev/null 2>&1 && break
+            sleep 1
+        done
+        backup="/data/nat-query/backups/app_settings-before-package.tsv"
+        if [ -s "$backup" ] && [ -x "$client" ]; then
+            "$client" client --query "INSERT INTO app_settings (key, value, updated_at) FORMAT TabSeparated" < "$backup" >/dev/null 2>&1 || true
+        fi
+        systemctl restart nat-query-service.service || true
     fi
 fi
 

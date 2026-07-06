@@ -73,6 +73,32 @@ function mockResponse<T>(path: string): T {
         12, 18, 9, 28, 65, 81, 44, 39, 55, 61, 48, 72,
         88, 94, 76, 69, 83, 102, 97, 86, 64, 42, 31, 20,
       ].map((value, index) => ({ name: `${String(index).padStart(2, '0')}:00`, value })),
+      system_health: {
+        cpu: {
+          status: 'ok',
+          load_percent: 18.4,
+          load_average: 0.74,
+          cores: 4,
+          description: 'CPU 正常',
+        },
+        memory: {
+          status: 'ok',
+          total_bytes: 17179869184,
+          available_bytes: 9282686976,
+          used_percent: 46,
+          description: '内存正常',
+        },
+        database: {
+          status: 'ok',
+          version: '25.8.27.1',
+          active_queries: 1,
+          active_merges: 0,
+          active_parts: 128,
+          total_rows: 18625430,
+          disk_used_bytes: 42860000000,
+          description: 'ClickHouse 正常',
+        },
+      },
       ip_distribution: {
         top_source_ips: [{ name: '10.10.2.18', value: 481230 }],
         top_destination_ips: [{ name: '114.114.114.114', value: 221980 }],
