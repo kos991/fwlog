@@ -229,6 +229,37 @@ func TestRouterPasswordChangeRequiresCurrentPassword(t *testing.T) {
 	}
 }
 
+func TestRouterPasswordChangeRejectsInvalidNewPasswordPolicy(t *testing.T) {
+	app := NewApp(LoadConfig())
+	router := app.Router()
+
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewBufferString(`{"password":"admin"}`))
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginRes := httptest.NewRecorder()
+	router.ServeHTTP(loginRes, loginReq)
+	if loginRes.Code != http.StatusOK {
+		t.Fatalf("login status = %d, body = %s", loginRes.Code, loginRes.Body.String())
+	}
+	cookie := loginRes.Result().Cookies()[0]
+
+	cases := []string{
+		`{"current_password":"admin","new_password":"short"}`,
+		`{"current_password":"admin","new_password":"this-password-is-too-long"}`,
+		`{"current_password":"admin","new_password":"bad password"}`,
+		`{"current_password":"admin","new_password":"bad@pass"}`,
+	}
+	for _, body := range cases {
+		req := httptest.NewRequest(http.MethodPost, "/api/password", bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(cookie)
+		res := httptest.NewRecorder()
+		router.ServeHTTP(res, req)
+		if res.Code != http.StatusBadRequest {
+			t.Fatalf("password change status = %d, want 400, body = %s", res.Code, res.Body.String())
+		}
+	}
+}
+
 func TestAppUsesPersistedAdminPasswordHash(t *testing.T) {
 	app := NewApp(LoadConfig())
 	passwordHash, err := HashPassword("saved-admin-password")

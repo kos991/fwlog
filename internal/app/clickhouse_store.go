@@ -245,6 +245,10 @@ func (s *ClickHouseStore) DashboardMetrics(ctx context.Context, distributionSinc
 	if err != nil {
 		return DashboardMetrics{}, err
 	}
+	metrics.LogTrend, err = s.hourlyLogTrend(ctx, time.Now())
+	if err != nil {
+		return DashboardMetrics{}, err
+	}
 
 	if !includeDistributions {
 		return metrics, nil
@@ -314,6 +318,44 @@ func (s *ClickHouseStore) countRowsForDate(ctx context.Context, date time.Time) 
 	var count uint64
 	err := s.conn.QueryRow(ctx, "SELECT count() FROM nat_logs WHERE log_date = ?", startOfDay(date)).Scan(&count)
 	return count, err
+}
+
+func (s *ClickHouseStore) hourlyLogTrend(ctx context.Context, now time.Time) ([]DistributionItem, error) {
+	end := now.Truncate(time.Hour).Add(time.Hour)
+	start := end.Add(-24 * time.Hour)
+
+	rows, err := s.conn.Query(ctx, `
+SELECT toStartOfHour(timestamp) AS hour, count()
+FROM nat_logs
+WHERE timestamp >= ? AND timestamp < ?
+GROUP BY hour
+ORDER BY hour`, start, end)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	counts := make(map[time.Time]uint64)
+	for rows.Next() {
+		var hour time.Time
+		var count uint64
+		if err := rows.Scan(&hour, &count); err != nil {
+			return nil, err
+		}
+		counts[hour] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	trend := make([]DistributionItem, 0, 24)
+	for hour := start; hour.Before(end); hour = hour.Add(time.Hour) {
+		trend = append(trend, DistributionItem{
+			Name:  hour.Format("15:04"),
+			Value: counts[hour],
+		})
+	}
+	return trend, nil
 }
 
 func (s *ClickHouseStore) distribution(ctx context.Context, column string, since time.Time) ([]DistributionItem, error) {

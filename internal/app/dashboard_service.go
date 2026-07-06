@@ -7,11 +7,12 @@ import (
 )
 
 type HealthDashboardResponse struct {
-	DataHealth      DataHealth      `json:"data_health"`
-	IngestHealth    IngestHealth    `json:"ingest_health"`
-	SystemHealth    SystemHealth    `json:"system_health"`
-	IPDistribution  IPDistribution  `json:"ip_distribution"`
-	GeoDistribution GeoDistribution `json:"geo_distribution"`
+	DataHealth      DataHealth         `json:"data_health"`
+	IngestHealth    IngestHealth       `json:"ingest_health"`
+	SystemHealth    SystemHealth       `json:"system_health"`
+	LogTrend        []DistributionItem `json:"log_trend"`
+	IPDistribution  IPDistribution     `json:"ip_distribution"`
+	GeoDistribution GeoDistribution    `json:"geo_distribution"`
 }
 
 type DataHealth struct {
@@ -121,6 +122,7 @@ type DashboardMetrics struct {
 	GeoIPLoaded             bool
 	GeoIPStatus             string
 	SystemHealth            SystemHealth
+	LogTrend                []DistributionItem
 	LastAutoScanAt          time.Time
 	NextAutoScanAt          time.Time
 	AutoScanPolicy          string
@@ -156,6 +158,7 @@ func BuildHealthDashboard(states []DateIngestState, metrics DashboardMetrics) He
 		DataHealth:      buildDataHealth(states, metrics),
 		IngestHealth:    buildIngestHealth(states, metrics),
 		SystemHealth:    buildSystemHealth(metrics),
+		LogTrend:        metrics.LogTrend,
 		IPDistribution:  buildIPDistribution(metrics),
 		GeoDistribution: buildGeoDistribution(metrics),
 	}

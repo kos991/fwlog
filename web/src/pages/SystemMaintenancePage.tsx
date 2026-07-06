@@ -112,7 +112,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   const geoipPath = Form.useWatch('geoip_db_path', form);
   const customIpPath = Form.useWatch('custom_ip_map_path', form);
   const autoScanEnabled = Form.useWatch('auto_scan_enabled', form);
-  const autoScanTime = Form.useWatch('auto_scan_times', { form, preserve: true });
+  const autoScanTime = Form.useWatch('auto_scan_times', form);
   const upgradeAutoCheckEnabled = Form.useWatch('upgrade_auto_check_enabled', form);
 
   const load = React.useCallback(async () => {
@@ -181,7 +181,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   const save = async () => {
     try {
       setLoading(true);
-      const values = form.getFieldsValue(true);
+      const values = form.getFieldsValue();
       const logSources = parseLogSources(values.log_sources);
       const firstSource = logSources[0];
       await apiPost('/api/settings', {
@@ -486,14 +486,13 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
 
                     <div className="maintenance-plan-grid">
                       <div className="maintenance-field">
-                        <label>计划时间（启用后生效）</label>
+                        <label>扫描时间</label>
                         <TimePicker
                           format="HH:mm"
                           allowClear={false}
                           value={autoScanTimeValue(autoScanTime)}
-                          onChange={(_, value) => form.setFieldValue('auto_scan_times', firstAutoScanTime(String(value || '01:00')))}
+                          onChange={(_, value) => form.setFieldValue('auto_scan_times', String(value || '01:00'))}
                         />
-                        <Text type="secondary">关闭时只保存计划时间，不会自动触发扫描。</Text>
                       </div>
                     </div>
                   </div>
@@ -620,7 +619,15 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                       <Form.Item name="current_password" label="当前密码" rules={[{ required: true, message: '请输入当前密码' }]}>
                         <Input.Password prefix={<KeyOutlined />} />
                       </Form.Item>
-                      <Form.Item name="new_password" label="新密码" rules={[{ required: true, message: '请输入新密码' }]}>
+                      <Form.Item
+                        name="new_password"
+                        label="新密码"
+                        rules={[
+                          { required: true, message: '请输入新密码' },
+                          { min: 6, max: 18, message: '密码长度需在 6-18 个字符内' },
+                          { pattern: /^[A-Za-z0-9_.-]+$/, message: '仅允许 a-z A-Z 0-9 和 "-_." 等字符' },
+                        ]}
+                      >
                         <Input.Password prefix={<SafetyCertificateOutlined />} />
                       </Form.Item>
                       <Form.Item

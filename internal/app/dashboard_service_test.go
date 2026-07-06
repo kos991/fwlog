@@ -104,6 +104,7 @@ func TestBuildHealthDashboardSummarizesDateStates(t *testing.T) {
 		TopSourceIPs:            []DistributionItem{{Name: "10.0.0.1", Value: 10}},
 		TopCountries:            []DistributionItem{{Name: "中国", Value: 8}},
 		GeoIPLoaded:             true,
+		LogTrend:                []DistributionItem{{Name: "10:00", Value: 12}, {Name: "11:00", Value: 18}},
 		SystemHealth: SystemHealth{
 			CPU: CPUHealth{
 				Status:      "ok",
@@ -142,6 +143,9 @@ func TestBuildHealthDashboardSummarizesDateStates(t *testing.T) {
 	}
 	if dashboard.SystemHealth.CPU.LoadPercent != 35.5 || dashboard.SystemHealth.Memory.Status != "warning" || dashboard.SystemHealth.Database.Version != "25.8.27.1" {
 		t.Fatalf("system health not copied: %#v", dashboard.SystemHealth)
+	}
+	if len(dashboard.LogTrend) != 2 || dashboard.LogTrend[0].Name != "10:00" || dashboard.LogTrend[1].Value != 18 {
+		t.Fatalf("log trend not copied: %#v", dashboard.LogTrend)
 	}
 }
 
