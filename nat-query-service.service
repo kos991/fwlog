@@ -18,6 +18,7 @@ Environment="CLICKHOUSE_ADDR=127.0.0.1:9000"
 Environment="CLICKHOUSE_DATABASE=default"
 Environment="CUSTOM_IP_MAP=/opt/nat-query/custom_ip_map.csv"
 Environment="GEOIP_DB=/data/index/GeoLite2-City.mmdb"
+Environment="AUTO_SCAN_ENABLED=false"
 Environment="GIN_MODE=release"
 
 # Execution

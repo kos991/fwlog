@@ -29,6 +29,12 @@ type App struct {
 
 type importRunnerFunc func(context.Context, *ClickHouseStore, LogSource, bool) ([]string, []string, error)
 
+var (
+	openClickHouse       = OpenClickHouse
+	connectRetryAttempts = 30
+	connectRetryDelay    = 2 * time.Second
+)
+
 func NewApp(cfg Config) *App {
 	passwordHash, err := HashPassword(loadAdminPassword())
 	if err != nil {
@@ -48,7 +54,7 @@ func NewApp(cfg Config) *App {
 }
 
 func (a *App) Connect(ctx context.Context) error {
-	store, err := OpenClickHouse(ctx, a.cfg)
+	store, err := a.openClickHouseWithRetry(ctx)
 	if err != nil {
 		return fmt.Errorf("open clickhouse: %w", err)
 	}
@@ -68,6 +74,37 @@ func (a *App) Connect(ctx context.Context) error {
 	a.mu.Unlock()
 	a.reloadIPDataFromSettings()
 	return nil
+}
+
+func (a *App) openClickHouseWithRetry(ctx context.Context) (*ClickHouseStore, error) {
+	attempts := connectRetryAttempts
+	if attempts < 1 {
+		attempts = 1
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		store, err := openClickHouse(ctx, a.cfg)
+		if err == nil {
+			return store, nil
+		}
+		lastErr = err
+		if attempt == attempts {
+			break
+		}
+
+		timer := time.NewTimer(connectRetryDelay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+
+	return nil, fmt.Errorf("clickhouse not ready after %d attempts: %w", attempts, lastErr)
 }
 
 func loadAdminPassword() string {
