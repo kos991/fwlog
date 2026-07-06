@@ -191,6 +191,19 @@ Description: FWLog NAT query service with embedded ClickHouse
  FWLog NAT query service bundled with a private ClickHouse runtime for server installation.
 EOF
 
+    cat > "$debroot/DEBIAN/preinst" <<'EOF'
+#!/bin/sh
+set -e
+backup="/data/nat-query/backups/app_settings-before-package.tsv"
+client="/opt/nat-query/clickhouse/bin/clickhouse"
+if [ -x "$client" ]; then
+    mkdir -p "$(dirname "$backup")"
+    chmod 700 "$(dirname "$backup")" || true
+    "$client" client --query "SELECT key, value, now() FROM app_settings FINAL FORMAT TabSeparated" > "$backup.tmp" 2>/dev/null && mv "$backup.tmp" "$backup" && chmod 600 "$backup" || rm -f "$backup.tmp"
+fi
+exit 0
+EOF
+
     cat > "$debroot/DEBIAN/postinst" <<'EOF'
 #!/bin/sh
 set -e
@@ -198,8 +211,21 @@ if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload || true
     systemctl enable fwlog-clickhouse.service nat-query-service.service || true
     if [ -d /run/systemd/system ]; then
-        systemctl restart fwlog-clickhouse.service
-        systemctl restart nat-query-service.service
+        systemctl restart fwlog-clickhouse.service || true
+        client="/opt/nat-query/clickhouse/bin/clickhouse"
+        i=0
+        while [ "$i" -lt 60 ]; do
+            if "$client" client --query "SELECT 1" >/dev/null 2>&1; then
+                break
+            fi
+            i=$((i + 1))
+            sleep 1
+        done
+        backup="/data/nat-query/backups/app_settings-before-package.tsv"
+        if [ -s "$backup" ] && [ -x "$client" ]; then
+            "$client" client --query "INSERT INTO app_settings (key, value, updated_at) FORMAT TabSeparated" < "$backup" >/dev/null 2>&1 || true
+        fi
+        systemctl restart nat-query-service.service || true
     fi
 fi
 exit 0
@@ -225,7 +251,7 @@ fi
 exit 0
 EOF
 
-    chmod 0755 "$debroot/DEBIAN/postinst" "$debroot/DEBIAN/prerm" "$debroot/DEBIAN/postrm"
+    chmod 0755 "$debroot/DEBIAN/preinst" "$debroot/DEBIAN/postinst" "$debroot/DEBIAN/prerm" "$debroot/DEBIAN/postrm"
     dpkg-deb --build --root-owner-group "$debroot" "$package_path"
 }
 

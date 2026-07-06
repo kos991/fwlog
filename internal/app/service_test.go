@@ -140,6 +140,27 @@ func TestServerPackageBuildBundlesGeoIPDatabase(t *testing.T) {
 	}
 }
 
+func TestServerPackagesPreserveAppSettingsDuringUpgrade(t *testing.T) {
+	buildScript := readRepoFile(t, "packaging", "build-server-packages.sh")
+	rpmSpec := readRepoFile(t, "packaging", "rpm", "nat-query-service.spec")
+
+	for path, text := range map[string]string{
+		"packaging/build-server-packages.sh":   buildScript,
+		"packaging/rpm/nat-query-service.spec": rpmSpec,
+	} {
+		for _, want := range []string{
+			"app_settings-before-package.tsv",
+			"SELECT key, value, now() FROM app_settings FINAL FORMAT TabSeparated",
+			"INSERT INTO app_settings (key, value, updated_at) FORMAT TabSeparated",
+		} {
+			if !strings.Contains(text, want) {
+				t.Fatalf("%s missing %q", path, want)
+			}
+		}
+		assertComesBefore(t, path, text, "SELECT key, value, now() FROM app_settings FINAL FORMAT TabSeparated", "INSERT INTO app_settings (key, value, updated_at) FORMAT TabSeparated")
+	}
+}
+
 func TestServerPackageAssetsAreRequiredForUpgradeChecks(t *testing.T) {
 	release := githubRelease{
 		Assets: []githubReleaseAsset{
