@@ -564,7 +564,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                         <span className="maintenance-card-kicker"><CloudDownloadOutlined /> 自动升级</span>
                         <strong>版本升级</strong>
                       </div>
-                      <Tag color={upgradeStatus?.state === 'running' ? 'processing' : upgradeStatus?.state === 'failed' ? 'error' : upgradeStatus?.state === 'succeeded' ? 'success' : 'default'}>
+                      <Tag color={upgradeView.statusTone}>
                         {upgradeView.stateText}
                       </Tag>
                     </div>

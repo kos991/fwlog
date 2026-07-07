@@ -58,12 +58,14 @@ export function buildUpgradeView(input: BuildUpgradeViewInput): UpgradeView {
 function resolvePanelState(input: BuildUpgradeViewInput): UpgradePanelState {
   if (input.isChecking) return 'checking';
   if (input.status?.state === 'running') return 'running';
+  if (input.check) {
+    if (input.check.update_available && !input.check.assets_ready) return 'asset_missing';
+    if (input.check.update_available && input.check.assets_ready) return 'available';
+    return 'latest';
+  }
   if (input.status?.state === 'failed') return 'failed';
   if (input.status?.state === 'succeeded') return 'succeeded';
-  if (!input.check) return 'unchecked';
-  if (input.check.update_available && !input.check.assets_ready) return 'asset_missing';
-  if (input.check.update_available && input.check.assets_ready) return 'available';
-  return 'latest';
+  return 'unchecked';
 }
 
 function resolveLatestVersion(input: BuildUpgradeViewInput) {
