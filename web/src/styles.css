@@ -1794,9 +1794,13 @@ body {
 
 .maintenance-ops-card {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(360px, 0.8fr);
+  grid-template-columns: minmax(480px, 1fr) minmax(360px, 0.56fr);
+  grid-template-areas:
+    "schedule manual"
+    "upgrade manual";
   gap: 14px;
   padding: 16px;
+  align-items: start;
 }
 
 .maintenance-plan-card,
@@ -1809,6 +1813,18 @@ body {
   border: 1px solid var(--fw-line-soft);
   border-radius: 8px;
   background: var(--fw-surface-soft);
+}
+
+.maintenance-plan-card--schedule {
+  grid-area: schedule;
+}
+
+.maintenance-run-card--manual {
+  grid-area: manual;
+}
+
+.maintenance-run-card--upgrade {
+  grid-area: upgrade;
 }
 
 .maintenance-card-head {
@@ -2038,6 +2054,13 @@ body {
   .maintenance-plan-grid,
   .maintenance-run-grid {
     grid-template-columns: 1fr;
+  }
+
+  .maintenance-ops-card {
+    grid-template-areas:
+      "schedule"
+      "manual"
+      "upgrade";
   }
 
   .maintenance-upgrade-version-row,

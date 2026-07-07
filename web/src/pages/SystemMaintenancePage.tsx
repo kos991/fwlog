@@ -470,7 +470,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
               label: tabLabel(<WarningOutlined />, '维护'),
               children: (
                 <section className="ops-section maintenance-card maintenance-ops-card">
-                  <div className="maintenance-plan-card">
+                  <div className="maintenance-plan-card maintenance-plan-card--schedule">
                     <div className="maintenance-card-head">
                       <div>
                         <span className="maintenance-card-kicker"><ClockCircleOutlined /> 自动扫描</span>
@@ -497,7 +497,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                     </div>
                   </div>
 
-                  <div className="maintenance-run-card">
+                  <div className="maintenance-run-card maintenance-run-card--manual">
                     <div className="maintenance-card-head">
                       <div>
                         <span className="maintenance-card-kicker"><SyncOutlined /> 手动维护</span>
@@ -533,7 +533,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                     </div>
                   </div>
 
-                  <div className="maintenance-run-card">
+                  <div className="maintenance-run-card maintenance-run-card--upgrade">
                     <div className="maintenance-card-head">
                       <div>
                         <span className="maintenance-card-kicker"><CloudDownloadOutlined /> 自动升级</span>
