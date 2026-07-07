@@ -154,9 +154,12 @@ jobs:
           mkdir -p release
           asset="nat-query-service_${GOOS}_${GOARCH}"
           version="${{ needs.prepare-release.outputs.version }}"
+          pkg_version="${version#v}"
           go build -trimpath -ldflags "-s -w -X nat-query-service/internal/app.appVersion=$version" -o "release/$asset" ./cmd/nat-query-service
           PACKAGING_MODE=full bash packaging/build-server-packages.sh --version "$version" --binary "release/$asset" --output release
           PACKAGING_MODE=upgrade bash packaging/build-server-packages.sh --version "$version" --binary "release/$asset" --output release
+          cp "release/fwlog-upgrade-v${pkg_version}.x86_64.rpm" "release/nat-query-service_kylin-server_amd64.rpm"
+          cp "release/fwlog-upgrade_${pkg_version}_amd64.deb" "release/nat-query-service_debian-server_amd64.deb"
 
       - name: Upload release asset
         env:
@@ -170,6 +173,8 @@ jobs:
           pkg_version="${version#v}"
           allowed_assets="$(printf '%s\n' \
             "nat-query-service_linux_amd64" \
+            "nat-query-service_kylin-server_amd64.rpm" \
+            "nat-query-service_debian-server_amd64.deb" \
             "fwlog-full-v${pkg_version}.x86_64.rpm" \
             "fwlog-full_${pkg_version}_amd64.deb" \
             "fwlog-upgrade-v${pkg_version}.x86_64.rpm" \
