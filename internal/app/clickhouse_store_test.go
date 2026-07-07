@@ -102,9 +102,9 @@ func TestQueryNATLogsPageSQLUsesFastPathWithoutTimeSort(t *testing.T) {
 }
 
 func TestQueryNATLogsPageSQLFallsBackWhenPageSizeIsZero(t *testing.T) {
-	sql, args := queryNATLogsPageSQL("SELECT * FROM nat_logs WHERE log_date = ?", []any{"2026-06-10"}, QueryPageOptions{Page: 2, PageSize: 0}, QuerySortTimeDesc)
+	sql, args := queryNATLogsPageSQL("SELECT * FROM nat_logs WHERE log_date = ?", []any{"2026-06-10"}, QueryPageOptions{Page: 2, PageSize: 0}, QuerySortTimeAsc)
 
-	if !strings.Contains(sql, "ORDER BY timestamp DESC, source_id DESC, source_file DESC, source_offset DESC") || !strings.Contains(sql, "LIMIT ? OFFSET ?") {
+	if !strings.Contains(sql, "ORDER BY timestamp ASC, source_id ASC, source_file ASC, source_offset ASC") || !strings.Contains(sql, "LIMIT ? OFFSET ?") {
 		t.Fatalf("zero page size should still be paged: %s", sql)
 	}
 	if len(args) != 3 || args[1] != 50 || args[2] != 50 {
@@ -113,9 +113,9 @@ func TestQueryNATLogsPageSQLFallsBackWhenPageSizeIsZero(t *testing.T) {
 }
 
 func TestQueryNATLogsPageSQLKeepsTimeSortForFilteredSearch(t *testing.T) {
-	sql, _ := queryNATLogsPageSQL("SELECT * FROM nat_logs WHERE src_ip = ?", []any{"2.55.80.66"}, QueryPageOptions{Page: 2, PageSize: 50}, QuerySortTimeDesc)
+	sql, _ := queryNATLogsPageSQL("SELECT * FROM nat_logs WHERE src_ip = ?", []any{"2.55.80.66"}, QueryPageOptions{Page: 2, PageSize: 50}, QuerySortTimeAsc)
 
-	if !strings.Contains(sql, "ORDER BY timestamp DESC, source_id DESC, source_file DESC, source_offset DESC") {
+	if !strings.Contains(sql, "ORDER BY timestamp ASC, source_id ASC, source_file ASC, source_offset ASC") {
 		t.Fatalf("filtered search should keep timestamp sort: %s", sql)
 	}
 	if !strings.Contains(sql, "LIMIT ? OFFSET ?") {
@@ -135,12 +135,12 @@ func TestQueryNATLogsPageSQLUsesCursorWithoutOffset(t *testing.T) {
 		"SELECT * FROM nat_logs WHERE log_date = ?",
 		[]any{"2026-07-04"},
 		QueryPageOptions{Page: 1, PageSize: 50, Cursor: &cursor},
-		QuerySortTimeDesc,
+		QuerySortTimeAsc,
 	)
 
 	for _, want := range []string{
-		"AND (timestamp < ? OR (timestamp = ? AND (source_id, source_file, source_offset) < (?, ?, ?)))",
-		"ORDER BY timestamp DESC, source_id DESC, source_file DESC, source_offset DESC",
+		"AND (timestamp > ? OR (timestamp = ? AND (source_id, source_file, source_offset) > (?, ?, ?)))",
+		"ORDER BY timestamp ASC, source_id ASC, source_file ASC, source_offset ASC",
 		"LIMIT ?",
 	} {
 		if !strings.Contains(sql, want) {
@@ -155,5 +155,13 @@ func TestQueryNATLogsPageSQLUsesCursorWithoutOffset(t *testing.T) {
 	}
 	if args[1] != cursor.Timestamp || args[2] != cursor.Timestamp || args[3] != cursor.SourceID || args[4] != cursor.SourceFile || args[5] != cursor.SourceOffset || args[6] != 51 {
 		t.Fatalf("unexpected cursor args: %#v", args)
+	}
+}
+
+func TestQueryNATLogsCountSQLWrapsBaseQuery(t *testing.T) {
+	sql := queryNATLogsCountSQL("SELECT * FROM nat_logs WHERE src_ip = ? AND action = ?")
+
+	if sql != "SELECT count() FROM (SELECT * FROM nat_logs WHERE src_ip = ? AND action = ?) AS query_results" {
+		t.Fatalf("unexpected count sql: %s", sql)
 	}
 }

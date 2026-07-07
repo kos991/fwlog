@@ -298,10 +298,9 @@ export function LogSearchPage(_props: LogSearchPageProps) {
   const visibility = response?.visibility;
   const currentPage = response?.page || 1;
   const currentPageSize = response?.page_size || queryPageSize;
+  const currentTotal = response?.total || 0;
   const currentRecordCount = response?.records?.length || 0;
-  const pagerTotal = response
-    ? ((currentPage - 1) * currentPageSize) + currentRecordCount + (response.has_more ? 1 : 0)
-    : 0;
+  const pagerTotal = currentTotal;
   const visibleDateState = React.useMemo(() => {
     const dates = new Map<string, CalendarState>();
 
@@ -454,21 +453,25 @@ export function LogSearchPage(_props: LogSearchPageProps) {
           total: pagerTotal,
           showSizeChanger: true,
           pageSizeOptions: [50, 100, 200, 500],
-          showTotal: () => response ? `第 ${currentPage} 页，当前 ${currentRecordCount} 条` : '',
+          showTotal: () => response ? `第 ${currentPage} 页，共 ${currentTotal} 条` : '',
           onChange: (page, pageSize) => {
             if (!queryValues) return;
             if (pageSize !== currentPageSize) {
               void runSearch(queryValues, 1, pageSize, undefined, true);
               return;
             }
-            if (page > currentPage) {
+            if (page === currentPage + 1) {
               const nextCursor = cursorStack[currentPage] || response?.next_cursor;
               if (!nextCursor) return;
               void runSearch(queryValues, page, pageSize, nextCursor);
               return;
             }
-            const previousCursor = cursorStack[page - 1] || undefined;
-            void runSearch(queryValues, page, pageSize, previousCursor);
+            if (page === currentPage - 1) {
+              const previousCursor = cursorStack[page - 1] || undefined;
+              void runSearch(queryValues, page, pageSize, previousCursor);
+              return;
+            }
+            void runSearch(queryValues, page, pageSize, undefined);
           },
         }}
         expandable={{
@@ -490,7 +493,7 @@ export function LogSearchPage(_props: LogSearchPageProps) {
             <h3>查询结果</h3>
             {response ? (
               <span>
-                第 <span className="mono-number">{currentPage}</span> 页，显示 <span className="mono-number">{currentRecordCount}</span> 条，耗时{' '}
+                第 <span className="mono-number">{currentPage}</span> 页，共 <span className="mono-number">{currentTotal}</span> 条，本页显示 <span className="mono-number">{currentRecordCount}</span> 条，耗时{' '}
                 <span className="mono-number">{response.query_time_ms ?? 0}</span> ms
               </span>
             ) : <span>请选择时间范围后查询</span>}

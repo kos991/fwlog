@@ -18,6 +18,7 @@ type QuerySortMode string
 
 const (
 	QuerySortFast     QuerySortMode = "fast"
+	QuerySortTimeAsc  QuerySortMode = "time_asc"
 	QuerySortTimeDesc QuerySortMode = "time_desc"
 )
 
@@ -180,6 +181,16 @@ func (s *ClickHouseStore) QueryNATLogs(ctx context.Context, baseSQL string, args
 	return records, hasMore, nil
 }
 
+func (s *ClickHouseStore) CountNATLogs(ctx context.Context, baseSQL string, args []any) (int, error) {
+	sql := queryNATLogsCountSQL(baseSQL)
+
+	var total uint64
+	if err := s.conn.QueryRow(ctx, sql, args...).Scan(&total); err != nil {
+		return 0, err
+	}
+	return int(total), nil
+}
+
 func queryNATLogsPageSQL(baseSQL string, args []any, options QueryPageOptions, sortMode QuerySortMode) (string, []any) {
 	page := normalizeQueryPage(options.Page)
 	pageSize := normalizeQueryPageSize(options.PageSize)
@@ -188,10 +199,18 @@ func queryNATLogsPageSQL(baseSQL string, args []any, options QueryPageOptions, s
 	sql := baseSQL
 	queryArgs := append([]any{}, args...)
 	if options.Cursor != nil {
-		sql += " AND (timestamp < ? OR (timestamp = ? AND (source_id, source_file, source_offset) < (?, ?, ?)))"
+		switch sortMode {
+		case QuerySortTimeAsc:
+			sql += " AND (timestamp > ? OR (timestamp = ? AND (source_id, source_file, source_offset) > (?, ?, ?)))"
+		default:
+			sql += " AND (timestamp < ? OR (timestamp = ? AND (source_id, source_file, source_offset) < (?, ?, ?)))"
+		}
 		queryArgs = append(queryArgs, options.Cursor.Timestamp, options.Cursor.Timestamp, options.Cursor.SourceID, options.Cursor.SourceFile, options.Cursor.SourceOffset)
 	}
-	if sortMode == QuerySortTimeDesc {
+	switch sortMode {
+	case QuerySortTimeAsc:
+		sql += " ORDER BY timestamp ASC, source_id ASC, source_file ASC, source_offset ASC"
+	case QuerySortTimeDesc:
 		sql += " ORDER BY timestamp DESC, source_id DESC, source_file DESC, source_offset DESC"
 	}
 	if usesCursorPagination(options) {
@@ -202,6 +221,10 @@ func queryNATLogsPageSQL(baseSQL string, args []any, options QueryPageOptions, s
 	sql += " LIMIT ? OFFSET ?"
 	queryArgs = append(queryArgs, pageSize, offset)
 	return sql, queryArgs
+}
+
+func queryNATLogsCountSQL(baseSQL string) string {
+	return fmt.Sprintf("SELECT count() FROM (%s) AS query_results", baseSQL)
 }
 
 func normalizeQueryPage(page int) int {

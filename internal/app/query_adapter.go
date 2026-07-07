@@ -60,7 +60,14 @@ func (s appQueryService) Query(r *http.Request) (QueryResponse, error) {
 	}
 
 	startedAt := time.Now()
-	sortMode := QuerySortTimeDesc
+	sortMode := QuerySortTimeAsc
+	total, err := store.CountNATLogs(ctx, querySQL, args)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return QueryResponse{}, queryTimeoutError()
+		}
+		return QueryResponse{}, err
+	}
 	records, hasMore, err := store.QueryNATLogs(ctx, querySQL, args, pageOptions, sortMode)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -79,7 +86,7 @@ func (s appQueryService) Query(r *http.Request) (QueryResponse, error) {
 
 	return QueryResponse{
 		Records:     records,
-		Total:       len(records),
+		Total:       total,
 		Page:        page,
 		PageSize:    pageSize,
 		NextCursor:  nextCursor,
