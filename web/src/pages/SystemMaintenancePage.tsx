@@ -50,7 +50,7 @@ type Settings = {
   geoip_db_path?: string;
   auto_scan_enabled?: boolean | string;
   auto_scan_mode?: string;
-  auto_scan_times?: string;
+  auto_scan_times?: string | Dayjs;
   auto_scan_timezone?: string;
   auto_scan_interval_sec?: number | string;
   upgrade_auto_check_enabled?: boolean | string;
@@ -85,7 +85,10 @@ function parseLogSources(value?: LogSourceSetting[] | string): LogSourceSetting[
   }
 }
 
-function firstAutoScanTime(value?: string) {
+function firstAutoScanTime(value?: string | Dayjs | null) {
+  if (dayjs.isDayjs(value)) {
+    return value.format('HH:mm');
+  }
   const first = String(value || '')
     .split(',')
     .map((item) => item.trim())
@@ -93,9 +96,16 @@ function firstAutoScanTime(value?: string) {
   return first || '01:00';
 }
 
-function autoScanTimeValue(value?: string) {
+function autoScanTimeValue(value?: string | Dayjs | null) {
+  if (dayjs.isDayjs(value)) {
+    return value.second(0).millisecond(0);
+  }
   const [hour, minute] = firstAutoScanTime(value).split(':').map((item) => Number(item));
   return dayjs().hour(hour).minute(minute).second(0).millisecond(0);
+}
+
+function formatAutoScanTime(value?: string | Dayjs | null) {
+  return firstAutoScanTime(value);
 }
 
 export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageProps) {
@@ -112,7 +122,6 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   const geoipPath = Form.useWatch('geoip_db_path', form);
   const customIpPath = Form.useWatch('custom_ip_map_path', form);
   const autoScanEnabled = Form.useWatch('auto_scan_enabled', form);
-  const autoScanTime = Form.useWatch('auto_scan_times', form);
   const upgradeAutoCheckEnabled = Form.useWatch('upgrade_auto_check_enabled', form);
 
   const load = React.useCallback(async () => {
@@ -135,7 +144,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
         cidr_aliases: cidrAliases,
         auto_scan_enabled: settings.auto_scan_enabled === true || settings.auto_scan_enabled === 'true',
         auto_scan_mode: 'daily',
-        auto_scan_times: firstAutoScanTime(settings.auto_scan_times),
+        auto_scan_times: autoScanTimeValue(settings.auto_scan_times),
         auto_scan_timezone: settings.auto_scan_timezone || 'Asia/Shanghai',
         auto_scan_interval_sec: Number(settings.auto_scan_interval_sec || 3600),
         upgrade_auto_check_enabled: settings.upgrade_auto_check_enabled === true || settings.upgrade_auto_check_enabled === 'true',
@@ -192,7 +201,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
         log_tag: firstSource?.log_tag || values.log_tag,
         auto_scan_enabled: String(Boolean(values.auto_scan_enabled)),
         auto_scan_mode: 'daily',
-        auto_scan_times: firstAutoScanTime(values.auto_scan_times),
+        auto_scan_times: formatAutoScanTime(values.auto_scan_times),
         auto_scan_timezone: values.auto_scan_timezone || 'Asia/Shanghai',
         auto_scan_interval_sec: '86400',
         upgrade_auto_check_enabled: String(Boolean(values.upgrade_auto_check_enabled)),
@@ -487,12 +496,9 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                     <div className="maintenance-plan-grid">
                       <div className="maintenance-field">
                         <label>扫描时间</label>
-                        <TimePicker
-                          format="HH:mm"
-                          allowClear={false}
-                          value={autoScanTimeValue(autoScanTime)}
-                          onChange={(_, value) => form.setFieldValue('auto_scan_times', String(value || '01:00'))}
-                        />
+                        <Form.Item name="auto_scan_times" noStyle>
+                          <TimePicker format="HH:mm" allowClear={false} />
+                        </Form.Item>
                       </div>
                     </div>
                   </div>

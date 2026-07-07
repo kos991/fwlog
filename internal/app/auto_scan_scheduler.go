@@ -36,7 +36,7 @@ func (a *App) runDueAutoScan(ctx context.Context, now time.Time) bool {
 	if !ok {
 		return false
 	}
-	if !a.startBackgroundImport(false) {
+	if !a.startBackgroundImport(false, time.Time{}) {
 		return false
 	}
 

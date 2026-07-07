@@ -35,6 +35,30 @@ func TestExtractLogDateFromArchiveName(t *testing.T) {
 	}
 }
 
+func TestExtractLogDatePrefersEventDateBeforeArchiveSuffix(t *testing.T) {
+	got, ok := ExtractLogDate("10.10.10.1_2026-06-13.log-20260614.gz")
+	if !ok {
+		t.Fatal("ExtractLogDate should parse event date from device archive name")
+	}
+
+	want := time.Date(2026, 6, 13, 0, 0, 0, 0, time.Local)
+	if !got.Equal(want) {
+		t.Fatalf("ExtractLogDate = %v, want %v", got, want)
+	}
+}
+
+func TestExtractLogDateFallsBackToArchiveSuffix(t *testing.T) {
+	got, ok := ExtractLogDate("sangfor.log-20260701.gz")
+	if !ok {
+		t.Fatal("ExtractLogDate should parse archive suffix")
+	}
+
+	want := time.Date(2026, 7, 1, 0, 0, 0, 0, time.Local)
+	if !got.Equal(want) {
+		t.Fatalf("ExtractLogDate = %v, want %v", got, want)
+	}
+}
+
 func TestExtractLogDateRejectsInvalidNamesAndDates(t *testing.T) {
 	cases := []string{
 		"sangfor.log",

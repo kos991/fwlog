@@ -8,7 +8,10 @@ import (
 	"time"
 )
 
-var archivedLogFilePattern = regexp.MustCompile(`^.+\.log-(\d{8})(?:\.gz)?$`)
+var (
+	archivedLogFilePattern   = regexp.MustCompile(`^.+\.log-(\d{8})(?:\.gz)?$`)
+	eventDatedLogFilePattern = regexp.MustCompile(`(?:^|[_-])(\d{4}-\d{2}-\d{2})\.log-\d{8}(?:\.gz)?$`)
+)
 
 type LogFileSnapshot struct {
 	Path    string
@@ -23,6 +26,13 @@ func IsArchivedLogFile(name string) bool {
 }
 
 func ExtractLogDate(name string) (time.Time, bool) {
+	if matches := eventDatedLogFilePattern.FindStringSubmatch(name); len(matches) == 2 {
+		logDate, err := time.ParseInLocation("2006-01-02", matches[1], time.Local)
+		if err == nil {
+			return logDate, true
+		}
+	}
+
 	matches := archivedLogFilePattern.FindStringSubmatch(name)
 	if len(matches) != 2 {
 		return time.Time{}, false

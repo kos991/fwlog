@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"net/netip"
 	"regexp"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 var (
 	defaultIPv4Addr    = netip.MustParseAddr("0.0.0.0")
 	natLineTimePattern = regexp.MustCompile(`^(\d{4}\s+[A-Za-z]{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})`)
+	syslogTimePattern  = regexp.MustCompile(`^([A-Za-z]{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})`)
 )
 
 const (
@@ -117,17 +119,44 @@ func extractField(line, label string) string {
 }
 
 func parseNATTimestamp(line string, fallbackDate time.Time) (time.Time, bool) {
-	matches := natLineTimePattern.FindStringSubmatch(line)
-	if len(matches) != 2 {
-		return fallbackDate, !fallbackDate.IsZero()
+	if matches := natLineTimePattern.FindStringSubmatch(line); len(matches) == 2 {
+		ts, err := time.ParseInLocation("2006 Jan 2 15:04:05", matches[1], time.Local)
+		if err == nil {
+			return ts, true
+		}
 	}
 
-	ts, err := time.ParseInLocation("2006 Jan 2 15:04:05", matches[1], time.Local)
+	if matches := syslogTimePattern.FindStringSubmatch(line); len(matches) == 2 {
+		ts, err := parseSyslogTimestamp(matches[1], fallbackDate)
+		if err == nil {
+			return ts, true
+		}
+	}
+
+	return fallbackDate, !fallbackDate.IsZero()
+}
+
+func parseSyslogTimestamp(value string, fallbackDate time.Time) (time.Time, error) {
+	baseYear := fallbackDate.Year()
+	if fallbackDate.IsZero() {
+		baseYear = time.Now().In(time.Local).Year()
+	}
+
+	ts, err := time.ParseInLocation("2006 Jan 2 15:04:05", fmt.Sprintf("%04d %s", baseYear, value), time.Local)
 	if err != nil {
-		return fallbackDate, !fallbackDate.IsZero()
+		return time.Time{}, err
+	}
+	if fallbackDate.IsZero() {
+		return ts, nil
 	}
 
-	return ts, true
+	if ts.Sub(fallbackDate) > 183*24*time.Hour {
+		return ts.AddDate(-1, 0, 0), nil
+	}
+	if fallbackDate.Sub(ts) > 183*24*time.Hour {
+		return ts.AddDate(1, 0, 0), nil
+	}
+	return ts, nil
 }
 
 func parseIPv4(raw string) (netip.Addr, bool) {

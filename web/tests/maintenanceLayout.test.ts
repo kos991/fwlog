@@ -19,3 +19,13 @@ test('maintenance page pins schedule, manual actions, and upgrade cards into exp
   assert.match(styles, /\.maintenance-run-card--manual\s*\{[^}]*grid-area:\s*manual;/s);
   assert.match(styles, /\.maintenance-run-card--upgrade\s*\{[^}]*grid-area:\s*upgrade;/s);
 });
+
+test('auto scan time picker is owned by form field instead of a string controlled value', () => {
+  const page = fs.readFileSync(pagePath, 'utf8');
+
+  assert.match(page, /<Form\.Item name="auto_scan_times" noStyle>/);
+  assert.doesNotMatch(page, /value=\{autoScanTimeValue\(autoScanTime\)\}/);
+  assert.doesNotMatch(page, /setFieldValue\('auto_scan_times'/);
+  assert.match(page, /auto_scan_times: autoScanTimeValue\(settings\.auto_scan_times\)/);
+  assert.match(page, /auto_scan_times: formatAutoScanTime\(values\.auto_scan_times\)/);
+});

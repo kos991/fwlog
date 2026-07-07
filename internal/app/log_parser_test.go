@@ -41,6 +41,41 @@ func TestParseNATLineWritesDefaultsAndMetadata(t *testing.T) {
 	}
 }
 
+func TestParseNATLineParsesSyslogTimestampWithArchiveYear(t *testing.T) {
+	line := "Jun 13 23:59:30 localhost nat: 日志类型:NAT日志, NAT类型:snat, 源IP:2.55.80.250, 源端口:37830, 目的IP:47.96.193.154, 目的端口:443, 协议:6, 转换后的IP:58.216.48.6, 转换后的端口:37830"
+
+	row, ok := ParseNATLine(line, ParseMeta{
+		LogDate: time.Date(2026, 6, 14, 0, 0, 0, 0, time.Local),
+	})
+	if !ok {
+		t.Fatal("syslog NAT line should parse")
+	}
+
+	want := time.Date(2026, 6, 13, 23, 59, 30, 0, time.Local)
+	if !row.Timestamp.Equal(want) {
+		t.Fatalf("timestamp = %v, want %v", row.Timestamp, want)
+	}
+	if row.Timestamp.Equal(row.LogDate) {
+		t.Fatalf("timestamp should not fall back to archive date: %#v", row)
+	}
+}
+
+func TestParseNATLineInfersNearestYearForSyslogTimestamp(t *testing.T) {
+	line := "Dec 31 23:59:59 localhost nat: 日志类型:NAT日志, NAT类型:snat, 源IP:2.55.80.250, 目的IP:47.96.193.154"
+
+	row, ok := ParseNATLine(line, ParseMeta{
+		LogDate: time.Date(2027, 1, 1, 0, 0, 0, 0, time.Local),
+	})
+	if !ok {
+		t.Fatal("syslog NAT line should parse")
+	}
+
+	want := time.Date(2026, 12, 31, 23, 59, 59, 0, time.Local)
+	if !row.Timestamp.Equal(want) {
+		t.Fatalf("timestamp = %v, want %v", row.Timestamp, want)
+	}
+}
+
 func TestParseNATLineUsesDefaultValuesForMissingFields(t *testing.T) {
 	line := "2026 Jun 28 01:17:18 源IP:192.168.1.10 目的IP:222.186.177.145"
 

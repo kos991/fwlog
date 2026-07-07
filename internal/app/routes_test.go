@@ -572,6 +572,28 @@ func TestRouterSyncReturnsInProgressWhenBackgroundImportIsRunning(t *testing.T) 
 	}
 }
 
+func TestParseImportTargetDateAcceptsDateQuery(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/rebuild?date=2026-06-13", nil)
+
+	got, err := parseImportTargetDate(req)
+	if err != nil {
+		t.Fatalf("parseImportTargetDate returned error: %v", err)
+	}
+
+	want := time.Date(2026, 6, 13, 0, 0, 0, 0, time.Local)
+	if !got.Equal(want) {
+		t.Fatalf("target date = %v, want %v", got, want)
+	}
+}
+
+func TestParseImportTargetDateRejectsInvalidDateQuery(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/rebuild?date=2026/06/13", nil)
+
+	if _, err := parseImportTargetDate(req); err == nil {
+		t.Fatal("invalid target date should return an error")
+	}
+}
+
 func TestCurrentLogSourcesDoesNotFallbackWhenConfiguredSourcesAreDisabled(t *testing.T) {
 	app := NewApp(LoadConfig())
 	app.updateSettings(map[string]any{
