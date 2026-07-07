@@ -2003,6 +2003,35 @@ body {
   background: #fff;
 }
 
+.maintenance-rebuild-mode {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--fw-line-soft);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.maintenance-rebuild-mode > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.maintenance-rebuild-mode strong {
+  color: #0f172a;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.maintenance-rebuild-mode .ant-typography {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 900px) {
   .login-shell {
     padding: 18px;

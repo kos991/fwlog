@@ -118,6 +118,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   const [upgradeCheckError, setUpgradeCheckError] = React.useState('');
   const [upgradeLastCheckedAt, setUpgradeLastCheckedAt] = React.useState<Date | null>(null);
   const [rebuildDate, setRebuildDate] = React.useState<Dayjs | null>(dayjs());
+  const [fullRebuild, setFullRebuild] = React.useState(false);
   const autoUpgradeCheckStartedRef = React.useRef(false);
   const geoipPath = Form.useWatch('geoip_db_path', form);
   const customIpPath = Form.useWatch('custom_ip_map_path', form);
@@ -227,7 +228,15 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   };
 
   const triggerRebuild = async () => {
-    await trigger(`/api/rebuild${rebuildDate ? `?date=${rebuildDate.format('YYYY-MM-DD')}` : ''}`, '已触发指定日期重建');
+    if (fullRebuild) {
+      await trigger('/api/rebuild', '已触发全量重建');
+      return;
+    }
+    if (!rebuildDate) {
+      message.error('请先选择重建日期');
+      return;
+    }
+    await trigger(`/api/rebuild?date=${rebuildDate.format('YYYY-MM-DD')}`, '已触发指定日期重建');
   };
 
   const checkUpgrade = async () => {
@@ -521,21 +530,31 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
 
                       <div className="maintenance-field">
                         <label>重建日期</label>
-                        <DatePicker value={rebuildDate} onChange={setRebuildDate} />
+                        <DatePicker value={rebuildDate} onChange={setRebuildDate} disabled={fullRebuild} />
                       </div>
 
                       <div className="maintenance-field maintenance-danger-field">
                         <label>重建入库</label>
                         <Popconfirm
-                          title="确认重建该日期？"
-                          description={rebuildDate ? rebuildDate.format('YYYY-MM-DD') : '未选择日期'}
-                          okText="确认重建"
+                          title={fullRebuild ? '确认全量重建？' : '确认重建该日期？'}
+                          description={fullRebuild ? '将重建所有历史日志，耗时较长。' : rebuildDate ? rebuildDate.format('YYYY-MM-DD') : '未选择日期'}
+                          okText={fullRebuild ? '确认全量重建' : '确认重建'}
                           cancelText="取消"
                           onConfirm={() => void triggerRebuild()}
                         >
-                          <Button danger icon={<WarningOutlined />} loading={loading}>重建</Button>
+                          <Button danger icon={<WarningOutlined />} loading={loading} disabled={!fullRebuild && !rebuildDate}>
+                            {fullRebuild ? '全量重建' : '重建'}
+                          </Button>
                         </Popconfirm>
                       </div>
+                    </div>
+
+                    <div className="maintenance-rebuild-mode">
+                      <div>
+                        <strong>全量重建</strong>
+                        <Text type="secondary">开启后会重建所有历史日志，不再使用上方日期。</Text>
+                      </div>
+                      <Switch checked={fullRebuild} onChange={setFullRebuild} />
                     </div>
                   </div>
 

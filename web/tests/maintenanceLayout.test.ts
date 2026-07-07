@@ -29,3 +29,15 @@ test('auto scan time picker is owned by form field instead of a string controlle
   assert.match(page, /auto_scan_times: autoScanTimeValue\(settings\.auto_scan_times\)/);
   assert.match(page, /auto_scan_times: formatAutoScanTime\(values\.auto_scan_times\)/);
 });
+
+test('full rebuild switch makes all-date rebuild explicit', () => {
+  const page = fs.readFileSync(pagePath, 'utf8');
+  const styles = fs.readFileSync(stylesPath, 'utf8');
+
+  assert.match(page, /const \[fullRebuild, setFullRebuild\]/);
+  assert.match(page, /<Switch checked=\{fullRebuild\} onChange=\{setFullRebuild\} \/>/);
+  assert.match(page, /disabled=\{fullRebuild\}/);
+  assert.match(page, /await trigger\('\/api\/rebuild', '已触发全量重建'\)/);
+  assert.match(page, /await trigger\(`\/api\/rebuild\?date=\$\{rebuildDate\.format\('YYYY-MM-DD'\)\}`/);
+  assert.match(styles, /\.maintenance-rebuild-mode\s*\{/);
+});
