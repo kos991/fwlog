@@ -624,8 +624,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                         label="新密码"
                         rules={[
                           { required: true, message: '请输入新密码' },
-                          { min: 6, max: 18, message: '密码长度需在 6-18 个字符内' },
-                          { pattern: /^[A-Za-z0-9_.-]+$/, message: '仅允许 a-z A-Z 0-9 和 "-_." 等字符' },
+                          { min: 6, message: '密码至少需要 6 个字符' },
                         ]}
                       >
                         <Input.Password prefix={<SafetyCertificateOutlined />} />

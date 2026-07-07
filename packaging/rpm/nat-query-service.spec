@@ -1,7 +1,12 @@
-Name: nat-query-service
+%global package_name %{?fwlog_package_name}%{!?fwlog_package_name:nat-query-service}
+%global package_summary %{?fwlog_package_summary}%{!?fwlog_package_summary:FWLog NAT query service with embedded ClickHouse}
+%global package_description %{?fwlog_package_description}%{!?fwlog_package_description:FWLog NAT query service bundled with a private ClickHouse runtime for server installation.}
+%global include_clickhouse 0%{?fwlog_include_clickhouse}
+
+Name: %{package_name}
 Version: %{fwlog_version}
 Release: 1
-Summary: FWLog NAT query service with embedded ClickHouse
+Summary: %{package_summary}
 License: Proprietary
 URL: https://github.com/kos991/fwlog
 Source0: nat-query-service-root.tar.gz
@@ -10,7 +15,7 @@ Requires: systemd
 AutoReqProv: no
 
 %description
-FWLog NAT query service bundled with a private ClickHouse runtime for server installation.
+%{package_description}
 
 %prep
 %setup -q -n nat-query-service-root
@@ -34,14 +39,22 @@ exit 0
 %post
 if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload || true
+%if %{include_clickhouse}
     systemctl enable fwlog-clickhouse.service nat-query-service.service || true
+%else
+    systemctl enable nat-query-service.service || true
+%endif
     if [ -d /run/systemd/system ]; then
+%if %{include_clickhouse}
         systemctl restart fwlog-clickhouse.service || true
         client="/opt/nat-query/clickhouse/bin/clickhouse"
         for i in $(seq 1 60); do
             "$client" client --query "SELECT 1" >/dev/null 2>&1 && break
             sleep 1
         done
+%else
+        client="/opt/nat-query/clickhouse/bin/clickhouse"
+%endif
         backup="/data/nat-query/backups/app_settings-before-package.tsv"
         if [ -s "$backup" ] && [ -x "$client" ]; then
             "$client" client --query "INSERT INTO app_settings (key, value, updated_at) FORMAT TabSeparated" < "$backup" >/dev/null 2>&1 || true
@@ -53,8 +66,12 @@ fi
 %preun
 if [ "$1" -eq 0 ] && command -v systemctl >/dev/null 2>&1; then
     systemctl stop nat-query-service.service || true
+%if %{include_clickhouse}
     systemctl stop fwlog-clickhouse.service || true
     systemctl disable nat-query-service.service fwlog-clickhouse.service || true
+%else
+    systemctl disable nat-query-service.service || true
+%endif
 fi
 
 %postun
@@ -65,6 +82,7 @@ fi
 %files
 %dir /opt/nat-query
 /opt/nat-query/nat-query-service
+%if %{include_clickhouse}
 %dir /opt/nat-query/clickhouse
 %dir /opt/nat-query/clickhouse/bin
 /opt/nat-query/clickhouse/bin/clickhouse
@@ -77,6 +95,7 @@ fi
 %dir /opt/nat-query/clickhouse/format_schemas
 %dir /opt/nat-query/clickhouse/log
 /etc/systemd/system/fwlog-clickhouse.service
+%endif
 /etc/systemd/system/nat-query-service.service
 %dir /data
 %dir /data/sangfor_fw_log

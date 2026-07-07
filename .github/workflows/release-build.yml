@@ -155,7 +155,8 @@ jobs:
           asset="nat-query-service_${GOOS}_${GOARCH}"
           version="${{ needs.prepare-release.outputs.version }}"
           go build -trimpath -ldflags "-s -w -X nat-query-service/internal/app.appVersion=$version" -o "release/$asset" ./cmd/nat-query-service
-          bash packaging/build-server-packages.sh --version "$version" --binary "release/$asset" --output release
+          PACKAGING_MODE=full bash packaging/build-server-packages.sh --version "$version" --binary "release/$asset" --output release
+          PACKAGING_MODE=upgrade bash packaging/build-server-packages.sh --version "$version" --binary "release/$asset" --output release
 
       - name: Upload release asset
         env:
@@ -166,7 +167,13 @@ jobs:
           set -euo pipefail
           version="${{ needs.prepare-release.outputs.version }}"
           gh release view "$version" --repo "$GH_REPO" >/dev/null
-          allowed_assets=$'nat-query-service_linux_amd64\nnat-query-service_kylin-server_amd64.rpm\nnat-query-service_debian-server_amd64.deb'
+          pkg_version="${version#v}"
+          allowed_assets="$(printf '%s\n' \
+            "nat-query-service_linux_amd64" \
+            "fwlog-full-v${pkg_version}.x86_64.rpm" \
+            "fwlog-full_${pkg_version}_amd64.deb" \
+            "fwlog-upgrade-v${pkg_version}.x86_64.rpm" \
+            "fwlog-upgrade_${pkg_version}_amd64.deb")"
           while IFS= read -r asset_name; do
             if [[ -n "$asset_name" ]] && ! grep -Fxq "$asset_name" <<< "$allowed_assets"; then
               gh release delete-asset "$version" "$asset_name" --repo "$GH_REPO" --yes

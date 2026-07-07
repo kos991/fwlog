@@ -187,7 +187,7 @@ function SystemStatusStrip({ health }: { health?: HealthDashboardResponse['syste
     {
       key: 'cpu',
       icon: <DashboardOutlined />,
-      label: 'CPU',
+      label: '处理器',
       value: formatPercent(cpu?.load_percent),
       meta: cpu?.cores ? `${cpu.cores} 核 · ${cpu.description || '负载采集中'}` : cpu?.description || '负载采集中',
       tone: healthTone(cpu?.status),
@@ -206,7 +206,7 @@ function SystemStatusStrip({ health }: { health?: HealthDashboardResponse['syste
       key: 'database',
       icon: <DatabaseOutlined />,
       label: '数据库',
-      value: database?.status === 'busy' ? '整理中' : database?.status === 'ok' ? '正常' : '未知',
+      value: database?.status === 'busy' ? 'BUSY' : database?.status === 'ok' ? 'OK' : 'N/A',
       meta: database?.version ? `CH ${database.version} · ${database.active_parts ?? 0} parts` : database?.description || '连接检查中',
       tone: healthTone(database?.status),
       lineValues: statusLineValues(databaseStatusScore(database?.status)),

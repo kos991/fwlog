@@ -17,15 +17,18 @@ import (
 )
 
 const (
-	githubRepoOwner              = "kos991"
-	githubRepoName               = "fwlog"
-	linuxUpgradeAssetName        = "nat-query-service_linux_amd64"
-	kylinServerPackageAssetName  = "nat-query-service_kylin-server_amd64.rpm"
-	debianServerPackageAssetName = "nat-query-service_debian-server_amd64.deb"
-	installedBinaryPath          = "/opt/nat-query/nat-query-service"
+	githubRepoOwner       = "kos991"
+	githubRepoName        = "fwlog"
+	linuxUpgradeAssetName = "nat-query-service_linux_amd64"
+	installedBinaryPath   = "/opt/nat-query/nat-query-service"
 )
 
 var appVersion = "dev"
+var lookPath = exec.LookPath
+var osReleasePath = "/etc/os-release"
+var runCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return exec.CommandContext(ctx, name, args...).CombinedOutput()
+}
 
 type UpgradeState string
 
@@ -67,9 +70,22 @@ type upgradeRunRequest struct {
 }
 
 type upgradeAssets struct {
-	BinaryURL              string
-	KylinServerPackageURL  string
-	DebianServerPackageURL string
+	LegacyBinaryURL string
+	UpgradeRPMURL   string
+	UpgradeDEBURL   string
+}
+
+type upgradePackageFormat string
+
+const (
+	upgradePackageRPM upgradePackageFormat = "rpm"
+	upgradePackageDEB upgradePackageFormat = "deb"
+)
+
+type upgradePackage struct {
+	Format upgradePackageFormat
+	URL    string
+	Path   string
 }
 
 type githubRelease struct {
@@ -95,18 +111,127 @@ func releaseUpgradeAssets(release githubRelease) (upgradeAssets, []string) {
 		found[asset.Name] = asset.BrowserDownloadURL
 	}
 
+	upgradeRPMAssetName, upgradeDEBAssetName := upgradePackageAssetNames(release.TagName)
 	missing := make([]string, 0)
-	for _, name := range []string{linuxUpgradeAssetName, kylinServerPackageAssetName, debianServerPackageAssetName} {
+	for _, name := range []string{linuxUpgradeAssetName, upgradeRPMAssetName, upgradeDEBAssetName} {
 		if strings.TrimSpace(found[name]) == "" {
 			missing = append(missing, name)
 		}
 	}
 
 	return upgradeAssets{
-		BinaryURL:              found[linuxUpgradeAssetName],
-		KylinServerPackageURL:  found[kylinServerPackageAssetName],
-		DebianServerPackageURL: found[debianServerPackageAssetName],
+		LegacyBinaryURL: found[linuxUpgradeAssetName],
+		UpgradeRPMURL:   found[upgradeRPMAssetName],
+		UpgradeDEBURL:   found[upgradeDEBAssetName],
 	}, missing
+}
+
+func upgradePackageAssetNames(version string) (string, string) {
+	pkgVersion := strings.TrimPrefix(strings.TrimSpace(version), "v")
+	return fmt.Sprintf("fwlog-upgrade-v%s.x86_64.rpm", pkgVersion), fmt.Sprintf("fwlog-upgrade_%s_amd64.deb", pkgVersion)
+}
+
+func selectUpgradePackage(assets upgradeAssets) (upgradePackage, error) {
+	preferred := preferredUpgradePackageFormat()
+	if preferred == upgradePackageDEB {
+		if pkg, ok := availableUpgradePackage(upgradePackageDEB, assets.UpgradeDEBURL); ok {
+			return pkg, nil
+		}
+		if pkg, ok := availableUpgradePackage(upgradePackageRPM, assets.UpgradeRPMURL); ok {
+			return pkg, nil
+		}
+	}
+	if preferred == upgradePackageRPM {
+		if pkg, ok := availableUpgradePackage(upgradePackageRPM, assets.UpgradeRPMURL); ok {
+			return pkg, nil
+		}
+		if pkg, ok := availableUpgradePackage(upgradePackageDEB, assets.UpgradeDEBURL); ok {
+			return pkg, nil
+		}
+	}
+	if pkg, ok := availableUpgradePackage(upgradePackageDEB, assets.UpgradeDEBURL); ok {
+		return pkg, nil
+	}
+	if pkg, ok := availableUpgradePackage(upgradePackageRPM, assets.UpgradeRPMURL); ok {
+		return pkg, nil
+	}
+	return upgradePackage{}, errors.New("未找到可用的 rpm/dpkg 包管理器，或 Release 缺少对应的 fwlog-upgrade 包")
+}
+
+func availableUpgradePackage(format upgradePackageFormat, assetURL string) (upgradePackage, bool) {
+	if strings.TrimSpace(assetURL) == "" {
+		return upgradePackage{}, false
+	}
+	switch format {
+	case upgradePackageRPM:
+		if _, err := lookPath("rpm"); err == nil {
+			return upgradePackage{Format: upgradePackageRPM, URL: assetURL}, true
+		}
+	case upgradePackageDEB:
+		if _, err := lookPath("dpkg"); err == nil {
+			return upgradePackage{Format: upgradePackageDEB, URL: assetURL}, true
+		}
+	}
+	return upgradePackage{}, false
+}
+
+func preferredUpgradePackageFormat() upgradePackageFormat {
+	content, err := os.ReadFile(osReleasePath)
+	if err != nil {
+		return ""
+	}
+	release := strings.ToLower(string(content))
+	if strings.Contains(release, "debian") || strings.Contains(release, "ubuntu") {
+		return upgradePackageDEB
+	}
+	if strings.Contains(release, "rhel") || strings.Contains(release, "fedora") || strings.Contains(release, "centos") || strings.Contains(release, "kylin") {
+		return upgradePackageRPM
+	}
+	return ""
+}
+
+func validateUpgradePackageContents(ctx context.Context, pkg upgradePackage) error {
+	var output []byte
+	var err error
+	switch pkg.Format {
+	case upgradePackageRPM:
+		output, err = runCommand(ctx, "rpm", "-qpl", pkg.Path)
+	case upgradePackageDEB:
+		output, err = runCommand(ctx, "dpkg-deb", "--contents", pkg.Path)
+	default:
+		return fmt.Errorf("unsupported_upgrade_package: %s", pkg.Format)
+	}
+	if err != nil {
+		return fmt.Errorf("检查 fwlog-upgrade 包内容失败: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	contents := string(output)
+	for _, forbidden := range []string{
+		"/opt/nat-query/clickhouse",
+		"/data/clickhouse",
+		"/etc/systemd/system/fwlog-clickhouse.service",
+	} {
+		if strings.Contains(contents, forbidden) {
+			return fmt.Errorf("fwlog-upgrade 包不能包含 ClickHouse 文件: %s", forbidden)
+		}
+	}
+	return nil
+}
+
+func installUpgradePackage(ctx context.Context, pkg upgradePackage) error {
+	var output []byte
+	var err error
+	switch pkg.Format {
+	case upgradePackageRPM:
+		output, err = runCommand(ctx, "rpm", "-Uvh", pkg.Path)
+	case upgradePackageDEB:
+		output, err = runCommand(ctx, "dpkg", "-i", pkg.Path)
+	default:
+		return fmt.Errorf("unsupported_upgrade_package: %s", pkg.Format)
+	}
+	if err != nil {
+		return fmt.Errorf("安装 fwlog-upgrade 包失败: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
 }
 
 func defaultUpgradeStatus() UpgradeStatus {
@@ -306,6 +431,7 @@ func runSystemUpgrade(ctx context.Context, target upgradeTarget) UpgradeStatus {
 }
 
 func executeSystemUpgrade(ctx context.Context, target upgradeTarget, status *UpgradeStatus) error {
+	_ = status
 	release, err := fetchGithubRelease(ctx, target.Version)
 	if err != nil {
 		return err
@@ -321,31 +447,27 @@ func executeSystemUpgrade(ctx context.Context, target upgradeTarget, status *Upg
 	}
 	defer os.RemoveAll(tempDir)
 
-	downloadPath := filepath.Join(tempDir, linuxUpgradeAssetName)
-	if err := downloadFile(ctx, assets.BinaryURL, downloadPath); err != nil {
+	pkg, err := selectUpgradePackage(assets)
+	if err != nil {
 		return err
 	}
-	info, err := os.Stat(downloadPath)
+	pkg.Path = filepath.Join(tempDir, "fwlog-upgrade."+string(pkg.Format))
+	if err := downloadFile(ctx, pkg.URL, pkg.Path); err != nil {
+		return err
+	}
+	info, err := os.Stat(pkg.Path)
 	if err != nil {
 		return err
 	}
 	if info.Size() == 0 {
-		return errors.New("下载到的升级二进制为空")
+		return errors.New("下载到的 fwlog-upgrade 包为空")
 	}
 
-	backupPath := fmt.Sprintf("%s.bak.%s", installedBinaryPath, time.Now().Format("20060102150405"))
-	if err := copyFile(installedBinaryPath, backupPath); err != nil {
+	if err := validateUpgradePackageContents(ctx, pkg); err != nil {
 		return err
 	}
-	status.BackupPath = backupPath
-
-	if err := replaceFileAtomic(downloadPath, installedBinaryPath, 0o755); err != nil {
+	if err := installUpgradePackage(ctx, pkg); err != nil {
 		return err
-	}
-
-	cmd := exec.CommandContext(ctx, "systemctl", "restart", "nat-query-service")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("重启 nat-query-service 失败: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return nil
 }

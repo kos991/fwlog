@@ -97,6 +97,7 @@ func (s appDashboardService) withAutoScanPlan(metrics DashboardMetrics) Dashboar
 	s.app.mu.RUnlock()
 
 	plan := BuildAutoScanPlan(settings, time.Now())
+	metrics.LastAutoScanAt = parseAutoScanDateTime(settings["last_auto_scan_at"], autoScanLocation(settings))
 	metrics.NextAutoScanAt = plan.NextAt
 	metrics.AutoScanPolicy = plan.Policy
 	metrics.AutoScanEnabled = plan.Enabled

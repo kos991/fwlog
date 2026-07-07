@@ -103,23 +103,8 @@ func decodePasswordChangeRequest(r *http.Request) (passwordChangeRequest, error)
 }
 
 func validateNewAdminPassword(password string) error {
-	if len(password) < 6 || len(password) > 18 {
-		return errors.New(`新密码长度范围需在 6-18 个字符内`)
-	}
-	for _, char := range password {
-		if char >= 'a' && char <= 'z' {
-			continue
-		}
-		if char >= 'A' && char <= 'Z' {
-			continue
-		}
-		if char >= '0' && char <= '9' {
-			continue
-		}
-		if char == '-' || char == '_' || char == '.' {
-			continue
-		}
-		return errors.New(`新密码仅允许 a-z A-Z 0-9 和 "-_." 等字符`)
+	if len(password) < 6 {
+		return errors.New(`新密码至少需要 6 个字符`)
 	}
 	return nil
 }

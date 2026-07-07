@@ -6,12 +6,14 @@ version=""
 binary=""
 output_dir="$repo_root/dist"
 arch="amd64"
+mode="${PACKAGING_MODE:-full}"
 
 usage() {
     cat <<'USAGE'
-usage: packaging/build-server-packages.sh --version <vX.Y.Z|X.Y.Z> --binary <path> [--output <dir>] [--arch amd64]
+usage: packaging/build-server-packages.sh --version <vX.Y.Z|X.Y.Z> --binary <path> [--output <dir>] [--arch amd64] [--mode full|upgrade]
 
 Environment:
+  PACKAGING_MODE        Package mode: full or upgrade. Default: full.
   CLICKHOUSE_VERSION    ClickHouse version to bundle. Default: 25.8.27.1
   CLICKHOUSE_TGZ_URL    Override ClickHouse common-static tarball URL.
   CLICKHOUSE_BINARY     Use an existing ClickHouse binary instead of downloading.
@@ -38,6 +40,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --arch)
             arch="${2:-}"
+            shift 2
+            ;;
+        --mode)
+            mode="${2:-}"
             shift 2
             ;;
         -h|--help)
@@ -69,6 +75,15 @@ case "$arch" in
         ;;
 esac
 
+case "$mode" in
+    full|upgrade)
+        ;;
+    *)
+        echo "unsupported PACKAGING_MODE: $mode (want full|upgrade)" >&2
+        exit 2
+        ;;
+esac
+
 pkg_version="${version#v}"
 if [[ ! "$pkg_version" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
     echo "package version must be X.Y.Z style, got: $version" >&2
@@ -85,6 +100,22 @@ mkdir -p "$output_dir"
 output_dir="$(cd "$output_dir" && pwd)"
 work_dir="$(mktemp -d)"
 trap 'rm -rf "$work_dir"' EXIT
+
+include_clickhouse=true
+package_name="fwlog-full"
+rpm_output_name="fwlog-full-v${pkg_version}.${rpm_arch}.rpm"
+deb_output_name="fwlog-full_${pkg_version}_${deb_arch}.deb"
+package_summary="FWLog offline full installer with bundled ClickHouse runtime"
+package_description="FWLog NAT query service bundled with a private ClickHouse runtime for first-time offline server installation."
+
+if [[ "$mode" == "upgrade" ]]; then
+    include_clickhouse=false
+    package_name="fwlog-upgrade"
+    rpm_output_name="fwlog-upgrade-v${pkg_version}.${rpm_arch}.rpm"
+    deb_output_name="fwlog-upgrade_${pkg_version}_${deb_arch}.deb"
+    package_summary="FWLog application upgrade package"
+    package_description="FWLog NAT query service application upgrade package without ClickHouse runtime."
+fi
 
 clickhouse_binary() {
     if [[ -n "${CLICKHOUSE_BINARY:-}" ]]; then
@@ -148,38 +179,43 @@ stage_rootfs() {
     local ch_bin="$2"
     local geoip_db="$3"
 
-    install -d "$rootfs/opt/nat-query/clickhouse/bin" \
-        "$rootfs/opt/nat-query/clickhouse/etc" \
-        "$rootfs/opt/nat-query/clickhouse/data" \
-        "$rootfs/opt/nat-query/clickhouse/tmp" \
-        "$rootfs/opt/nat-query/clickhouse/user_files" \
-        "$rootfs/opt/nat-query/clickhouse/format_schemas" \
-        "$rootfs/opt/nat-query/clickhouse/log" \
+    install -d "$rootfs/opt/nat-query" \
         "$rootfs/etc/systemd/system" \
         "$rootfs/data/sangfor_fw_log" \
         "$rootfs/data/index" \
         "$rootfs/data/export"
 
     install -m 0755 "$binary_path" "$rootfs/opt/nat-query/nat-query-service"
-    install -m 0755 "$ch_bin" "$rootfs/opt/nat-query/clickhouse/bin/clickhouse"
     install -m 0644 "$repo_root/nat-query-service.service" "$rootfs/etc/systemd/system/nat-query-service.service"
-    install -m 0644 "$repo_root/packaging/systemd/fwlog-clickhouse.service" "$rootfs/etc/systemd/system/fwlog-clickhouse.service"
-    install -m 0644 "$repo_root/packaging/clickhouse/config.xml" "$rootfs/opt/nat-query/clickhouse/etc/config.xml"
-    install -m 0644 "$repo_root/packaging/clickhouse/users.xml" "$rootfs/opt/nat-query/clickhouse/etc/users.xml"
     install -m 0644 "$geoip_db" "$rootfs/data/index/GeoLite2-City.mmdb"
+
+    if [[ "$include_clickhouse" == "true" ]]; then
+        install -d "$rootfs/opt/nat-query/clickhouse/bin" \
+            "$rootfs/opt/nat-query/clickhouse/etc" \
+            "$rootfs/opt/nat-query/clickhouse/data" \
+            "$rootfs/opt/nat-query/clickhouse/tmp" \
+            "$rootfs/opt/nat-query/clickhouse/user_files" \
+            "$rootfs/opt/nat-query/clickhouse/format_schemas" \
+            "$rootfs/opt/nat-query/clickhouse/log"
+
+        install -m 0755 "$ch_bin" "$rootfs/opt/nat-query/clickhouse/bin/clickhouse"
+        install -m 0644 "$repo_root/packaging/systemd/fwlog-clickhouse.service" "$rootfs/etc/systemd/system/fwlog-clickhouse.service"
+        install -m 0644 "$repo_root/packaging/clickhouse/config.xml" "$rootfs/opt/nat-query/clickhouse/etc/config.xml"
+        install -m 0644 "$repo_root/packaging/clickhouse/users.xml" "$rootfs/opt/nat-query/clickhouse/etc/users.xml"
+    fi
 }
 
 build_deb() {
     local rootfs="$1"
     local debroot="$work_dir/debroot"
-    local package_path="$output_dir/nat-query-service_debian-server_${deb_arch}.deb"
+    local package_path="$output_dir/$deb_output_name"
     cp -a "$rootfs" "$debroot"
     install -d "$debroot/DEBIAN"
     local installed_size
     installed_size="$(du -sk "$debroot" | awk '{print $1}')"
 
     cat > "$debroot/DEBIAN/control" <<EOF
-Package: nat-query-service
+Package: $package_name
 Version: $pkg_version
 Section: net
 Priority: optional
@@ -187,8 +223,8 @@ Architecture: $deb_arch
 Depends: systemd
 Installed-Size: $installed_size
 Maintainer: fwlog <noreply@example.invalid>
-Description: FWLog NAT query service with embedded ClickHouse
- FWLog NAT query service bundled with a private ClickHouse runtime for server installation.
+Description: $package_summary
+ $package_description
 EOF
 
     cat > "$debroot/DEBIAN/preinst" <<'EOF'
@@ -204,26 +240,34 @@ fi
 exit 0
 EOF
 
-    cat > "$debroot/DEBIAN/postinst" <<'EOF'
+    cat > "$debroot/DEBIAN/postinst" <<EOF
 #!/bin/sh
 set -e
 if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload || true
-    systemctl enable fwlog-clickhouse.service nat-query-service.service || true
+    if [ "$include_clickhouse" = "true" ]; then
+        systemctl enable fwlog-clickhouse.service nat-query-service.service || true
+    else
+        systemctl enable nat-query-service.service || true
+    fi
     if [ -d /run/systemd/system ]; then
-        systemctl restart fwlog-clickhouse.service || true
+        if [ "$include_clickhouse" = "true" ]; then
+            systemctl restart fwlog-clickhouse.service || true
+        fi
         client="/opt/nat-query/clickhouse/bin/clickhouse"
         i=0
-        while [ "$i" -lt 60 ]; do
-            if "$client" client --query "SELECT 1" >/dev/null 2>&1; then
-                break
-            fi
-            i=$((i + 1))
-            sleep 1
-        done
+        if [ "$include_clickhouse" = "true" ]; then
+            while [ "\$i" -lt 60 ]; do
+                if "\$client" client --query "SELECT 1" >/dev/null 2>&1; then
+                    break
+                fi
+                i=\$((i + 1))
+                sleep 1
+            done
+        fi
         backup="/data/nat-query/backups/app_settings-before-package.tsv"
-        if [ -s "$backup" ] && [ -x "$client" ]; then
-            "$client" client --query "INSERT INTO app_settings (key, value, updated_at) FORMAT TabSeparated" < "$backup" >/dev/null 2>&1 || true
+        if [ -s "\$backup" ] && [ -x "\$client" ]; then
+            "\$client" client --query "INSERT INTO app_settings (key, value, updated_at) FORMAT TabSeparated" < "\$backup" >/dev/null 2>&1 || true
         fi
         systemctl restart nat-query-service.service || true
     fi
@@ -231,13 +275,17 @@ fi
 exit 0
 EOF
 
-    cat > "$debroot/DEBIAN/prerm" <<'EOF'
+    cat > "$debroot/DEBIAN/prerm" <<EOF
 #!/bin/sh
 set -e
-if [ "$1" = "remove" ] && command -v systemctl >/dev/null 2>&1; then
+if [ "\$1" = "remove" ] && command -v systemctl >/dev/null 2>&1; then
     systemctl stop nat-query-service.service || true
-    systemctl stop fwlog-clickhouse.service || true
-    systemctl disable nat-query-service.service fwlog-clickhouse.service || true
+    if [ "$include_clickhouse" = "true" ]; then
+        systemctl stop fwlog-clickhouse.service || true
+        systemctl disable nat-query-service.service fwlog-clickhouse.service || true
+    else
+        systemctl disable nat-query-service.service || true
+    fi
 fi
 exit 0
 EOF
@@ -270,16 +318,23 @@ build_rpm() {
     rpmbuild -bb \
         --define "_topdir $rpm_top" \
         --define "fwlog_version $pkg_version" \
+        --define "fwlog_package_name $package_name" \
+        --define "fwlog_package_summary $package_summary" \
+        --define "fwlog_package_description $package_description" \
+        --define "fwlog_include_clickhouse $([[ "$include_clickhouse" == "true" ]] && echo 1 || echo 0)" \
         "$repo_root/packaging/rpm/nat-query-service.spec"
-    cp "$rpm_top/RPMS/$rpm_arch/nat-query-service-${pkg_version}-1.$rpm_arch.rpm" \
-        "$output_dir/nat-query-service_kylin-server_${arch}.rpm"
+    cp "$rpm_top/RPMS/$rpm_arch/${package_name}-${pkg_version}-1.$rpm_arch.rpm" \
+        "$output_dir/$rpm_output_name"
 }
 
-ch_bin="$(clickhouse_binary)"
+ch_bin=""
+if [[ "$include_clickhouse" == "true" ]]; then
+    ch_bin="$(clickhouse_binary)"
+fi
 geoip_db="$(geoip_database)"
 rootfs="$work_dir/rootfs"
 stage_rootfs "$rootfs" "$ch_bin" "$geoip_db"
 build_deb "$rootfs"
 build_rpm "$rootfs"
 
-ls -lh "$output_dir"/nat-query-service_*_"$arch".rpm "$output_dir"/nat-query-service_*_"$deb_arch".deb 2>/dev/null || true
+ls -lh "$output_dir/$rpm_output_name" "$output_dir/$deb_output_name" 2>/dev/null || true

@@ -90,9 +90,12 @@ func TestCIWorkflowMatchesClickHouseBuildFlow(t *testing.T) {
 			"go test ./...",
 			"sudo apt-get install -y rpm",
 			"go build -trimpath -ldflags \"-s -w\" -o dist/nat-query-service_linux_amd64 ./cmd/nat-query-service",
-			"packaging/build-server-packages.sh --version 0.0.0 --binary dist/nat-query-service_linux_amd64 --output dist",
-			"dist/nat-query-service_kylin-server_amd64.rpm",
-			"dist/nat-query-service_debian-server_amd64.deb",
+			"PACKAGING_MODE=full bash packaging/build-server-packages.sh --version 0.0.0 --binary dist/nat-query-service_linux_amd64 --output dist",
+			"PACKAGING_MODE=upgrade bash packaging/build-server-packages.sh --version 0.0.0 --binary dist/nat-query-service_linux_amd64 --output dist",
+			"dist/fwlog-full-v0.0.0.x86_64.rpm",
+			"dist/fwlog-full_0.0.0_amd64.deb",
+			"dist/fwlog-upgrade-v0.0.0.x86_64.rpm",
+			"dist/fwlog-upgrade_0.0.0_amd64.deb",
 			"name: server-packages-amd64",
 		},
 	)
@@ -113,9 +116,13 @@ func TestReleaseWorkflowMatchesClickHouseBuildFlow(t *testing.T) {
 			"GOARCH: amd64",
 			"-X nat-query-service/internal/app.appVersion",
 			"sudo apt-get install -y rpm",
-			"packaging/build-server-packages.sh --version \"$version\" --binary \"release/$asset\" --output release",
-			"nat-query-service_kylin-server_amd64.rpm",
-			"nat-query-service_debian-server_amd64.deb",
+			"PACKAGING_MODE=full bash packaging/build-server-packages.sh --version \"$version\" --binary \"release/$asset\" --output release",
+			"PACKAGING_MODE=upgrade bash packaging/build-server-packages.sh --version \"$version\" --binary \"release/$asset\" --output release",
+			"nat-query-service_linux_amd64",
+			"fwlog-full-v${pkg_version}.x86_64.rpm",
+			"fwlog-full_${pkg_version}_amd64.deb",
+			"fwlog-upgrade-v${pkg_version}.x86_64.rpm",
+			"fwlog-upgrade_${pkg_version}_amd64.deb",
 			"gh release delete-asset",
 		},
 	)
@@ -140,6 +147,43 @@ func TestServerPackageBuildBundlesGeoIPDatabase(t *testing.T) {
 	}
 }
 
+func TestServerPackageBuildSupportsFullAndUpgradeModes(t *testing.T) {
+	buildScript := readRepoFile(t, "packaging", "build-server-packages.sh")
+	for _, want := range []string{
+		"PACKAGING_MODE",
+		"full|upgrade",
+		"fwlog-full-v${pkg_version}.${rpm_arch}.rpm",
+		"fwlog-full_${pkg_version}_${deb_arch}.deb",
+		"fwlog-upgrade-v${pkg_version}.${rpm_arch}.rpm",
+		"fwlog-upgrade_${pkg_version}_${deb_arch}.deb",
+		"include_clickhouse=false",
+	} {
+		if !strings.Contains(buildScript, want) {
+			t.Fatalf("packaging/build-server-packages.sh missing %q", want)
+		}
+	}
+}
+
+func TestUpgradePackageDoesNotIncludeClickHouseRuntime(t *testing.T) {
+	buildScript := readRepoFile(t, "packaging", "build-server-packages.sh")
+	rpmSpec := readRepoFile(t, "packaging", "rpm", "nat-query-service.spec")
+
+	for path, text := range map[string]string{
+		"packaging/build-server-packages.sh":   buildScript,
+		"packaging/rpm/nat-query-service.spec": rpmSpec,
+	} {
+		for _, want := range []string{
+			"fwlog_include_clickhouse",
+			"/opt/nat-query/clickhouse",
+			"fwlog-clickhouse.service",
+		} {
+			if !strings.Contains(text, want) {
+				t.Fatalf("%s missing %q", path, want)
+			}
+		}
+	}
+	assertComesBefore(t, "packaging/build-server-packages.sh", buildScript, "include_clickhouse=false", "stage_rootfs")
+}
 func TestServerPackagesPreserveAppSettingsDuringUpgrade(t *testing.T) {
 	buildScript := readRepoFile(t, "packaging", "build-server-packages.sh")
 	rpmSpec := readRepoFile(t, "packaging", "rpm", "nat-query-service.spec")
@@ -163,10 +207,11 @@ func TestServerPackagesPreserveAppSettingsDuringUpgrade(t *testing.T) {
 
 func TestServerPackageAssetsAreRequiredForUpgradeChecks(t *testing.T) {
 	release := githubRelease{
+		TagName: "v1.1.0",
 		Assets: []githubReleaseAsset{
 			{Name: linuxUpgradeAssetName, BrowserDownloadURL: "https://example.test/binary"},
-			{Name: kylinServerPackageAssetName, BrowserDownloadURL: "https://example.test/rpm"},
-			{Name: debianServerPackageAssetName, BrowserDownloadURL: "https://example.test/deb"},
+			{Name: "fwlog-upgrade-v1.1.0.x86_64.rpm", BrowserDownloadURL: "https://example.test/rpm"},
+			{Name: "fwlog-upgrade_1.1.0_amd64.deb", BrowserDownloadURL: "https://example.test/deb"},
 		},
 	}
 
@@ -175,7 +220,7 @@ func TestServerPackageAssetsAreRequiredForUpgradeChecks(t *testing.T) {
 	if len(missing) != 0 {
 		t.Fatalf("missing assets = %#v", missing)
 	}
-	if assets.BinaryURL == "" || assets.KylinServerPackageURL == "" || assets.DebianServerPackageURL == "" {
+	if assets.LegacyBinaryURL == "" || assets.UpgradeRPMURL == "" || assets.UpgradeDEBURL == "" {
 		t.Fatalf("assets = %#v", assets)
 	}
 }

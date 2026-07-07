@@ -36,9 +36,12 @@ func (a *App) Router() http.Handler {
 }
 
 func (a *App) Run() error {
-	if err := a.Connect(context.Background()); err != nil {
+	ctx := context.Background()
+	if err := a.Connect(ctx); err != nil {
 		return err
 	}
+
+	a.startAutoScanScheduler(ctx)
 
 	addr := fmt.Sprintf(":%d", a.cfg.Port)
 	return http.ListenAndServe(addr, a.Router())

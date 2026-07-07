@@ -244,9 +244,6 @@ func TestRouterPasswordChangeRejectsInvalidNewPasswordPolicy(t *testing.T) {
 
 	cases := []string{
 		`{"current_password":"admin","new_password":"short"}`,
-		`{"current_password":"admin","new_password":"this-password-is-too-long"}`,
-		`{"current_password":"admin","new_password":"bad password"}`,
-		`{"current_password":"admin","new_password":"bad@pass"}`,
 	}
 	for _, body := range cases {
 		req := httptest.NewRequest(http.MethodPost, "/api/password", bytes.NewBufferString(body))
@@ -260,6 +257,48 @@ func TestRouterPasswordChangeRejectsInvalidNewPasswordPolicy(t *testing.T) {
 	}
 }
 
+func TestRouterPasswordChangeAcceptsAnyCharactersAtLeastSixLong(t *testing.T) {
+	app := NewApp(LoadConfig())
+	router := app.Router()
+
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewBufferString(`{"password":"admin"}`))
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginRes := httptest.NewRecorder()
+	router.ServeHTTP(loginRes, loginReq)
+	if loginRes.Code != http.StatusOK {
+		t.Fatalf("login status = %d, body = %s", loginRes.Code, loginRes.Body.String())
+	}
+	cookie := loginRes.Result().Cookies()[0]
+
+	newPassword := "复杂 密码@2026! this-password-is-long"
+	body, err := json.Marshal(map[string]string{
+		"current_password": "admin",
+		"new_password":     newPassword,
+	})
+	if err != nil {
+		t.Fatalf("marshal password payload: %v", err)
+	}
+	changeReq := httptest.NewRequest(http.MethodPost, "/api/password", bytes.NewReader(body))
+	changeReq.Header.Set("Content-Type", "application/json")
+	changeReq.AddCookie(cookie)
+	changeRes := httptest.NewRecorder()
+	router.ServeHTTP(changeRes, changeReq)
+	if changeRes.Code != http.StatusOK {
+		t.Fatalf("password change status = %d, body = %s", changeRes.Code, changeRes.Body.String())
+	}
+
+	newLoginBody, err := json.Marshal(map[string]string{"password": newPassword})
+	if err != nil {
+		t.Fatalf("marshal login payload: %v", err)
+	}
+	newLoginReq := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewReader(newLoginBody))
+	newLoginReq.Header.Set("Content-Type", "application/json")
+	newLoginRes := httptest.NewRecorder()
+	router.ServeHTTP(newLoginRes, newLoginReq)
+	if newLoginRes.Code != http.StatusOK {
+		t.Fatalf("new password login status = %d, body = %s", newLoginRes.Code, newLoginRes.Body.String())
+	}
+}
 func TestAppUsesPersistedAdminPasswordHash(t *testing.T) {
 	app := NewApp(LoadConfig())
 	passwordHash, err := HashPassword("saved-admin-password")

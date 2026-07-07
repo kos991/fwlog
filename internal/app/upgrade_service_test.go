@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -31,9 +34,9 @@ func TestReleaseHasRequiredLinuxUpgradeAssets(t *testing.T) {
 		TagName: "v1.1.0",
 		HTMLURL: "https://github.com/kos991/fwlog/releases/tag/v1.1.0",
 		Assets: []githubReleaseAsset{
-			{Name: linuxUpgradeAssetName, BrowserDownloadURL: "https://example.test/linux"},
-			{Name: kylinServerPackageAssetName, BrowserDownloadURL: "https://example.test/kylin-server"},
-			{Name: debianServerPackageAssetName, BrowserDownloadURL: "https://example.test/debian-server"},
+			{Name: linuxUpgradeAssetName, BrowserDownloadURL: "https://example.test/legacy"},
+			{Name: "fwlog-upgrade-v1.1.0.x86_64.rpm", BrowserDownloadURL: "https://example.test/upgrade.rpm"},
+			{Name: "fwlog-upgrade_1.1.0_amd64.deb", BrowserDownloadURL: "https://example.test/upgrade.deb"},
 		},
 	}
 
@@ -42,18 +45,165 @@ func TestReleaseHasRequiredLinuxUpgradeAssets(t *testing.T) {
 	if len(missing) != 0 {
 		t.Fatalf("missing assets = %#v", missing)
 	}
-	if assets.BinaryURL != "https://example.test/linux" || assets.KylinServerPackageURL != "https://example.test/kylin-server" || assets.DebianServerPackageURL != "https://example.test/debian-server" {
+	if assets.LegacyBinaryURL != "https://example.test/legacy" || assets.UpgradeRPMURL != "https://example.test/upgrade.rpm" || assets.UpgradeDEBURL != "https://example.test/upgrade.deb" {
 		t.Fatalf("assets = %#v", assets)
 	}
 }
 
 func TestReleaseReportsMissingUpgradeAssets(t *testing.T) {
 	_, missing := releaseUpgradeAssets(githubRelease{
-		Assets: []githubReleaseAsset{{Name: linuxUpgradeAssetName, BrowserDownloadURL: "https://example.test/linux"}},
+		TagName: "v1.1.0",
+		Assets:  []githubReleaseAsset{{Name: linuxUpgradeAssetName, BrowserDownloadURL: "https://example.test/linux"}},
 	})
 
-	if len(missing) != 2 || missing[0] != kylinServerPackageAssetName || missing[1] != debianServerPackageAssetName {
-		t.Fatalf("missing assets = %#v, want server packages", missing)
+	want := []string{"fwlog-upgrade-v1.1.0.x86_64.rpm", "fwlog-upgrade_1.1.0_amd64.deb"}
+	if len(missing) != len(want) || missing[0] != want[0] || missing[1] != want[1] {
+		t.Fatalf("missing assets = %#v, want %#v", missing, want)
+	}
+}
+
+func TestSelectUpgradePackageUsesDEBOnDebianWhenBothManagersAvailable(t *testing.T) {
+	restore := stubLookPath(t, map[string]bool{"rpm": true, "dpkg": true})
+	defer restore()
+	restoreOS := stubOSRelease(t, "ID=debian\nID_LIKE=debian\n")
+	defer restoreOS()
+
+	pkg, err := selectUpgradePackage(upgradeAssets{
+		UpgradeRPMURL: "https://example.test/fwlog-upgrade.rpm",
+		UpgradeDEBURL: "https://example.test/fwlog-upgrade.deb",
+	})
+	if err != nil {
+		t.Fatalf("select package: %v", err)
+	}
+	if pkg.Format != upgradePackageDEB || pkg.URL != "https://example.test/fwlog-upgrade.deb" {
+		t.Fatalf("package = %#v", pkg)
+	}
+}
+
+func TestSelectUpgradePackagePrefersRPMOnRHELWhenBothManagersAvailable(t *testing.T) {
+	restore := stubLookPath(t, map[string]bool{"rpm": true, "dpkg": true})
+	defer restore()
+	restoreOS := stubOSRelease(t, "ID=\"kylin\"\nID_LIKE=\"rhel fedora\"\n")
+	defer restoreOS()
+
+	pkg, err := selectUpgradePackage(upgradeAssets{
+		UpgradeRPMURL: "https://example.test/fwlog-upgrade.rpm",
+		UpgradeDEBURL: "https://example.test/fwlog-upgrade.deb",
+	})
+	if err != nil {
+		t.Fatalf("select package: %v", err)
+	}
+	if pkg.Format != upgradePackageRPM || pkg.URL != "https://example.test/fwlog-upgrade.rpm" {
+		t.Fatalf("package = %#v", pkg)
+	}
+}
+
+func TestSelectUpgradePackageUsesDEBWhenRPMUnavailable(t *testing.T) {
+	restore := stubLookPath(t, map[string]bool{"dpkg": true})
+	defer restore()
+
+	pkg, err := selectUpgradePackage(upgradeAssets{
+		UpgradeRPMURL: "https://example.test/fwlog-upgrade.rpm",
+		UpgradeDEBURL: "https://example.test/fwlog-upgrade.deb",
+	})
+	if err != nil {
+		t.Fatalf("select package: %v", err)
+	}
+	if pkg.Format != upgradePackageDEB || pkg.URL != "https://example.test/fwlog-upgrade.deb" {
+		t.Fatalf("package = %#v", pkg)
+	}
+}
+
+func TestValidateUpgradePackageContentsRejectsClickHouseFiles(t *testing.T) {
+	calls := stubCommandRunner(t, func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		if name != "rpm" || len(args) != 2 || args[0] != "-qpl" || args[1] != "/tmp/fwlog-upgrade.rpm" {
+			t.Fatalf("unexpected command: %s %#v", name, args)
+		}
+		return []byte("/opt/nat-query/nat-query-service\n/opt/nat-query/clickhouse/bin/clickhouse\n"), nil
+	})
+	defer calls.restore()
+
+	err := validateUpgradePackageContents(context.Background(), upgradePackage{
+		Format: upgradePackageRPM,
+		Path:   "/tmp/fwlog-upgrade.rpm",
+	})
+	if err == nil {
+		t.Fatal("expected ClickHouse file validation error")
+	}
+}
+
+func TestInstallUpgradePackageUsesPackageManager(t *testing.T) {
+	calls := stubCommandRunner(t, func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		if name != "dpkg" || len(args) != 2 || args[0] != "-i" || args[1] != "/tmp/fwlog-upgrade.deb" {
+			t.Fatalf("unexpected command: %s %#v", name, args)
+		}
+		return []byte("installed"), nil
+	})
+	defer calls.restore()
+
+	if err := installUpgradePackage(context.Background(), upgradePackage{
+		Format: upgradePackageDEB,
+		Path:   "/tmp/fwlog-upgrade.deb",
+	}); err != nil {
+		t.Fatalf("install package: %v", err)
+	}
+	if calls.count != 1 {
+		t.Fatalf("command count = %d, want 1", calls.count)
+	}
+}
+
+func TestExecuteSystemUpgradeInstallsUpgradePackage(t *testing.T) {
+	restoreLookPath := stubLookPath(t, map[string]bool{"rpm": true, "dpkg": true})
+	defer restoreLookPath()
+	restoreOS := stubOSRelease(t, "ID=debian\nID_LIKE=debian\n")
+	defer restoreOS()
+	restoreHTTP := stubHTTPClient(t, map[string]string{
+		"https://api.github.com/repos/kos991/fwlog/releases/tags/v1.1.0": `{
+			"tag_name":"v1.1.0",
+			"html_url":"https://github.com/kos991/fwlog/releases/tag/v1.1.0",
+			"assets":[
+				{"name":"nat-query-service_linux_amd64","browser_download_url":"https://downloads.test/nat-query-service_linux_amd64"},
+				{"name":"fwlog-upgrade-v1.1.0.x86_64.rpm","browser_download_url":"https://downloads.test/fwlog-upgrade.rpm"},
+				{"name":"fwlog-upgrade_1.1.0_amd64.deb","browser_download_url":"https://downloads.test/fwlog-upgrade.deb"}
+			]
+		}`,
+		"https://downloads.test/fwlog-upgrade.deb": "package-bytes",
+	})
+	defer restoreHTTP()
+
+	var commands []string
+	calls := stubCommandRunner(t, func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		commands = append(commands, name+" "+strings.Join(args, " "))
+		switch name {
+		case "dpkg-deb":
+			if len(args) != 2 || args[0] != "--contents" || !strings.HasSuffix(args[1], "fwlog-upgrade.deb") {
+				t.Fatalf("unexpected contents command: %s %#v", name, args)
+			}
+			return []byte("/opt/nat-query/nat-query-service\n"), nil
+		case "dpkg":
+			if len(args) != 2 || args[0] != "-i" || !strings.HasSuffix(args[1], "fwlog-upgrade.deb") {
+				t.Fatalf("unexpected install command: %s %#v", name, args)
+			}
+			return []byte("installed"), nil
+		default:
+			t.Fatalf("unexpected command: %s %#v", name, args)
+			return nil, nil
+		}
+	})
+	defer calls.restore()
+
+	status := UpgradeStatus{}
+	if err := executeSystemUpgrade(context.Background(), upgradeTarget{Version: "v1.1.0"}, &status); err != nil {
+		t.Fatalf("execute upgrade: %v", err)
+	}
+	if status.BackupPath != "" {
+		t.Fatalf("backup path = %q, want empty because package upgrade owns installation", status.BackupPath)
+	}
+	if calls.count != 2 {
+		t.Fatalf("command count = %d, commands = %#v", calls.count, commands)
+	}
+	if !strings.HasPrefix(commands[0], "dpkg-deb --contents ") || !strings.Contains(commands[1], "dpkg -i ") {
+		t.Fatalf("commands = %#v, want package validation then install", commands)
 	}
 }
 
@@ -174,4 +324,84 @@ func loginForTest(t *testing.T, router http.Handler) *http.Cookie {
 		t.Fatal("login did not set a cookie")
 	}
 	return cookies[0]
+}
+
+func stubLookPath(t *testing.T, available map[string]bool) func() {
+	t.Helper()
+	original := lookPath
+	lookPath = func(file string) (string, error) {
+		if available[file] {
+			return "/usr/bin/" + file, nil
+		}
+		return "", errors.New("not found")
+	}
+	return func() {
+		lookPath = original
+	}
+}
+
+func stubOSRelease(t *testing.T, content string) func() {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "os-release")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write os-release: %v", err)
+	}
+	original := osReleasePath
+	osReleasePath = path
+	return func() {
+		osReleasePath = original
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func stubHTTPClient(t *testing.T, responses map[string]string) func() {
+	t.Helper()
+	original := http.DefaultClient
+	http.DefaultClient = &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			body, ok := responses[req.URL.String()]
+			if !ok {
+				return &http.Response{
+					StatusCode: http.StatusNotFound,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader("not found")),
+					Request:    req,
+				}, nil
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(body)),
+				Request:    req,
+			}, nil
+		}),
+	}
+	return func() {
+		http.DefaultClient = original
+	}
+}
+
+type commandRunnerStub struct {
+	count   int
+	restore func()
+}
+
+func stubCommandRunner(t *testing.T, fn func(context.Context, string, ...string) ([]byte, error)) *commandRunnerStub {
+	t.Helper()
+	original := runCommand
+	stub := &commandRunnerStub{}
+	runCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		stub.count++
+		return fn(ctx, name, args...)
+	}
+	stub.restore = func() {
+		runCommand = original
+	}
+	return stub
 }
