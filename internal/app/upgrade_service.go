@@ -26,6 +26,7 @@ const (
 var appVersion = "dev"
 var lookPath = exec.LookPath
 var osReleasePath = "/etc/os-release"
+var upgradeTempRoot = "/opt/nat-query/tmp"
 var runCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 	return exec.CommandContext(ctx, name, args...).CombinedOutput()
 }
@@ -218,20 +219,42 @@ func validateUpgradePackageContents(ctx context.Context, pkg upgradePackage) err
 }
 
 func installUpgradePackage(ctx context.Context, pkg upgradePackage) error {
-	var output []byte
-	var err error
+	commandName := ""
+	commandArgs := make([]string, 0, 2)
 	switch pkg.Format {
 	case upgradePackageRPM:
-		output, err = runCommand(ctx, "rpm", "-Uvh", pkg.Path)
+		commandName = "rpm"
+		commandArgs = []string{"-Uvh", pkg.Path}
 	case upgradePackageDEB:
-		output, err = runCommand(ctx, "dpkg", "-i", pkg.Path)
+		commandName = "dpkg"
+		commandArgs = []string{"-i", pkg.Path}
 	default:
 		return fmt.Errorf("unsupported_upgrade_package: %s", pkg.Format)
 	}
+	output, err := runPackageManagerCommand(ctx, commandName, commandArgs...)
 	if err != nil {
 		return fmt.Errorf("安装 fwlog-upgrade 包失败: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return nil
+}
+
+func runPackageManagerCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
+	if _, err := lookPath("systemd-run"); err == nil {
+		systemdArgs := []string{
+			"--wait",
+			"--collect",
+			"--pipe",
+			"--service-type=oneshot",
+			"--property=ProtectSystem=off",
+			"--property=ProtectHome=off",
+			"--property=PrivateTmp=no",
+			"--property=ReadWritePaths=/ /var/lib/dpkg /var/lib/rpm /opt/nat-query /data",
+			name,
+		}
+		systemdArgs = append(systemdArgs, args...)
+		return runCommand(ctx, "systemd-run", systemdArgs...)
+	}
+	return runCommand(ctx, name, args...)
 }
 
 func defaultUpgradeStatus() UpgradeStatus {
@@ -441,7 +464,10 @@ func executeSystemUpgrade(ctx context.Context, target upgradeTarget, status *Upg
 		return fmt.Errorf("release_asset_missing: %s", strings.Join(missing, ", "))
 	}
 
-	tempDir, err := os.MkdirTemp("", "fwlog-upgrade-*")
+	if err := os.MkdirAll(upgradeTempRoot, 0o755); err != nil {
+		return err
+	}
+	tempDir, err := os.MkdirTemp(upgradeTempRoot, "fwlog-upgrade-*")
 	if err != nil {
 		return err
 	}

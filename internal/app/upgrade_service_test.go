@@ -134,12 +134,20 @@ func TestValidateUpgradePackageContentsRejectsClickHouseFiles(t *testing.T) {
 
 func TestInstallUpgradePackageUsesPackageManager(t *testing.T) {
 	calls := stubCommandRunner(t, func(ctx context.Context, name string, args ...string) ([]byte, error) {
-		if name != "dpkg" || len(args) != 2 || args[0] != "-i" || args[1] != "/tmp/fwlog-upgrade.deb" {
+		if name != "systemd-run" {
 			t.Fatalf("unexpected command: %s %#v", name, args)
+		}
+		if len(args) != 11 {
+			t.Fatalf("unexpected systemd-run args: %#v", args)
+		}
+		if args[0] != "--wait" || args[1] != "--collect" || args[2] != "--pipe" || args[3] != "--service-type=oneshot" || args[4] != "--property=ProtectSystem=off" || args[5] != "--property=ProtectHome=off" || args[6] != "--property=PrivateTmp=no" || args[7] != "--property=ReadWritePaths=/ /var/lib/dpkg /var/lib/rpm /opt/nat-query /data" || args[8] != "dpkg" || args[9] != "-i" || args[10] != "/tmp/fwlog-upgrade.deb" {
+			t.Fatalf("unexpected systemd-run args: %#v", args)
 		}
 		return []byte("installed"), nil
 	})
 	defer calls.restore()
+	restoreLookPath := stubLookPath(t, map[string]bool{"systemd-run": true})
+	defer restoreLookPath()
 
 	if err := installUpgradePackage(context.Background(), upgradePackage{
 		Format: upgradePackageDEB,
@@ -153,7 +161,7 @@ func TestInstallUpgradePackageUsesPackageManager(t *testing.T) {
 }
 
 func TestExecuteSystemUpgradeInstallsUpgradePackage(t *testing.T) {
-	restoreLookPath := stubLookPath(t, map[string]bool{"rpm": true, "dpkg": true})
+	restoreLookPath := stubLookPath(t, map[string]bool{"rpm": true, "dpkg": true, "systemd-run": true})
 	defer restoreLookPath()
 	restoreOS := stubOSRelease(t, "ID=debian\nID_LIKE=debian\n")
 	defer restoreOS()
@@ -170,6 +178,11 @@ func TestExecuteSystemUpgradeInstallsUpgradePackage(t *testing.T) {
 		"https://downloads.test/fwlog-upgrade.deb": "package-bytes",
 	})
 	defer restoreHTTP()
+	originalUpgradeTempRoot := upgradeTempRoot
+	upgradeTempRoot = t.TempDir()
+	defer func() {
+		upgradeTempRoot = originalUpgradeTempRoot
+	}()
 
 	var commands []string
 	calls := stubCommandRunner(t, func(ctx context.Context, name string, args ...string) ([]byte, error) {
@@ -180,8 +193,8 @@ func TestExecuteSystemUpgradeInstallsUpgradePackage(t *testing.T) {
 				t.Fatalf("unexpected contents command: %s %#v", name, args)
 			}
 			return []byte("/opt/nat-query/nat-query-service\n"), nil
-		case "dpkg":
-			if len(args) != 2 || args[0] != "-i" || !strings.HasSuffix(args[1], "fwlog-upgrade.deb") {
+		case "systemd-run":
+			if len(args) != 11 || args[0] != "--wait" || args[1] != "--collect" || args[2] != "--pipe" || args[3] != "--service-type=oneshot" || args[4] != "--property=ProtectSystem=off" || args[5] != "--property=ProtectHome=off" || args[6] != "--property=PrivateTmp=no" || args[7] != "--property=ReadWritePaths=/ /var/lib/dpkg /var/lib/rpm /opt/nat-query /data" || args[8] != "dpkg" || args[9] != "-i" || !strings.HasSuffix(args[10], "fwlog-upgrade.deb") {
 				t.Fatalf("unexpected install command: %s %#v", name, args)
 			}
 			return []byte("installed"), nil
@@ -202,7 +215,7 @@ func TestExecuteSystemUpgradeInstallsUpgradePackage(t *testing.T) {
 	if calls.count != 2 {
 		t.Fatalf("command count = %d, commands = %#v", calls.count, commands)
 	}
-	if !strings.HasPrefix(commands[0], "dpkg-deb --contents ") || !strings.Contains(commands[1], "dpkg -i ") {
+	if !strings.HasPrefix(commands[0], "dpkg-deb --contents ") || !strings.Contains(commands[1], "systemd-run --wait --collect --pipe --service-type=oneshot --property=ProtectSystem=off --property=ProtectHome=off --property=PrivateTmp=no --property=ReadWritePaths=/ /var/lib/dpkg /var/lib/rpm /opt/nat-query /data dpkg -i ") {
 		t.Fatalf("commands = %#v, want package validation then install", commands)
 	}
 }
