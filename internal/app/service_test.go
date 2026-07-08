@@ -82,7 +82,7 @@ func TestCIWorkflowMatchesClickHouseBuildFlow(t *testing.T) {
 		t,
 		".github/workflows/ci.yml",
 		[]string{
-			"node-version: 20",
+			"node-version: 22",
 			"TZ: Asia/Shanghai",
 			"working-directory: web",
 			"npm ci",
@@ -107,7 +107,7 @@ func TestReleaseWorkflowMatchesClickHouseBuildFlow(t *testing.T) {
 		t,
 		".github/workflows/release-build.yml",
 		[]string{
-			"node-version: 20",
+			"node-version: 22",
 			"TZ: Asia/Shanghai",
 			"working-directory: web",
 			"npm ci",
