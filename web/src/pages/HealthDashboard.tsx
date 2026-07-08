@@ -322,9 +322,9 @@ function TrafficTrendPanel({ values }: { values: number[] }) {
       <div className="section-head trend-head">
         <div>
           <h3>日志趋势</h3>
-          <span>过去 24 小时入库日志量</span>
+          <span>按日期统计入库日志量</span>
         </div>
-        <span className="trend-range">过去 24 小时</span>
+        <span className="trend-range">最近日期</span>
       </div>
       <div className="trend-chart-wrap">
         <div className="trend-legend">
@@ -332,7 +332,7 @@ function TrafficTrendPanel({ values }: { values: number[] }) {
           <span>日志量</span>
           <strong>{formatCount(values.reduce((total, value) => total + value, 0))}</strong>
         </div>
-        <svg className="trend-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="过去 24 小时日志趋势">
+        <svg className="trend-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="最近日期日志趋势">
           {gridValues.map((ratio) => {
             const y = padding.top + innerHeight - ratio * innerHeight;
             return (

@@ -53,7 +53,6 @@ type Settings = {
   auto_scan_times?: string | Dayjs;
   auto_scan_timezone?: string;
   auto_scan_interval_sec?: number | string;
-  upgrade_auto_check_enabled?: boolean | string;
   current_password?: string;
   new_password?: string;
   confirm_new_password?: string;
@@ -112,18 +111,15 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   const [form] = Form.useForm<Settings>();
   const [loading, setLoading] = React.useState(false);
   const [upgradeLoading, setUpgradeLoading] = React.useState(false);
-  const [upgradeAutoCheckSaving, setUpgradeAutoCheckSaving] = React.useState(false);
   const [upgradeStatus, setUpgradeStatus] = React.useState<UpgradeStatus | null>(null);
   const [upgradeCheck, setUpgradeCheck] = React.useState<UpgradeCheckResponse | null>(null);
   const [upgradeCheckError, setUpgradeCheckError] = React.useState('');
   const [upgradeLastCheckedAt, setUpgradeLastCheckedAt] = React.useState<Date | null>(null);
   const [rebuildDate, setRebuildDate] = React.useState<Dayjs | null>(dayjs());
   const [fullRebuild, setFullRebuild] = React.useState(false);
-  const autoUpgradeCheckStartedRef = React.useRef(false);
   const geoipPath = Form.useWatch('geoip_db_path', form);
   const customIpPath = Form.useWatch('custom_ip_map_path', form);
   const autoScanEnabled = Form.useWatch('auto_scan_enabled', form);
-  const upgradeAutoCheckEnabled = Form.useWatch('upgrade_auto_check_enabled', form);
 
   const load = React.useCallback(async () => {
     try {
@@ -148,7 +144,6 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
         auto_scan_times: autoScanTimeValue(settings.auto_scan_times),
         auto_scan_timezone: settings.auto_scan_timezone || 'Asia/Shanghai',
         auto_scan_interval_sec: Number(settings.auto_scan_interval_sec || 3600),
-        upgrade_auto_check_enabled: settings.upgrade_auto_check_enabled === true || settings.upgrade_auto_check_enabled === 'true',
       });
     } catch (error) {
       message.error(error instanceof Error ? error.message : '加载设置失败');
@@ -183,7 +178,6 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
     check: upgradeCheck,
     isChecking: upgradeLoading,
     lastCheckedAt: upgradeLastCheckedAt,
-    autoCheckEnabled: upgradeAutoCheckEnabled === true,
   });
   const canCheckUpgrade = upgradeStatus?.state !== 'running' && !upgradeLoading;
   const canRunUpgrade = upgradeView.showUpgradeAction && upgradeStatus?.state !== 'running' && !upgradeLoading;
@@ -205,7 +199,6 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
         auto_scan_times: formatAutoScanTime(values.auto_scan_times),
         auto_scan_timezone: values.auto_scan_timezone || 'Asia/Shanghai',
         auto_scan_interval_sec: '86400',
-        upgrade_auto_check_enabled: String(Boolean(values.upgrade_auto_check_enabled)),
       });
       message.success('设置已保存');
     } catch (error) {
@@ -262,33 +255,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
     }
   };
 
-  React.useEffect(() => {
-    if (upgradeAutoCheckEnabled !== true) return;
-    if (autoUpgradeCheckStartedRef.current) return;
-    if (upgradeStatus?.state === 'running') return;
-    autoUpgradeCheckStartedRef.current = true;
-    void checkUpgrade();
-  }, [upgradeAutoCheckEnabled, upgradeStatus?.state]);
 
-  const saveUpgradeAutoCheckEnabled = async (checked: boolean) => {
-    const previous = upgradeAutoCheckEnabled === true;
-    if (checked) autoUpgradeCheckStartedRef.current = true;
-    form.setFieldsValue({ upgrade_auto_check_enabled: checked });
-    try {
-      setUpgradeAutoCheckSaving(true);
-      await apiPost('/api/settings', { upgrade_auto_check_enabled: String(checked) });
-      message.success(checked ? '已开启自动检查更新' : '已关闭自动检查更新');
-      if (checked) {
-        void checkUpgrade();
-      }
-    } catch (error) {
-      autoUpgradeCheckStartedRef.current = previous;
-      form.setFieldsValue({ upgrade_auto_check_enabled: previous });
-      message.error(error instanceof Error ? error.message : '保存自动检查设置失败');
-    } finally {
-      setUpgradeAutoCheckSaving(false);
-    }
-  };
 
   const runUpgrade = async () => {
     const version = upgradeView.state === 'available' ? upgradeView.latestVersion.trim() : '';
@@ -608,18 +575,6 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                             </Button>
                           </Popconfirm>
                         ) : null}
-                      </div>
-
-                      <div className="maintenance-upgrade-auto-row">
-                        <div>
-                          <strong>自动检查更新</strong>
-                          <Text type="secondary">进入设置页时检查新版本，不会自动安装。</Text>
-                        </div>
-                        <Switch
-                          checked={upgradeAutoCheckEnabled === true}
-                          loading={upgradeAutoCheckSaving}
-                          onChange={(checked) => void saveUpgradeAutoCheckEnabled(checked)}
-                        />
                       </div>
                     </div>
 

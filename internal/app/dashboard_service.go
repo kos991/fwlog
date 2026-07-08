@@ -340,6 +340,9 @@ func splitGeoLocation(location string) (string, string) {
 	if location == "" {
 		return "", ""
 	}
+	if strings.Contains(location, "公网") {
+		return "未知", "未知"
+	}
 	parts := strings.Split(location, "/")
 	country := strings.TrimSpace(parts[0])
 	region := country

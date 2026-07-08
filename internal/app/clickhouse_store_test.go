@@ -165,3 +165,21 @@ func TestQueryNATLogsCountSQLWrapsBaseQuery(t *testing.T) {
 		t.Fatalf("unexpected count sql: %s", sql)
 	}
 }
+
+func TestLogTrendSQLUsesDailyBucketsForRecentDates(t *testing.T) {
+	sql := ClickHouseLogTrendSQL()
+
+	for _, want := range []string{
+		"SELECT log_date, count()",
+		"WHERE log_date >= ? AND log_date <= ?",
+		"GROUP BY log_date",
+		"ORDER BY log_date",
+	} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("log trend SQL missing %q: %s", want, sql)
+		}
+	}
+	if strings.Contains(sql, "toStartOfHour") {
+		t.Fatalf("log trend SQL should no longer use hourly buckets: %s", sql)
+	}
+}

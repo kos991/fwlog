@@ -220,3 +220,24 @@ func TestBuildAutoScanPlanUsesConfiguredScanTimeOnly(t *testing.T) {
 		t.Fatalf("scan time policy = %q", plan.Policy)
 	}
 }
+
+func TestEnrichGeoDistributionMetricsGroupsUnknownPublicIPsAsUnknownCountry(t *testing.T) {
+	engine := NewIPEngine()
+
+	metrics := enrichGeoDistributionMetrics(DashboardMetrics{
+		TopDestinationIPs: []DistributionItem{
+			{Name: "8.8.8.8", Value: 9},
+			{Name: "10.0.0.8", Value: 3},
+		},
+	}, engine)
+
+	if len(metrics.TopCountries) == 0 {
+		t.Fatalf("countries should include unknown public IP bucket: %#v", metrics.TopCountries)
+	}
+	if metrics.TopCountries[0].Name != "未知" || metrics.TopCountries[0].Value != 9 {
+		t.Fatalf("unknown public IPs should aggregate under unknown: %#v", metrics.TopCountries)
+	}
+	if len(metrics.TopRegions) == 0 || metrics.TopRegions[0].Name != "未知" {
+		t.Fatalf("unknown public IPs should expose unknown region: %#v", metrics.TopRegions)
+	}
+}

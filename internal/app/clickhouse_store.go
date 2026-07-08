@@ -268,7 +268,7 @@ func (s *ClickHouseStore) DashboardMetrics(ctx context.Context, distributionSinc
 	if err != nil {
 		return DashboardMetrics{}, err
 	}
-	metrics.LogTrend, err = s.hourlyLogTrend(ctx, time.Now())
+	metrics.LogTrend, err = s.dailyLogTrend(ctx, time.Now())
 	if err != nil {
 		return DashboardMetrics{}, err
 	}
@@ -343,16 +343,19 @@ func (s *ClickHouseStore) countRowsForDate(ctx context.Context, date time.Time) 
 	return count, err
 }
 
-func (s *ClickHouseStore) hourlyLogTrend(ctx context.Context, now time.Time) ([]DistributionItem, error) {
-	end := now.Truncate(time.Hour).Add(time.Hour)
-	start := end.Add(-24 * time.Hour)
-
-	rows, err := s.conn.Query(ctx, `
-SELECT toStartOfHour(timestamp) AS hour, count()
+func ClickHouseLogTrendSQL() string {
+	return `SELECT log_date, count()
 FROM nat_logs
-WHERE timestamp >= ? AND timestamp < ?
-GROUP BY hour
-ORDER BY hour`, start, end)
+WHERE log_date >= ? AND log_date <= ?
+GROUP BY log_date
+ORDER BY log_date`
+}
+
+func (s *ClickHouseStore) dailyLogTrend(ctx context.Context, now time.Time) ([]DistributionItem, error) {
+	end := startOfDay(now)
+	start := end.AddDate(0, 0, -13)
+
+	rows, err := s.conn.Query(ctx, ClickHouseLogTrendSQL(), start, end)
 	if err != nil {
 		return nil, err
 	}
@@ -360,22 +363,22 @@ ORDER BY hour`, start, end)
 
 	counts := make(map[time.Time]uint64)
 	for rows.Next() {
-		var hour time.Time
+		var logDate time.Time
 		var count uint64
-		if err := rows.Scan(&hour, &count); err != nil {
+		if err := rows.Scan(&logDate, &count); err != nil {
 			return nil, err
 		}
-		counts[hour] = count
+		counts[startOfDay(logDate)] = count
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
-	trend := make([]DistributionItem, 0, 24)
-	for hour := start; hour.Before(end); hour = hour.Add(time.Hour) {
+	trend := make([]DistributionItem, 0, 14)
+	for day := start; !day.After(end); day = day.AddDate(0, 0, 1) {
 		trend = append(trend, DistributionItem{
-			Name:  hour.Format("15:04"),
-			Value: counts[hour],
+			Name:  day.Format("01-02"),
+			Value: counts[day],
 		})
 	}
 	return trend, nil

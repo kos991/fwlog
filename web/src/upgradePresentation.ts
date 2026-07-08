@@ -15,7 +15,6 @@ type BuildUpgradeViewInput = {
   check: UpgradeCheckResponse | null;
   isChecking: boolean;
   lastCheckedAt: Date | null;
-  autoCheckEnabled: boolean;
 };
 
 export type UpgradeView = {
@@ -48,9 +47,7 @@ export function buildUpgradeView(input: BuildUpgradeViewInput): UpgradeView {
     upgradeButtonText,
     message: buildMessage(input, state, latestVersion),
     lastCheckedText: input.lastCheckedAt ? `上次检查：${formatLocalDateTime(input.lastCheckedAt)}` : '上次检查：尚未检查',
-    sourceText: input.autoCheckEnabled
-      ? '已开启自动检查；从发布版本检查更新'
-      : '从发布版本检查更新',
+    sourceText: '从发布版本检查更新',
     statusTone: resolveStatusTone(state),
   };
 }

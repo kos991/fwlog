@@ -418,3 +418,38 @@ func stubCommandRunner(t *testing.T, fn func(context.Context, string, ...string)
 	}
 	return stub
 }
+
+func TestUpgradeRunIgnoresRequestedVersionAndTargetsLatestRelease(t *testing.T) {
+	app := NewApp(LoadConfig())
+	started := make(chan upgradeTarget, 1)
+	release := make(chan struct{})
+	app.upgradeRunner = func(ctx context.Context, target upgradeTarget) UpgradeStatus {
+		started <- target
+		<-release
+		return UpgradeStatus{State: UpgradeStateSucceeded, TargetVersion: target.Version}
+	}
+	router := app.Router()
+	cookie := loginForTest(t, router)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/upgrade/run", bytes.NewBufferString(`{"version":"v1.0.1"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusAccepted {
+		close(release)
+		t.Fatalf("run status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	select {
+	case target := <-started:
+		if target.Version != "latest" {
+			close(release)
+			t.Fatalf("target version = %q, want latest", target.Version)
+		}
+	case <-time.After(time.Second):
+		close(release)
+		t.Fatal("upgrade runner did not start")
+	}
+	close(release)
+}

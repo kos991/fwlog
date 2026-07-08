@@ -322,16 +322,8 @@ func (a *App) upgradeRunHandler() http.Handler {
 			})
 			return
 		}
-		version := strings.TrimSpace(payload.Version)
-		if !validUpgradeVersion(version) {
-			writeJSONStatus(w, http.StatusBadRequest, map[string]any{
-				"error":   "invalid_version",
-				"message": "version must use vN, vX.Y, or vX.Y.Z format",
-			})
-			return
-		}
-
-		status, started := a.startUpgrade(upgradeTarget{Version: version})
+		_ = strings.TrimSpace(payload.Version)
+		status, started := a.startUpgrade(upgradeTarget{Version: "latest"})
 		if !started {
 			writeJSONStatus(w, http.StatusConflict, map[string]any{
 				"error":   "upgrade_running",
