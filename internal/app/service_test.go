@@ -213,6 +213,48 @@ func TestServerPackagesPreserveAppSettingsDuringUpgrade(t *testing.T) {
 	}
 }
 
+func TestServerPackagesReplaceLegacyNatQueryPackage(t *testing.T) {
+	buildScript := readRepoFile(t, "packaging", "build-server-packages.sh")
+	rpmSpec := readRepoFile(t, "packaging", "rpm", "nat-query-service.spec")
+
+	for _, want := range []string{
+		"Provides: nat-query-service = %{version}-%{release}",
+		"Obsoletes: nat-query-service < %{version}-%{release}",
+	} {
+		if !strings.Contains(rpmSpec, want) {
+			t.Fatalf("RPM spec missing legacy package replacement rule %q", want)
+		}
+	}
+	for _, want := range []string{
+		"Provides: nat-query-service",
+		"Replaces: nat-query-service",
+		"Breaks: nat-query-service",
+	} {
+		if !strings.Contains(buildScript, want) {
+			t.Fatalf("DEB control generation missing legacy package replacement rule %q", want)
+		}
+	}
+}
+
+func TestReleaseWorkflowRegeneratesChecksumsForUploadedAssets(t *testing.T) {
+	text := readRepoFile(t, ".github", "workflows", "release-build.yml")
+	for _, want := range []string{
+		"(cd release && sha256sum",
+		"nat-query-service_linux_amd64",
+		"nat-query-service_kylin-server_amd64.rpm",
+		"nat-query-service_debian-server_amd64.deb",
+		"fwlog-full-v${pkg_version}.x86_64.rpm",
+		"fwlog-full_${pkg_version}_amd64.deb",
+		"fwlog-upgrade-v${pkg_version}.x86_64.rpm",
+		"fwlog-upgrade_${pkg_version}_amd64.deb",
+		"> checksums.txt",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("release workflow checksum generation missing %q", want)
+		}
+	}
+}
+
 func TestServerPackageAssetsAreRequiredForUpgradeChecks(t *testing.T) {
 	release := githubRelease{
 		TagName: "v1.1.0",

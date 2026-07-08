@@ -12,6 +12,8 @@ URL: https://github.com/kos991/fwlog
 Source0: nat-query-service-root.tar.gz
 BuildArch: x86_64
 Requires: systemd
+Provides: nat-query-service = %{version}-%{release}
+Obsoletes: nat-query-service < %{version}-%{release}
 AutoReqProv: no
 
 %description

@@ -225,6 +225,58 @@ func TestExecuteSystemUpgradeInstallsUpgradePackage(t *testing.T) {
 	}
 }
 
+func TestExecuteSystemUpgradeVerifiesChecksumUsingReleaseAssetName(t *testing.T) {
+	restoreLookPath := stubLookPath(t, map[string]bool{"dpkg": true})
+	defer restoreLookPath()
+	restoreOS := stubOSRelease(t, "ID=debian\nID_LIKE=debian\n")
+	defer restoreOS()
+
+	packageBody := "package-bytes"
+	packageHash := "9d7ec3059a3be4a437e8028d9a498f2fd4adfa7183af52ecc712704ee1dc8260"
+	restoreHTTP := stubHTTPClient(t, map[string]string{
+		"https://api.github.com/repos/kos991/fwlog/releases/tags/v1.0.15": `{
+			"tag_name":"v1.0.15",
+			"html_url":"https://github.com/kos991/fwlog/releases/tag/v1.0.15",
+			"assets":[
+				{"name":"nat-query-service_linux_amd64","browser_download_url":"https://downloads.test/nat-query-service_linux_amd64"},
+				{"name":"fwlog-upgrade-v1.0.15.x86_64.rpm","browser_download_url":"https://downloads.test/fwlog-upgrade.rpm"},
+				{"name":"fwlog-upgrade_1.0.15_amd64.deb","browser_download_url":"https://downloads.test/fwlog-upgrade.deb"},
+				{"name":"checksums.txt","browser_download_url":"https://downloads.test/checksums.txt"}
+			]
+		}`,
+		"https://downloads.test/fwlog-upgrade.deb": packageBody,
+		"https://downloads.test/checksums.txt":     packageHash + "  /home/runner/work/fwlog/fwlog/release/fwlog-upgrade_1.0.15_amd64.deb\n",
+	})
+	defer restoreHTTP()
+	originalUpgradeTempRoot := upgradeTempRoot
+	upgradeTempRoot = t.TempDir()
+	defer func() {
+		upgradeTempRoot = originalUpgradeTempRoot
+	}()
+	originalBackupDir := upgradeBackupDir
+	upgradeBackupDir = t.TempDir()
+	defer func() {
+		upgradeBackupDir = originalBackupDir
+	}()
+
+	calls := stubCommandRunner(t, func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		switch name {
+		case "dpkg-deb":
+			return []byte("/opt/nat-query/nat-query-service\n"), nil
+		case "dpkg":
+			return []byte("installed"), nil
+		default:
+			t.Fatalf("unexpected command: %s %#v", name, args)
+			return nil, nil
+		}
+	})
+	defer calls.restore()
+
+	if err := executeSystemUpgrade(context.Background(), upgradeTarget{Version: "v1.0.15"}, &UpgradeStatus{}); err != nil {
+		t.Fatalf("execute upgrade should match checksum by release asset name: %v", err)
+	}
+}
+
 func TestReplaceFileAtomicSwapsBinaryContent(t *testing.T) {
 	dir := t.TempDir()
 	sourcePath := filepath.Join(dir, "downloaded")

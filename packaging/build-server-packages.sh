@@ -221,6 +221,9 @@ Section: net
 Priority: optional
 Architecture: $deb_arch
 Depends: systemd
+Provides: nat-query-service
+Replaces: nat-query-service
+Breaks: nat-query-service
 Installed-Size: $installed_size
 Maintainer: fwlog <noreply@example.invalid>
 Description: $package_summary
@@ -359,7 +362,8 @@ if [[ "$mode" == "full" ]]; then
 fi
 for artifact in "$output_dir/$rpm_output_name" "$output_dir/$deb_output_name"; do
     if [[ -f "$artifact" ]]; then
-        sha256sum "$artifact" >> "$checksums_file"
+        artifact_name="$(basename "$artifact")"
+        (cd "$output_dir" && sha256sum "$artifact_name" >> "$checksums_file")
     fi
 done
 

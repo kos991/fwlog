@@ -26,9 +26,9 @@ const (
 )
 
 const (
-	upgradeHTTPTimeout      = 10 * time.Minute
-	maxUpgradePackageBytes  = 512 * 1024 * 1024
-	checksumsAssetName      = "checksums.txt"
+	upgradeHTTPTimeout     = 10 * time.Minute
+	maxUpgradePackageBytes = 512 * 1024 * 1024
+	checksumsAssetName     = "checksums.txt"
 )
 
 var appVersion = "dev"
@@ -82,7 +82,9 @@ type upgradeRunRequest struct {
 
 type upgradeAssets struct {
 	LegacyBinaryURL string
+	UpgradeRPMName  string
 	UpgradeRPMURL   string
+	UpgradeDEBName  string
 	UpgradeDEBURL   string
 }
 
@@ -95,6 +97,7 @@ const (
 
 type upgradePackage struct {
 	Format upgradePackageFormat
+	Name   string
 	URL    string
 	Path   string
 }
@@ -132,7 +135,9 @@ func releaseUpgradeAssets(release githubRelease) (upgradeAssets, []string) {
 
 	return upgradeAssets{
 		LegacyBinaryURL: found[linuxUpgradeAssetName],
+		UpgradeRPMName:  upgradeRPMAssetName,
 		UpgradeRPMURL:   found[upgradeRPMAssetName],
+		UpgradeDEBName:  upgradeDEBAssetName,
 		UpgradeDEBURL:   found[upgradeDEBAssetName],
 	}, missing
 }
@@ -145,42 +150,42 @@ func upgradePackageAssetNames(version string) (string, string) {
 func selectUpgradePackage(assets upgradeAssets) (upgradePackage, error) {
 	preferred := preferredUpgradePackageFormat()
 	if preferred == upgradePackageDEB {
-		if pkg, ok := availableUpgradePackage(upgradePackageDEB, assets.UpgradeDEBURL); ok {
+		if pkg, ok := availableUpgradePackage(upgradePackageDEB, assets.UpgradeDEBName, assets.UpgradeDEBURL); ok {
 			return pkg, nil
 		}
-		if pkg, ok := availableUpgradePackage(upgradePackageRPM, assets.UpgradeRPMURL); ok {
+		if pkg, ok := availableUpgradePackage(upgradePackageRPM, assets.UpgradeRPMName, assets.UpgradeRPMURL); ok {
 			return pkg, nil
 		}
 	}
 	if preferred == upgradePackageRPM {
-		if pkg, ok := availableUpgradePackage(upgradePackageRPM, assets.UpgradeRPMURL); ok {
+		if pkg, ok := availableUpgradePackage(upgradePackageRPM, assets.UpgradeRPMName, assets.UpgradeRPMURL); ok {
 			return pkg, nil
 		}
-		if pkg, ok := availableUpgradePackage(upgradePackageDEB, assets.UpgradeDEBURL); ok {
+		if pkg, ok := availableUpgradePackage(upgradePackageDEB, assets.UpgradeDEBName, assets.UpgradeDEBURL); ok {
 			return pkg, nil
 		}
 	}
-	if pkg, ok := availableUpgradePackage(upgradePackageDEB, assets.UpgradeDEBURL); ok {
+	if pkg, ok := availableUpgradePackage(upgradePackageDEB, assets.UpgradeDEBName, assets.UpgradeDEBURL); ok {
 		return pkg, nil
 	}
-	if pkg, ok := availableUpgradePackage(upgradePackageRPM, assets.UpgradeRPMURL); ok {
+	if pkg, ok := availableUpgradePackage(upgradePackageRPM, assets.UpgradeRPMName, assets.UpgradeRPMURL); ok {
 		return pkg, nil
 	}
 	return upgradePackage{}, errors.New("未找到可用的 rpm/dpkg 包管理器，或 Release 缺少对应的 fwlog-upgrade 包")
 }
 
-func availableUpgradePackage(format upgradePackageFormat, assetURL string) (upgradePackage, bool) {
+func availableUpgradePackage(format upgradePackageFormat, assetName, assetURL string) (upgradePackage, bool) {
 	if strings.TrimSpace(assetURL) == "" {
 		return upgradePackage{}, false
 	}
 	switch format {
 	case upgradePackageRPM:
 		if _, err := lookPath("rpm"); err == nil {
-			return upgradePackage{Format: upgradePackageRPM, URL: assetURL}, true
+			return upgradePackage{Format: upgradePackageRPM, Name: assetName, URL: assetURL}, true
 		}
 	case upgradePackageDEB:
 		if _, err := lookPath("dpkg"); err == nil {
-			return upgradePackage{Format: upgradePackageDEB, URL: assetURL}, true
+			return upgradePackage{Format: upgradePackageDEB, Name: assetName, URL: assetURL}, true
 		}
 	}
 	return upgradePackage{}, false
@@ -683,7 +688,10 @@ func verifyPackageChecksum(ctx context.Context, release githubRelease, pkg upgra
 	if err != nil {
 		return err
 	}
-	pkgName := filepath.Base(pkg.Path)
+	pkgName := strings.TrimSpace(pkg.Name)
+	if pkgName == "" {
+		pkgName = filepath.Base(pkg.Path)
+	}
 	expectedHash, ok := parseChecksumEntry(string(data), pkgName)
 	if !ok {
 		return fmt.Errorf("checksums.txt 中未找到 %s 的校验记录", pkgName)
@@ -706,7 +714,7 @@ func parseChecksumEntry(checksums, filename string) (string, bool) {
 			continue
 		}
 		fields := strings.Fields(line)
-		if len(fields) >= 2 && fields[1] == filename {
+		if len(fields) >= 2 && filepath.Base(fields[1]) == filename {
 			return fields[0], true
 		}
 	}
