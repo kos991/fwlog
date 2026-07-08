@@ -8,7 +8,7 @@ import { HealthDashboard } from './pages/HealthDashboard';
 import { LogSearchPage } from './pages/LogSearchPage';
 import { IncrementalProgressPage } from './pages/IncrementalProgressPage';
 import { SystemMaintenancePage } from './pages/SystemMaintenancePage';
-import { apiGet, apiPost } from './api';
+import { apiGet, apiPost, setOnUnauthorized } from './api';
 import './styles.css';
 
 type SessionResponse = {
@@ -30,6 +30,11 @@ function App() {
     } finally {
       setCheckingSession(false);
     }
+  }, []);
+
+  React.useEffect(() => {
+    setOnUnauthorized(() => setAuthenticated(false));
+    return () => setOnUnauthorized(null);
   }, []);
 
   React.useEffect(() => {

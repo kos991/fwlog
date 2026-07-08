@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,10 +25,18 @@ const (
 	installedBinaryPath   = "/opt/nat-query/nat-query-service"
 )
 
+const (
+	upgradeHTTPTimeout      = 10 * time.Minute
+	maxUpgradePackageBytes  = 512 * 1024 * 1024
+	checksumsAssetName      = "checksums.txt"
+)
+
 var appVersion = "dev"
 var lookPath = exec.LookPath
+var upgradeBackupDir = "/data/nat-query/backups"
 var osReleasePath = "/etc/os-release"
 var upgradeTempRoot = "/opt/nat-query/tmp"
+var upgradeHTTPClient = &http.Client{Timeout: upgradeHTTPTimeout}
 var runCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 	return exec.CommandContext(ctx, name, args...).CombinedOutput()
 }
@@ -376,6 +386,20 @@ func (a *App) startUpgrade(target upgradeTarget) (UpgradeStatus, bool) {
 	a.upgradeMu.Unlock()
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				a.upgradeMu.Lock()
+				a.upgradeStatus = UpgradeStatus{
+					State:          UpgradeStateFailed,
+					CurrentVersion: appVersion,
+					TargetVersion:  target.Version,
+					Error:          fmt.Sprintf("升级任务异常退出: %v", r),
+					Message:        "升级失败",
+					FinishedAt:     time.Now(),
+				}
+				a.upgradeMu.Unlock()
+			}
+		}()
 		result := runner(context.Background(), target)
 		if result.CurrentVersion == "" {
 			result.CurrentVersion = appVersion
@@ -409,7 +433,7 @@ func fetchGithubRelease(ctx context.Context, version string) (githubRelease, err
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "fwlog-auto-upgrade")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := upgradeHTTPClient.Do(req)
 	if err != nil {
 		return githubRelease{}, err
 	}
@@ -447,7 +471,18 @@ func runSystemUpgrade(ctx context.Context, target upgradeTarget) UpgradeStatus {
 
 func executeSystemUpgrade(ctx context.Context, target upgradeTarget, status *UpgradeStatus) error {
 	_ = status
-	release, err := fetchGithubRelease(ctx, target.Version)
+	upgradeCtx, cancel := context.WithTimeout(ctx, upgradeHTTPTimeout)
+	defer cancel()
+
+	backupPath, err := backupCurrentInstall(upgradeCtx)
+	if err != nil {
+		return fmt.Errorf("升级前备份失败: %w", err)
+	}
+	if status != nil {
+		status.BackupPath = backupPath
+	}
+
+	release, err := fetchGithubRelease(upgradeCtx, target.Version)
 	if err != nil {
 		return err
 	}
@@ -470,7 +505,7 @@ func executeSystemUpgrade(ctx context.Context, target upgradeTarget, status *Upg
 		return err
 	}
 	pkg.Path = filepath.Join(tempDir, "fwlog-upgrade."+string(pkg.Format))
-	if err := downloadFile(ctx, pkg.URL, pkg.Path); err != nil {
+	if err := downloadFile(upgradeCtx, pkg.URL, pkg.Path); err != nil {
 		return err
 	}
 	info, err := os.Stat(pkg.Path)
@@ -479,6 +514,10 @@ func executeSystemUpgrade(ctx context.Context, target upgradeTarget, status *Upg
 	}
 	if info.Size() == 0 {
 		return errors.New("下载到的 fwlog-upgrade 包为空")
+	}
+
+	if err := verifyPackageChecksum(upgradeCtx, release, pkg); err != nil {
+		return err
 	}
 
 	if err := validateUpgradePackageContents(ctx, pkg); err != nil {
@@ -496,7 +535,7 @@ func downloadFile(ctx context.Context, sourceURL, targetPath string) error {
 		return err
 	}
 	req.Header.Set("User-Agent", "fwlog-auto-upgrade")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := upgradeHTTPClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -505,13 +544,19 @@ func downloadFile(ctx context.Context, sourceURL, targetPath string) error {
 		return fmt.Errorf("下载升级资产失败，状态码 %d", resp.StatusCode)
 	}
 
-	file, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	file, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
-	_, err = io.Copy(file, resp.Body)
-	return err
+	_, err = io.Copy(file, io.LimitReader(resp.Body, maxUpgradePackageBytes+1))
+	if err != nil {
+		return err
+	}
+	if info, statErr := os.Stat(targetPath); statErr == nil && info.Size() > maxUpgradePackageBytes {
+		return fmt.Errorf("升级包超过最大允许大小 %d 字节", maxUpgradePackageBytes)
+	}
+	return nil
 }
 
 func copyFile(sourcePath, targetPath string) error {
@@ -567,4 +612,116 @@ func replaceFileAtomic(sourcePath, targetPath string, mode os.FileMode) error {
 	}
 	cleanup = false
 	return nil
+}
+
+func findChecksumAssetURL(release githubRelease) string {
+	for _, asset := range release.Assets {
+		if asset.Name == checksumsAssetName {
+			return asset.BrowserDownloadURL
+		}
+	}
+	return ""
+}
+
+func backupCurrentInstall(ctx context.Context) (string, error) {
+	backupDir := upgradeBackupDir
+	if err := os.MkdirAll(backupDir, 0o700); err != nil {
+		return "", err
+	}
+	stamp := time.Now().Format("20060102-150405")
+	target := filepath.Join(backupDir, "pre-upgrade-"+stamp)
+	if err := os.MkdirAll(target, 0o700); err != nil {
+		return "", err
+	}
+
+	for _, item := range []struct {
+		src string
+		dst string
+	}{
+		{"/etc/systemd/system/nat-query-service.service", "nat-query-service.service"},
+		{"/opt/nat-query/VERSION", "VERSION"},
+	} {
+		if err := copyFileForBackup(item.src, filepath.Join(target, item.dst)); err != nil && !os.IsNotExist(err) {
+			return target, fmt.Errorf("备份 %s 失败: %w", item.src, err)
+		}
+	}
+	return target, nil
+}
+
+func copyFileForBackup(src, dst string) error {
+	source, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+	info, err := source.Stat()
+	if err != nil {
+		return err
+	}
+	target, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode())
+	if err != nil {
+		return err
+	}
+	defer target.Close()
+	_, err = io.Copy(target, source)
+	return err
+}
+
+func verifyPackageChecksum(ctx context.Context, release githubRelease, pkg upgradePackage) error {
+	checksumURL := findChecksumAssetURL(release)
+	if checksumURL == "" {
+		return nil
+	}
+
+	tempDir := filepath.Dir(pkg.Path)
+	checksumPath := filepath.Join(tempDir, checksumsAssetName)
+	if err := downloadFile(ctx, checksumURL, checksumPath); err != nil {
+		return fmt.Errorf("下载 checksums.txt 失败: %w", err)
+	}
+
+	data, err := os.ReadFile(checksumPath)
+	if err != nil {
+		return err
+	}
+	pkgName := filepath.Base(pkg.Path)
+	expectedHash, ok := parseChecksumEntry(string(data), pkgName)
+	if !ok {
+		return fmt.Errorf("checksums.txt 中未找到 %s 的校验记录", pkgName)
+	}
+
+	actualHash, err := sha256File(pkg.Path)
+	if err != nil {
+		return fmt.Errorf("计算升级包 sha256 失败: %w", err)
+	}
+	if !strings.EqualFold(actualHash, expectedHash) {
+		return fmt.Errorf("升级包 sha256 校验失败: 期望 %s 实际 %s", expectedHash, actualHash)
+	}
+	return nil
+}
+
+func parseChecksumEntry(checksums, filename string) (string, bool) {
+	for _, line := range strings.Split(checksums, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[1] == filename {
+			return fields[0], true
+		}
+	}
+	return "", false
+}
+
+func sha256File(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }

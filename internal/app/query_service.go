@@ -226,7 +226,10 @@ func BuildVisibleRanges(start, end time.Time, states []DateIngestState) QueryVis
 
 		state, ok := stateByDate[dateKey(day)]
 		if !ok {
-			appendSkippedDate(&visibility, day, "", missingStateReason)
+			visibility.SkippedDates = append(visibility.SkippedDates, SkippedLogDate{
+				LogDate: day,
+				Reason:  missingStateReason,
+			})
 			continue
 		}
 
@@ -320,9 +323,9 @@ func BuildQuerySQL(req QueryRequest, visibility QueryVisibility) (string, []any,
 		args = append(args, req.NATPort)
 	}
 	if req.Protocol != "" {
-		sql.WriteString(" AND protocol IN (?, ?, ?)")
+		sql.WriteString(" AND protocol IN (?, ?)")
 		protocol := normalizeProtocol(req.Protocol)
-		args = append(args, protocol, protocolNumber(protocol), protocolNumber(protocol)+",")
+		args = append(args, protocol, protocolNumber(protocol))
 	}
 	if req.Action != "" {
 		sql.WriteString(" AND action = ?")

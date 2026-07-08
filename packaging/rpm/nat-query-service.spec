@@ -27,12 +27,22 @@ mkdir -p %{buildroot}
 cp -a . %{buildroot}/
 
 %pre
-backup="/data/nat-query/backups/app_settings-before-package.tsv"
-client="/opt/nat-query/clickhouse/bin/clickhouse"
-if [ -x "$client" ]; then
+if [ "$1" -ge 2 ]; then
+    backup="/data/nat-query/backups/app_settings-before-package.tsv"
+    client="/opt/nat-query/clickhouse/bin/clickhouse"
     mkdir -p "$(dirname "$backup")"
     chmod 700 "$(dirname "$backup")" || true
-    "$client" client --query "SELECT key, value, now() FROM app_settings FINAL FORMAT TabSeparated" > "$backup.tmp" 2>/dev/null && mv "$backup.tmp" "$backup" && chmod 600 "$backup" || rm -f "$backup.tmp"
+    if [ -x "$client" ]; then
+        if "$client" client --query "SELECT key, value, now() FROM app_settings FINAL FORMAT TabSeparated" > "$backup.tmp" 2>/tmp/fwlog-pre-backup.err; then
+            mv "$backup.tmp" "$backup"
+            chmod 600 "$backup"
+        else
+            cat /tmp/fwlog-pre-backup.err >> /data/nat-query/backups/backup-failed.log 2>/dev/null || true
+            rm -f "$backup.tmp"
+            echo "app_settings 备份失败，已中止升级（如需跳过请先停止 ClickHouse 后重试）" >&2
+            exit 1
+        fi
+    fi
 fi
 exit 0
 
@@ -46,18 +56,24 @@ if command -v systemctl >/dev/null 2>&1; then
 %endif
     if [ -d /run/systemd/system ]; then
 %if %{include_clickhouse}
-        systemctl restart fwlog-clickhouse.service || true
+        systemctl restart fwlog-clickhouse.service
         client="/opt/nat-query/clickhouse/bin/clickhouse"
         for i in $(seq 1 60); do
             "$client" client --query "SELECT 1" >/dev/null 2>&1 && break
             sleep 1
         done
+        if ! "$client" client --query "SELECT 1" >/dev/null 2>&1; then
+            echo "ClickHouse 启动失败，中止安装" >&2
+            exit 1
+        fi
 %else
         client="/opt/nat-query/clickhouse/bin/clickhouse"
 %endif
         backup="/data/nat-query/backups/app_settings-before-package.tsv"
         if [ -s "$backup" ] && [ -x "$client" ]; then
-            "$client" client --query "INSERT INTO app_settings (key, value, updated_at) FORMAT TabSeparated" < "$backup" >/dev/null 2>&1 || true
+            if ! "$client" client --query "INSERT INTO app_settings (key, value, updated_at) FORMAT TabSeparated" < "$backup" >/dev/null 2>&1; then
+                echo "app_settings 恢复失败，备份文件保留在 $backup" >&2
+            fi
         fi
         systemctl restart nat-query-service.service || true
     fi

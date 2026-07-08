@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -67,6 +68,10 @@ func (a *App) getSettings() map[string]string {
 	return settings
 }
 
+var protectedSettingsKeys = map[string]bool{
+	adminPasswordHashSettingKey: true,
+}
+
 func (a *App) updateSettings(payload map[string]any) {
 	if len(payload) == 0 {
 		return
@@ -76,6 +81,9 @@ func (a *App) updateSettings(payload map[string]any) {
 	defer a.mu.Unlock()
 
 	for key, value := range payload {
+		if protectedSettingsKeys[key] {
+			continue
+		}
 		switch typed := value.(type) {
 		case string:
 			a.settings[key] = typed
@@ -116,12 +124,18 @@ func (a *App) saveSettings(ctx context.Context, payload map[string]any) error {
 		return nil
 	}
 	store := a.currentStore()
-	if store == nil || store.conn == nil {
+	if store == nil {
+		return errors.New("ClickHouse 尚未连接，无法持久化设置")
+	}
+	if store.conn == nil {
 		return nil
 	}
 	settings := make(map[string]string, len(payload))
 	a.mu.RLock()
 	for key := range payload {
+		if protectedSettingsKeys[key] {
+			continue
+		}
 		settings[key] = a.settings[key]
 	}
 	a.mu.RUnlock()
@@ -130,7 +144,10 @@ func (a *App) saveSettings(ctx context.Context, payload map[string]any) error {
 
 func (a *App) saveAdminPasswordHash(ctx context.Context, passwordHash string) error {
 	store := a.currentStore()
-	if store == nil || store.conn == nil {
+	if store == nil {
+		return errors.New("ClickHouse 尚未连接，无法持久化管理员密码")
+	}
+	if store.conn == nil {
 		return nil
 	}
 	return store.SaveSettings(ctx, map[string]string{

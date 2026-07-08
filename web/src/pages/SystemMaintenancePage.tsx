@@ -117,6 +117,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   const [upgradeLastCheckedAt, setUpgradeLastCheckedAt] = React.useState<Date | null>(null);
   const [rebuildDate, setRebuildDate] = React.useState<Dayjs | null>(dayjs());
   const [fullRebuild, setFullRebuild] = React.useState(false);
+  const [upgradeRestarting, setUpgradeRestarting] = React.useState(false);
   const geoipPath = Form.useWatch('geoip_db_path', form);
   const customIpPath = Form.useWatch('custom_ip_map_path', form);
   const autoScanEnabled = Form.useWatch('auto_scan_enabled', form);
@@ -140,7 +141,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
         log_sources: logSources,
         cidr_aliases: cidrAliases,
         auto_scan_enabled: settings.auto_scan_enabled === true || settings.auto_scan_enabled === 'true',
-        auto_scan_mode: 'daily',
+        auto_scan_mode: settings.auto_scan_mode || 'daily',
         auto_scan_times: autoScanTimeValue(settings.auto_scan_times),
         auto_scan_timezone: settings.auto_scan_timezone || 'Asia/Shanghai',
         auto_scan_interval_sec: Number(settings.auto_scan_interval_sec || 3600),
@@ -167,11 +168,24 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
 
   React.useEffect(() => {
     if (upgradeStatus?.state !== 'running') return;
+    let cancelled = false;
     const timer = window.setInterval(() => {
-      void loadUpgradeStatus().catch(() => undefined);
+      if (cancelled) return;
+      void loadUpgradeStatus().catch(() => {
+        if (!cancelled) setUpgradeRestarting(true);
+      });
     }, 3000);
-    return () => window.clearInterval(timer);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, [loadUpgradeStatus, upgradeStatus?.state]);
+
+  React.useEffect(() => {
+    if (upgradeStatus?.state === 'succeeded' || upgradeStatus?.state === 'failed') {
+      setUpgradeRestarting(false);
+    }
+  }, [upgradeStatus?.state]);
 
   const upgradeView = buildUpgradeView({
     status: upgradeStatus,
@@ -195,10 +209,10 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
         log_dir: firstSource?.log_dir || values.log_dir,
         log_tag: firstSource?.log_tag || values.log_tag,
         auto_scan_enabled: String(Boolean(values.auto_scan_enabled)),
-        auto_scan_mode: 'daily',
+        auto_scan_mode: values.auto_scan_mode || 'daily',
         auto_scan_times: formatAutoScanTime(values.auto_scan_times),
         auto_scan_timezone: values.auto_scan_timezone || 'Asia/Shanghai',
-        auto_scan_interval_sec: '86400',
+        auto_scan_interval_sec: String(Number(values.auto_scan_interval_sec) || 3600),
       });
       message.success('设置已保存');
     } catch (error) {
@@ -532,9 +546,15 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                         <strong>版本升级</strong>
                       </div>
                       <Tag color={upgradeView.statusTone}>
-                        {upgradeView.stateText}
+                        {upgradeRestarting ? '服务重启中' : upgradeView.stateText}
                       </Tag>
                     </div>
+
+                    {upgradeRestarting && (
+                      <Text type="warning" style={{ display: 'block', marginTop: 4 }}>
+                        服务正在重启，请稍候。重启完成后请手动刷新页面以加载新版本。
+                      </Text>
+                    )}
 
                     <div className="maintenance-upgrade-panel">
                       <div className="maintenance-upgrade-summary">
@@ -583,6 +603,11 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                         {upgradeCheckError || upgradeView.message}
                       </Text>
                       <Text type="secondary">{upgradeView.lastCheckedText} · {upgradeView.sourceText}</Text>
+                      {upgradeView.state === 'succeeded' && (
+                        <Text type="warning" style={{ display: 'block', marginTop: 4 }}>
+                          升级完成，请 <a onClick={() => window.location.reload()}>点击刷新</a> 加载新版本。
+                        </Text>
+                      )}
                     </div>
 
                   </div>

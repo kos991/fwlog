@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,7 +16,7 @@ import (
 )
 
 // 这些路由测试依赖 `web/dist/index.html` 和打包后的 `/assets/*` 文件；
-// 干净检出环境下请先执行 `cd web && npm.cmd run build`，再运行 `go test ./...`。
+// 干净检出环境下请先执行 `cd web && npm run build`，再运行 `go test ./...`。
 func TestRouterRegistersAPIRoutes(t *testing.T) {
 	app := NewApp(LoadConfig())
 	router := app.Router()
@@ -165,6 +166,9 @@ func TestRouterSessionLifecycle(t *testing.T) {
 
 func TestRouterPasswordChangeRequiresCurrentPassword(t *testing.T) {
 	app := NewApp(LoadConfig())
+	app.mu.Lock()
+	app.store = &ClickHouseStore{}
+	app.mu.Unlock()
 	router := app.Router()
 
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewBufferString(`{"password":"admin"}`))
@@ -259,6 +263,9 @@ func TestRouterPasswordChangeRejectsInvalidNewPasswordPolicy(t *testing.T) {
 
 func TestRouterPasswordChangeAcceptsAnyCharactersAtLeastSixLong(t *testing.T) {
 	app := NewApp(LoadConfig())
+	app.mu.Lock()
+	app.store = &ClickHouseStore{}
+	app.mu.Unlock()
 	router := app.Router()
 
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewBufferString(`{"password":"admin"}`))
@@ -342,19 +349,11 @@ func TestRouterPasswordChangeReturnsUnauthenticatedJSONWhenSessionMissing(t *tes
 	res := httptest.NewRecorder()
 	router.ServeHTTP(res, req)
 
-	if res.Code != http.StatusOK {
-		t.Fatalf("unauthenticated password change status = %d, body = %s", res.Code, res.Body.String())
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated password change status = %d, want 401, body = %s", res.Code, res.Body.String())
 	}
 	if contentType := res.Header().Get("Content-Type"); !strings.Contains(contentType, "application/json") {
 		t.Fatalf("content type = %q, want application/json", contentType)
-	}
-
-	var payload SessionResponse
-	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
-		t.Fatalf("decode unauthenticated password response: %v", err)
-	}
-	if payload.Authenticated {
-		t.Fatalf("unauthenticated password change response = %#v, want authenticated=false", payload)
 	}
 }
 
@@ -458,10 +457,12 @@ func TestRouterSettingsSaveDoesNotStartImportForEnabledLogSources(t *testing.T) 
 		return []string{"2026-07-01"}, nil, nil
 	}
 	router := app.Router()
+	cookie := loginForTest(t, router)
 
 	body := `{"log_sources":[{"source_id":"fw-a","log_tag":"edge-a","log_dir":"/data/fw-a","enabled":true},{"source_id":"fw-b","log_tag":"edge-b","log_dir":"/data/fw-b","enabled":false}]}`
 	req := httptest.NewRequest(http.MethodPost, "/api/settings", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
 	res := httptest.NewRecorder()
 	router.ServeHTTP(res, req)
 
@@ -500,8 +501,10 @@ func TestRouterSyncUsesAllEnabledLogSources(t *testing.T) {
 		return []string{"2026-07-01"}, nil, nil
 	}
 	router := app.Router()
+	cookie := loginForTest(t, router)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/sync", nil)
+	req.AddCookie(cookie)
 	res := httptest.NewRecorder()
 	router.ServeHTTP(res, req)
 
@@ -540,6 +543,7 @@ func TestRouterSyncReturnsInProgressWhenBackgroundImportIsRunning(t *testing.T) 
 		return nil, nil, nil
 	}
 	router := app.Router()
+	cookie := loginForTest(t, router)
 
 	app.updateSettings(map[string]any{
 		"log_sources": []any{
@@ -548,6 +552,7 @@ func TestRouterSyncReturnsInProgressWhenBackgroundImportIsRunning(t *testing.T) 
 	})
 
 	firstSyncReq := httptest.NewRequest(http.MethodPost, "/api/sync", nil)
+	firstSyncReq.AddCookie(cookie)
 	firstSyncRes := httptest.NewRecorder()
 	router.ServeHTTP(firstSyncRes, firstSyncReq)
 	if firstSyncRes.Code != http.StatusAccepted {
@@ -561,6 +566,7 @@ func TestRouterSyncReturnsInProgressWhenBackgroundImportIsRunning(t *testing.T) 
 	defer close(release)
 
 	syncReq := httptest.NewRequest(http.MethodPost, "/api/sync", nil)
+	syncReq.AddCookie(cookie)
 	syncRes := httptest.NewRecorder()
 	router.ServeHTTP(syncRes, syncReq)
 
@@ -615,9 +621,11 @@ func TestRouterReloadIPDataIgnoresMissingCustomMap(t *testing.T) {
 		"geoip_enabled":      false,
 	})
 	router := app.Router()
+	cookie := loginForTest(t, router)
 	originalEngine := app.ipEngine
 
 	req := httptest.NewRequest(http.MethodPost, "/api/ip-data/reload", nil)
+	req.AddCookie(cookie)
 	res := httptest.NewRecorder()
 	router.ServeHTTP(res, req)
 
@@ -654,8 +662,10 @@ func TestRouterReloadIPDataLoadsCustomMapFromCurrentSettings(t *testing.T) {
 		"geoip_enabled":      false,
 	})
 	router := app.Router()
+	cookie := loginForTest(t, router)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/ip-data/reload", nil)
+	req.AddCookie(cookie)
 	res := httptest.NewRecorder()
 	router.ServeHTTP(res, req)
 
@@ -686,4 +696,94 @@ func findEmbeddedAssetPath(t *testing.T, indexHTML string) string {
 		t.Fatalf("no embedded asset path found in index.html: %s", indexHTML)
 	}
 	return "/" + matches[1]
+}
+
+func TestProtectedAPIsRejectUnauthenticatedRequests(t *testing.T) {
+	app := NewApp(LoadConfig())
+	router := app.Router()
+
+	protected := []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{method: http.MethodGet, path: "/api/query"},
+		{method: http.MethodGet, path: "/api/health-dashboard"},
+		{method: http.MethodGet, path: "/api/ingest-progress"},
+		{method: http.MethodPost, path: "/api/password", body: `{"current_password":"a","new_password":"b"}`},
+		{method: http.MethodPost, path: "/api/ip-data/reload"},
+		{method: http.MethodGet, path: "/api/settings"},
+		{method: http.MethodPost, path: "/api/settings", body: `{}`},
+		{method: http.MethodPost, path: "/api/sync"},
+		{method: http.MethodPost, path: "/api/rebuild"},
+		{method: http.MethodPost, path: "/api/logout"},
+		{method: http.MethodGet, path: "/api/upgrade/check"},
+		{method: http.MethodGet, path: "/api/upgrade/status"},
+		{method: http.MethodPost, path: "/api/upgrade/run", body: `{"version":"v1.0.15"}`},
+	}
+
+	for _, tt := range protected {
+		req := httptest.NewRequest(tt.method, tt.path, bytes.NewBufferString(tt.body))
+		req.Header.Set("Content-Type", "application/json")
+		res := httptest.NewRecorder()
+		router.ServeHTTP(res, req)
+		if res.Code != http.StatusUnauthorized {
+			t.Fatalf("%s %s without session should return 401, got %d, body = %s", tt.method, tt.path, res.Code, res.Body.String())
+		}
+	}
+}
+
+func TestSettingsRejectsAdminPasswordHashKey(t *testing.T) {
+	app := NewApp(LoadConfig())
+	app.mu.Lock()
+	app.store = &ClickHouseStore{}
+	app.mu.Unlock()
+	router := app.Router()
+	cookie := loginForTest(t, router)
+
+	hash, err := HashPassword("attacker-password")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+
+	body := fmt.Sprintf(`{"admin_password_hash":%q}`, hash)
+	req := httptest.NewRequest(http.MethodPost, "/api/settings", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("settings status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	if app.verifyPassword("attacker-password") {
+		t.Fatal("admin_password_hash must not be injectable via /api/settings")
+	}
+	if !app.verifyPassword("admin") {
+		t.Fatal("default password should still work after rejected hash injection")
+	}
+}
+
+func TestLoginRateLimitsAfterRepeatedFailures(t *testing.T) {
+	app := NewApp(LoadConfig())
+	router := app.Router()
+
+	for i := 0; i < maxLoginFailures; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewBufferString(`{"password":"wrong"}`))
+		req.Header.Set("Content-Type", "application/json")
+		res := httptest.NewRecorder()
+		router.ServeHTTP(res, req)
+		if res.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d status = %d, want 401", i+1, res.Code)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewBufferString(`{"password":"admin"}`))
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusTooManyRequests {
+		t.Fatalf("rate-limited login status = %d, want 429, body = %s", res.Code, res.Body.String())
+	}
 }

@@ -183,6 +183,11 @@ func TestExecuteSystemUpgradeInstallsUpgradePackage(t *testing.T) {
 	defer func() {
 		upgradeTempRoot = originalUpgradeTempRoot
 	}()
+	originalBackupDir := upgradeBackupDir
+	upgradeBackupDir = t.TempDir()
+	defer func() {
+		upgradeBackupDir = originalBackupDir
+	}()
 
 	var commands []string
 	calls := stubCommandRunner(t, func(ctx context.Context, name string, args ...string) ([]byte, error) {
@@ -209,8 +214,8 @@ func TestExecuteSystemUpgradeInstallsUpgradePackage(t *testing.T) {
 	if err := executeSystemUpgrade(context.Background(), upgradeTarget{Version: "v1.1.0"}, &status); err != nil {
 		t.Fatalf("execute upgrade: %v", err)
 	}
-	if status.BackupPath != "" {
-		t.Fatalf("backup path = %q, want empty because package upgrade owns installation", status.BackupPath)
+	if status.BackupPath == "" {
+		t.Fatalf("backup path should be set after upgrade, got empty")
 	}
 	if calls.count != 2 {
 		t.Fatalf("command count = %d, commands = %#v", calls.count, commands)
@@ -375,28 +380,27 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 
 func stubHTTPClient(t *testing.T, responses map[string]string) func() {
 	t.Helper()
-	original := http.DefaultClient
-	http.DefaultClient = &http.Client{
-		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-			body, ok := responses[req.URL.String()]
-			if !ok {
-				return &http.Response{
-					StatusCode: http.StatusNotFound,
-					Header:     make(http.Header),
-					Body:       io.NopCloser(strings.NewReader("not found")),
-					Request:    req,
-				}, nil
-			}
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body, ok := responses[req.URL.String()]
+		if !ok {
 			return &http.Response{
-				StatusCode: http.StatusOK,
+				StatusCode: http.StatusNotFound,
 				Header:     make(http.Header),
-				Body:       io.NopCloser(strings.NewReader(body)),
+				Body:       io.NopCloser(strings.NewReader("not found")),
 				Request:    req,
 			}, nil
-		}),
-	}
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Request:    req,
+		}, nil
+	})
+	originalClient := upgradeHTTPClient
+	upgradeHTTPClient = &http.Client{Transport: transport}
 	return func() {
-		http.DefaultClient = original
+		upgradeHTTPClient = originalClient
 	}
 }
 

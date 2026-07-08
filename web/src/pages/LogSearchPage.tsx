@@ -243,6 +243,8 @@ export function LogSearchPage(_props: LogSearchPageProps) {
         }
         return next;
       });
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '日志查询失败');
     } finally {
       setLoading(false);
     }

@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -144,6 +146,8 @@ func parseEnabledLogSources(raw string) ([]LogSource, bool) {
 	return sources, true
 }
 
+const maxImportDuration = 2 * time.Hour
+
 func (a *App) startBackgroundImport(rebuild bool, targetDate time.Time) bool {
 	store := a.currentStore()
 	if store == nil {
@@ -154,7 +158,13 @@ func (a *App) startBackgroundImport(rebuild bool, targetDate time.Time) bool {
 	}
 	go func() {
 		defer a.endImport()
-		ctx := context.Background()
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Fprintf(os.Stderr, "import goroutine panic: %v\n", r)
+			}
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), maxImportDuration)
+		defer cancel()
 		_, _, _, _, _ = a.importConfiguredSources(ctx, store, rebuild, targetDate)
 	}()
 	return true

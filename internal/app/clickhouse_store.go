@@ -34,6 +34,11 @@ func OpenClickHouse(ctx context.Context, cfg Config) (*ClickHouseStore, error) {
 		MaxOpenConns:    10,
 		MaxIdleConns:    5,
 		ConnMaxLifetime: time.Hour,
+		Settings: clickhouse.Settings{
+			"max_execution_time": 15,
+			"max_rows_to_read":   100000000,
+		},
+		ReadTimeout: 30 * time.Second,
 	})
 	if err != nil {
 		return nil, err

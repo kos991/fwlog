@@ -1,10 +1,13 @@
 package app
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"time"
 )
+
+const dashboardTimeout = 20 * time.Second
 
 type appDashboardService struct {
 	app *App
@@ -16,12 +19,15 @@ func (s appDashboardService) HealthDashboard(r *http.Request) (HealthDashboardRe
 		return BuildHealthDashboard(nil, DashboardMetrics{}), nil
 	}
 
-	states, err := store.ListDateStates(r.Context(), dashboardSince(r))
+	ctx, cancel := context.WithTimeout(r.Context(), dashboardTimeout)
+	defer cancel()
+
+	states, err := store.ListDateStates(ctx, dashboardSince(r))
 	if err != nil {
 		return HealthDashboardResponse{}, err
 	}
 
-	metrics, err := store.DashboardMetrics(r.Context(), dashboardMetricsSince(r), parseBoolQuery(r, "include_distributions", true))
+	metrics, err := store.DashboardMetrics(ctx, dashboardMetricsSince(r), parseBoolQuery(r, "include_distributions", true))
 	if err != nil {
 		return HealthDashboardResponse{}, err
 	}
@@ -41,7 +47,10 @@ func (s appDashboardService) IngestProgress(r *http.Request) (IngestProgressResp
 		return BuildIngestProgress(nil, includeReady), nil
 	}
 
-	states, err := store.ListDateStates(r.Context(), ingestProgressSince(r))
+	ctx, cancel := context.WithTimeout(r.Context(), dashboardTimeout)
+	defer cancel()
+
+	states, err := store.ListDateStates(ctx, ingestProgressSince(r))
 	if err != nil {
 		return IngestProgressResponse{}, err
 	}

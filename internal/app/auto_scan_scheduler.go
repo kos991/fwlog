@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -65,6 +66,14 @@ func dueAutoScanTime(settings map[string]string, now time.Time) (time.Time, bool
 
 	loc := autoScanLocation(settings)
 	localNow := now.In(loc)
+	mode := strings.TrimSpace(settings["auto_scan_mode"])
+	if mode == "interval" {
+		return dueIntervalAutoScanTime(settings, localNow, loc)
+	}
+	return dueDailyAutoScanTime(settings, localNow, loc)
+}
+
+func dueDailyAutoScanTime(settings map[string]string, localNow time.Time, loc *time.Location) (time.Time, bool) {
 	times := parseAutoScanTimes(settings["auto_scan_times"])
 	if len(times) == 0 {
 		return time.Time{}, false
@@ -86,6 +95,32 @@ func dueAutoScanTime(settings map[string]string, now time.Time) (time.Time, bool
 		return scheduledAt, true
 	}
 	return time.Time{}, false
+}
+
+func dueIntervalAutoScanTime(settings map[string]string, localNow time.Time, loc *time.Location) (time.Time, bool) {
+	seconds, err := parseAutoScanIntervalSeconds(settings["auto_scan_interval_sec"])
+	if err != nil || seconds <= 0 {
+		return time.Time{}, false
+	}
+	interval := time.Duration(seconds) * time.Second
+	if interval < time.Minute {
+		interval = time.Minute
+	}
+	anchor := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, loc)
+	if localNow.Before(anchor) {
+		anchor = anchor.AddDate(0, 0, -1)
+	}
+	elapsed := localNow.Sub(anchor)
+	steps := int64(elapsed / interval)
+	scheduledAt := anchor.Add(time.Duration(steps) * interval)
+	if localNow.Sub(scheduledAt) > autoScanDueWindow {
+		return time.Time{}, false
+	}
+	last := parseAutoScanDateTime(settings["last_auto_scan_at"], loc)
+	if !last.IsZero() && !last.Before(scheduledAt) {
+		return time.Time{}, false
+	}
+	return scheduledAt, true
 }
 
 func autoScanLocation(settings map[string]string) *time.Location {
@@ -110,4 +145,16 @@ func parseAutoScanDateTime(value string, loc *time.Location) time.Time {
 		return parsed
 	}
 	return time.Time{}
+}
+
+func parseAutoScanIntervalSeconds(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return defaultAutoScanSec, nil
+	}
+	seconds, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, err
+	}
+	return seconds, nil
 }

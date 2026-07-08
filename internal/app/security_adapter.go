@@ -11,7 +11,7 @@ type appSecurityService struct {
 
 func (s appSecurityService) ChangePassword(r *http.Request) (SessionResponse, error) {
 	if !s.app.isAuthenticated(r) {
-		return SessionResponse{Authenticated: false}, nil
+		return SessionResponse{Authenticated: false}, fmt.Errorf("请先登录")
 	}
 
 	payload, err := decodePasswordChangeRequest(r)

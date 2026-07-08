@@ -2,7 +2,7 @@
 Description=NAT Query Service - High-Performance Network Log Analysis
 Documentation=https://github.com/kos991/fwlog
 After=network-online.target fwlog-clickhouse.service
-Wants=network-online.target fwlog-clickhouse.service
+Requires=network-online.target fwlog-clickhouse.service
 
 [Service]
 Type=simple

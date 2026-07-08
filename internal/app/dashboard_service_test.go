@@ -213,11 +213,14 @@ func TestBuildAutoScanPlanUsesConfiguredScanTimeOnly(t *testing.T) {
 		"auto_scan_timezone":     "Asia/Shanghai",
 	}, now)
 
-	if !plan.Enabled || plan.NextAt.Format("2006-01-02 15:04:05") != "2026-07-05 01:00:00" {
-		t.Fatalf("scan time plan next time wrong: %#v", plan)
+	if !plan.Enabled || plan.Mode != "interval" {
+		t.Fatalf("interval plan should be enabled with interval mode: %#v", plan)
 	}
-	if plan.Policy != "01:00 自动扫描" {
-		t.Fatalf("scan time policy = %q", plan.Policy)
+	if plan.NextAt.Format("2006-01-02 15:04:05") != "2026-07-04 12:00:00" {
+		t.Fatalf("interval plan next time wrong: %#v", plan)
+	}
+	if plan.Policy != "每 6 小时自动扫描" {
+		t.Fatalf("interval plan policy = %q", plan.Policy)
 	}
 }
 

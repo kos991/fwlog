@@ -10,6 +10,12 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   });
 }
 
+let onUnauthorized: (() => void) | null = null;
+
+export function setOnUnauthorized(handler: (() => void) | null): void {
+  onUnauthorized = handler;
+}
+
 async function requestJSON<T>(path: string, init: RequestInit): Promise<T> {
   const apiBaseURL = import.meta.env.VITE_API_BASE_URL || '';
   const useMock = String(import.meta.env.VITE_USE_MOCK || '').toLowerCase() === 'true';
@@ -18,18 +24,29 @@ async function requestJSON<T>(path: string, init: RequestInit): Promise<T> {
     return mockResponse<T>(path);
   }
 
-  const response = await fetch(`${apiBaseURL}${path}`, {
-    ...init,
-    credentials: 'include',
-    headers: {
-      Accept: 'application/json',
-      ...(init.headers || {}),
-    },
-  });
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 30000);
+  try {
+    const response = await fetch(`${apiBaseURL}${path}`, {
+      ...init,
+      credentials: 'include',
+      signal: controller.signal,
+      headers: {
+        Accept: 'application/json',
+        ...(init.headers || {}),
+      },
+    });
+    if (response.status === 401) {
+      if (onUnauthorized) onUnauthorized();
+      throw new Error('登录已失效，请重新登录');
+    }
+    if (!response.ok) {
+      throw new Error(await readErrorMessage(response));
+    }
+    return (await response.json()) as T;
+  } finally {
+    window.clearTimeout(timeoutId);
   }
-  return (await response.json()) as T;
 }
 
 function mockResponse<T>(path: string): T {

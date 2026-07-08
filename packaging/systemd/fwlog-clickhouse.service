@@ -4,6 +4,7 @@ Documentation=https://clickhouse.com/docs
 After=network-online.target
 Wants=network-online.target
 Before=nat-query-service.service
+PartOf=nat-query-service.service
 
 [Service]
 Type=simple
@@ -14,6 +15,8 @@ ExecStartPre=/usr/bin/install -d -m 0755 /opt/nat-query/clickhouse/data /opt/nat
 ExecStart=/opt/nat-query/clickhouse/bin/clickhouse server --config-file=/opt/nat-query/clickhouse/etc/config.xml
 Restart=on-failure
 RestartSec=5s
+StartLimitInterval=60s
+StartLimitBurst=5
 LimitNOFILE=262144
 LimitNPROC=65536
 LimitMEMLOCK=infinity

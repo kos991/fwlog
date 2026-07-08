@@ -71,7 +71,7 @@ func looksLikePasswordHash(encoded string) bool {
 		return false
 	}
 	iterations, err := strconv.Atoi(parts[1])
-	if err != nil || iterations <= 0 {
+	if err != nil || iterations < minPasswordHashIterations {
 		return false
 	}
 	if _, err := base64.RawStdEncoding.DecodeString(parts[2]); err != nil {

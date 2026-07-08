@@ -44,8 +44,12 @@ jobs:
         working-directory: web
         run: npm run build
 
+      - name: Run frontend tests
+        working-directory: web
+        run: npm test
+
       - name: Run Go tests
-        run: go test ./...
+        run: go test -race -count=1 ./...
 
       - name: Install package build tools
         run: |

@@ -135,8 +135,12 @@ jobs:
         working-directory: web
         run: npm run build
 
+      - name: Run frontend tests
+        working-directory: web
+        run: npm test
+
       - name: Run Go tests
-        run: go test ./...
+        run: go test -race -count=1 ./...
 
       - name: Install package build tools
         run: |
@@ -178,7 +182,8 @@ jobs:
             "fwlog-full-v${pkg_version}.x86_64.rpm" \
             "fwlog-full_${pkg_version}_amd64.deb" \
             "fwlog-upgrade-v${pkg_version}.x86_64.rpm" \
-            "fwlog-upgrade_${pkg_version}_amd64.deb")"
+            "fwlog-upgrade_${pkg_version}_amd64.deb" \
+            "checksums.txt")"
           while IFS= read -r asset_name; do
             if [[ -n "$asset_name" ]] && ! grep -Fxq "$asset_name" <<< "$allowed_assets"; then
               gh release delete-asset "$version" "$asset_name" --repo "$GH_REPO" --yes

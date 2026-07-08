@@ -28,7 +28,13 @@ func BuildAutoScanPlan(settings map[string]string, now time.Time) AutoScanPlan {
 		}
 	}
 	localNow := now.In(loc)
-	return buildDailyAutoScanPlan(settings, localNow, loc)
+	mode := strings.TrimSpace(settings["auto_scan_mode"])
+	switch mode {
+	case "interval":
+		return buildIntervalAutoScanPlan(settings, localNow, loc)
+	default:
+		return buildDailyAutoScanPlan(settings, localNow, loc)
+	}
 }
 
 func buildDailyAutoScanPlan(settings map[string]string, now time.Time, loc *time.Location) AutoScanPlan {

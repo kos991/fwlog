@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+const minPasswordHashIterations = 10000
+
 type App struct {
 	cfg           Config
 	store         *ClickHouseStore
@@ -18,6 +20,7 @@ type App struct {
 	ipStatus      IPDataStatus
 	passwordHash  string
 	sessionToken  string
+	loginLimiter  loginLimiter
 	importRunner  importRunnerFunc
 	importMu      sync.Mutex
 	importing     bool
@@ -128,6 +131,7 @@ func (a *App) openClickHouseWithRetry(ctx context.Context) (*ClickHouseStore, er
 func loadAdminPassword() string {
 	password := strings.TrimSpace(os.Getenv("ADMIN_PASSWORD"))
 	if password == "" {
+		fmt.Fprintln(os.Stderr, "WARNING: ADMIN_PASSWORD 未设置，使用默认密码 admin，请在部署后立即修改")
 		return "admin"
 	}
 	return password

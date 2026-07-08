@@ -247,7 +247,7 @@ func (i *Importer) importFile(ctx context.Context, source LogSource, date time.T
 
 	scanner := bufio.NewScanner(reader)
 	buffer := make([]byte, 0, 64*1024)
-	scanner.Buffer(buffer, 1024*1024)
+	scanner.Buffer(buffer, 10*1024*1024)
 
 	rows := make([]NATLogRow, 0, batchSize)
 	var rowsImported uint64

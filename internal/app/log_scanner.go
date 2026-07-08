@@ -62,6 +62,9 @@ func ScanArchivedLogFiles(root string, now time.Time) ([]LogFileSnapshot, error)
 		if err != nil {
 			return nil, err
 		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
 		if now.Sub(info.ModTime()) < 5*time.Minute {
 			continue
 		}

@@ -87,7 +87,8 @@ func TestCIWorkflowMatchesClickHouseBuildFlow(t *testing.T) {
 			"working-directory: web",
 			"npm ci",
 			"npm run build",
-			"go test ./...",
+			"npm test",
+			"go test -race -count=1 ./...",
 			"sudo apt-get install -y rpm",
 			"go build -trimpath -ldflags \"-s -w\" -o dist/nat-query-service_linux_amd64 ./cmd/nat-query-service",
 			"PACKAGING_MODE=full bash packaging/build-server-packages.sh --version 0.0.0 --binary dist/nat-query-service_linux_amd64 --output dist",
@@ -111,6 +112,8 @@ func TestReleaseWorkflowMatchesClickHouseBuildFlow(t *testing.T) {
 			"working-directory: web",
 			"npm ci",
 			"npm run build",
+			"npm test",
+			"go test -race -count=1 ./...",
 			"go build -trimpath -ldflags \"-s -w -X nat-query-service/internal/app.appVersion=$version\" -o \"release/$asset\" ./cmd/nat-query-service",
 			"GOOS: linux",
 			"GOARCH: amd64",
@@ -127,6 +130,7 @@ func TestReleaseWorkflowMatchesClickHouseBuildFlow(t *testing.T) {
 			"fwlog-full_${pkg_version}_amd64.deb",
 			"fwlog-upgrade-v${pkg_version}.x86_64.rpm",
 			"fwlog-upgrade_${pkg_version}_amd64.deb",
+			"checksums.txt",
 			"gh release delete-asset",
 		},
 	)
@@ -266,7 +270,7 @@ func assertWorkflowMatchesBuildFlow(t *testing.T, path string, required []string
 		}
 	}
 
-	assertComesBefore(t, path, text, "npm run build", "go test ./...")
+	assertComesBefore(t, path, text, "npm run build", "go test -race")
 	assertComesBefore(t, path, text, "npm run build", "go build")
 
 	explicitFileBuild := strings.Join([]string{"main.go", "ip_engine.go"}, " ")

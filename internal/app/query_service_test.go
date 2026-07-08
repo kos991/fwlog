@@ -234,7 +234,7 @@ func TestBuildQuerySQLBuildsVisibleDatePredicatesAndParameterizedFilters(t *test
 	for _, want := range []string{
 		"(src_ip = ? OR dst_ip = ? OR nat_ip = ?)",
 		"(src_port = ? OR dst_port = ? OR nat_port = ?)",
-		"protocol IN (?, ?, ?)",
+		"protocol IN (?, ?)",
 		"action = ?",
 		"log_tag = ?",
 	} {
@@ -258,7 +258,6 @@ func TestBuildQuerySQLBuildsVisibleDatePredicatesAndParameterizedFilters(t *test
 		uint16(8443),
 		"TCP",
 		"6",
-		"6,",
 		"allow",
 		"edge-a",
 	}

@@ -32,7 +32,6 @@ func NewIPEngine() *IPEngine {
 	engine := &IPEngine{overrides: make(map[string]IPTag), segments: []networkSegment{}}
 	engine.AddSegment("172.18.0.0/17", "政务网私有段")
 	engine.AddSegment("172.28.128.0/19", "政务网私有段")
-	engine.AddSegment("2.0.0.0/8", "政务网私有段")
 	return engine
 }
 
