@@ -2,7 +2,8 @@ import React from 'react';
 import { DownOutlined, InfoCircleOutlined, SearchOutlined, UpOutlined } from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
-import { Alert, Button, DatePicker, Descriptions, Form, Input, Select, Tag, message } from 'antd';
+import { Alert, Button, DatePicker, Descriptions, Form, Input, Select, Table, Tag, message } from 'antd';
+import type { FilterDropdownProps } from 'antd/es/table/interface';
 import dayjs, { type Dayjs } from 'dayjs';
 import { apiGet, buildQueryString, type QueryVisibility } from '../api';
 
@@ -195,6 +196,28 @@ function latestReadyRange(states: DateState[], fallbackDate?: string): [Dayjs, D
   return [dayjs().subtract(7, 'day').startOf('day'), dayjs().endOf('day')];
 }
 
+function textFilterDropdown(placeholder: string) {
+  return (props: FilterDropdownProps) => {
+    const { selectedKeys, setSelectedKeys, confirm, clearFilters } = props;
+    return (
+      <div style={{ padding: 8 }}>
+        <Input
+          placeholder={placeholder}
+          value={selectedKeys[0] as string}
+          onChange={(e) => setSelectedKeys(e.target.value ? [e.target.value] : [])}
+          onPressEnter={() => confirm()}
+          style={{ width: 188, marginBottom: 8, display: 'block' }}
+          allowClear
+        />
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Button type="primary" size="small" onClick={() => confirm()}>筛选</Button>
+          <Button size="small" onClick={() => { clearFilters?.(); confirm(); }}>重置</Button>
+        </div>
+      </div>
+    );
+  };
+}
+
 export function LogSearchPage(_props: LogSearchPageProps) {
   const [form] = Form.useForm<SearchFormValues>();
   const [loading, setLoading] = React.useState(false);
@@ -287,14 +310,66 @@ export function LogSearchPage(_props: LogSearchPageProps) {
 
   const columns: ProColumns<SearchRecord>[] = [
     { title: '时间', dataIndex: 'timestamp', width: 180, render: (_, row) => mono(row.timestamp) },
-    { title: '日志名称', dataIndex: 'log_tag', width: 150 },
-    { title: '源 IP / 端口', width: 180, render: (_, row) => mono(address(row.src_ip, row.src_port)) },
-    { title: '目标 IP / 端口', width: 180, render: (_, row) => mono(address(row.dst_ip, row.dst_port)) },
-    { title: 'NAT IP / 端口', width: 180, render: (_, row) => mono(address(row.nat_ip, row.nat_port)) },
-    { title: '协议', dataIndex: 'protocol', width: 90, render: (_, row) => mono(normalizeProtocolText(row.protocol)) },
-    { title: '结果', dataIndex: 'action', width: 100, render: (_, row) => <Tag color={row.action === 'DENY' ? 'error' : 'processing'}>{actionText(row.action)}</Tag> },
-    { title: '源 IP 标注', dataIndex: 'src_ip_label', width: 160, render: (_, row) => row.src_ip_label || matchCidrAlias(row.src_ip, cidrAliases) || '-' },
-    { title: '目标地区', dataIndex: 'dst_geo', width: 160, render: (_, row) => row.dst_geo || geoFallback(row.dst_ip) },
+    {
+      title: '日志名称', dataIndex: 'log_tag', width: 150,
+      filterDropdown: textFilterDropdown('输入日志名称'),
+      onFilter: (value, row) => String(row.log_tag || '').toLowerCase().includes(String(value).toLowerCase()),
+    },
+    {
+      title: '源 IP / 端口', width: 180,
+      render: (_, row) => mono(address(row.src_ip, row.src_port)),
+      filterDropdown: textFilterDropdown('输入源 IP'),
+      onFilter: (value, row) => String(row.src_ip || '').includes(String(value)),
+    },
+    {
+      title: '目标 IP / 端口', width: 180,
+      render: (_, row) => mono(address(row.dst_ip, row.dst_port)),
+      filterDropdown: textFilterDropdown('输入目标 IP'),
+      onFilter: (value, row) => String(row.dst_ip || '').includes(String(value)),
+    },
+    {
+      title: 'NAT IP / 端口', width: 180,
+      render: (_, row) => mono(address(row.nat_ip, row.nat_port)),
+      filterDropdown: textFilterDropdown('输入 NAT IP'),
+      onFilter: (value, row) => String(row.nat_ip || '').includes(String(value)),
+    },
+    {
+      title: '协议', dataIndex: 'protocol', width: 90,
+      render: (_, row) => mono(normalizeProtocolText(row.protocol)),
+      filters: [
+        { text: 'TCP', value: 'TCP' },
+        { text: 'UDP', value: 'UDP' },
+        { text: 'ICMP', value: 'ICMP' },
+      ],
+      onFilter: (value, row) => normalizeProtocolText(row.protocol) === String(value),
+    },
+    {
+      title: '结果', dataIndex: 'action', width: 100,
+      render: (_, row) => <Tag color={row.action === 'DENY' ? 'error' : 'processing'}>{actionText(row.action)}</Tag>,
+      filters: [
+        { text: '放行', value: 'ALLOW' },
+        { text: '拒绝', value: 'DENY' },
+      ],
+      onFilter: (value, row) => row.action === String(value),
+    },
+    {
+      title: '源 IP 标注', dataIndex: 'src_ip_label', width: 160,
+      render: (_, row) => row.src_ip_label || matchCidrAlias(row.src_ip, cidrAliases) || '-',
+      filterDropdown: textFilterDropdown('输入标注关键词'),
+      onFilter: (value, row) => {
+        const label = row.src_ip_label || matchCidrAlias(row.src_ip, cidrAliases) || '';
+        return label.toLowerCase().includes(String(value).toLowerCase());
+      },
+    },
+    {
+      title: '目标地区', dataIndex: 'dst_geo', width: 160,
+      render: (_, row) => row.dst_geo || geoFallback(row.dst_ip),
+      filterDropdown: textFilterDropdown('输入地区关键词'),
+      onFilter: (value, row) => {
+        const geo = row.dst_geo || geoFallback(row.dst_ip) || '';
+        return geo.toLowerCase().includes(String(value).toLowerCase());
+      },
+    },
   ];
 
   const visibility = response?.visibility;
