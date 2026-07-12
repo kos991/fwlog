@@ -99,14 +99,20 @@ jobs:
           set -euo pipefail
           docker run --rm -v "$PWD/dist:/packages:ro" ubuntu:24.04 bash -ec '
             export DEBIAN_FRONTEND=noninteractive
-            apt-get update >/dev/null
-            apt-get install -y /packages/fwlog-full_0.0.0_amd64.deb >/dev/null
+            echo "[deb] installing full package"
+            apt-get update
+            apt-get install -y /packages/fwlog-full_0.0.0_amd64.deb
+            echo "[deb] checking full version"
             grep -Fx "VERSION=v0.0.0" /opt/nat-query/VERSION
             runtime_before="$(cat /opt/nat-query/RUNTIME_VERSION)"
             rm -f /opt/nat-query/clickhouse/bin/clickhouse
-            apt-get install -y /packages/fwlog-upgrade_0.0.1_amd64.deb >/dev/null
+            echo "[deb] installing upgrade package"
+            apt-get install -y /packages/fwlog-upgrade_0.0.1_amd64.deb
+            echo "[deb] checking upgraded version"
             grep -Fx "VERSION=v0.0.1" /opt/nat-query/VERSION
+            echo "[deb] checking runtime preservation"
             test "$(cat /opt/nat-query/RUNTIME_VERSION)" = "$runtime_before"
+            echo "[deb] checking package status"
             dpkg-query -W -f="${Status}" fwlog-upgrade | grep -Fx "install ok installed"
           '
 
