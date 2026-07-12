@@ -10,6 +10,12 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   });
 }
 
+export async function apiUpload<T>(path: string, file: File): Promise<T> {
+  const body = new FormData();
+  body.append('package', file);
+  return requestJSON<T>(path, { method: 'POST', body });
+}
+
 let onUnauthorized: (() => void) | null = null;
 
 export function setOnUnauthorized(handler: (() => void) | null): void {

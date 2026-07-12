@@ -31,6 +31,7 @@ func (a *App) Router() http.Handler {
 	mux.Handle("/api/upgrade/check", methodHandler(http.MethodGet, a.requireAuth(a.upgradeCheckHandler())))
 	mux.Handle("/api/upgrade/status", methodHandler(http.MethodGet, a.requireAuth(a.upgradeStatusHandler())))
 	mux.Handle("/api/upgrade/run", methodHandler(http.MethodPost, a.requireAuth(a.upgradeRunHandler())))
+	mux.Handle("/api/upgrade/upload", methodHandler(http.MethodPost, a.requireAuth(a.upgradeUploadHandler())))
 	mux.Handle("/api/version", methodHandler(http.MethodGet, a.requireAuth(versionHandler())))
 
 	mux.Handle("/", newStaticHandler())

@@ -15,11 +15,12 @@ import {
   SafetyCertificateOutlined,
   SyncOutlined,
   TagsOutlined,
+  UploadOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
-import { Button, DatePicker, Form, Input, Popconfirm, Select, Space, Switch, Tabs, Tag, TimePicker, Typography, message } from 'antd';
+import { Button, DatePicker, Form, Input, Popconfirm, Select, Space, Switch, Tabs, Tag, TimePicker, Typography, Upload, message } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
-import { apiGet, apiPost, type UpgradeCheckResponse, type UpgradeStatus } from '../api';
+import { apiGet, apiPost, apiUpload, type UpgradeCheckResponse, type UpgradeStatus } from '../api';
 import { buildUpgradeView } from '../upgradePresentation';
 
 const { Text } = Typography;
@@ -120,6 +121,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   const [importSourceID, setImportSourceID] = React.useState('');
   const [savedLogSources, setSavedLogSources] = React.useState<LogSourceSetting[]>([]);
   const [upgradeRestarting, setUpgradeRestarting] = React.useState(false);
+  const [upgradeFile, setUpgradeFile] = React.useState<File | null>(null);
   const geoipPath = Form.useWatch('geoip_db_path', form);
   const customIpPath = Form.useWatch('custom_ip_map_path', form);
   const autoScanEnabled = Form.useWatch('auto_scan_enabled', form);
@@ -301,6 +303,24 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
     } catch (error) {
       setUpgradeCheckError(error instanceof Error ? error.message : '启动升级失败');
       message.error(error instanceof Error ? error.message : '启动升级失败');
+    } finally {
+      setUpgradeLoading(false);
+    }
+  };
+
+  const uploadUpgrade = async () => {
+    if (!upgradeFile) {
+      message.error('请选择 fwlog-upgrade RPM 或 DEB 包');
+      return;
+    }
+    try {
+      setUpgradeLoading(true);
+      const status = await apiUpload<UpgradeStatus>('/api/upgrade/upload', upgradeFile);
+      setUpgradeStatus(status);
+      setUpgradeFile(null);
+      message.success('离线升级包已上传，安装任务已开始');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '上传升级包失败');
     } finally {
       setUpgradeLoading(false);
     }
@@ -622,6 +642,30 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                             </Button>
                           </Popconfirm>
                         ) : null}
+                      </div>
+                      <div className="maintenance-upgrade-actions">
+                        <Upload
+                          accept=".rpm,.deb"
+                          maxCount={1}
+                          fileList={upgradeFile ? [{ uid: upgradeFile.name, name: upgradeFile.name, status: 'done' }] : []}
+                          beforeUpload={(file) => {
+                            if (!/^fwlog-upgrade(?:-v.+\.x86_64\.rpm|_.+_amd64\.deb)$/i.test(file.name)) {
+                              message.error('只允许 fwlog-upgrade RPM 或 DEB 包');
+                              return Upload.LIST_IGNORE;
+                            }
+                            setUpgradeFile(file);
+                            return false;
+                          }}
+                          onRemove={() => {
+                            setUpgradeFile(null);
+                            return true;
+                          }}
+                        >
+                          <Button icon={<UploadOutlined />}>选择离线升级包</Button>
+                        </Upload>
+                        <Button type="primary" disabled={!upgradeFile} loading={upgradeLoading} onClick={() => void uploadUpgrade()}>
+                          上传并安装
+                        </Button>
                       </div>
                     </div>
 
