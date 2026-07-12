@@ -86,6 +86,7 @@ jobs:
             dist/nat-query-service_linux_amd64
             dist/fwlog-full-v0.0.0.x86_64.rpm
             dist/fwlog-full_0.0.0_amd64.deb
+            dist/fwlog-full-v0.0.0-amd64.tar.gz
             dist/fwlog-upgrade-v0.0.0.x86_64.rpm
             dist/fwlog-upgrade_0.0.0_amd64.deb
           if-no-files-found: error

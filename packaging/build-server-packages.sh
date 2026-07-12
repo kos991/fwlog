@@ -373,4 +373,30 @@ for artifact in "$output_dir/$rpm_output_name" "$output_dir/$deb_output_name"; d
     fi
 done
 
-ls -lh "$output_dir/$rpm_output_name" "$output_dir/$deb_output_name" "$checksums_file" 2>/dev/null || true
+if [[ "$mode" == "full" ]]; then
+    bundle_name="fwlog-full-v${pkg_version}-amd64"
+    bundle_dir="$work_dir/$bundle_name"
+    mkdir -p "$bundle_dir/packages"
+    cp "$output_dir/$rpm_output_name" "$output_dir/$deb_output_name" "$bundle_dir/packages/"
+    cp "$checksums_file" "$bundle_dir/checksums.txt"
+    cat > "$bundle_dir/install.sh" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+bundle_dir="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+cd "\$bundle_dir"
+sha256sum -c checksums.txt --ignore-missing
+if command -v rpm >/dev/null 2>&1 && [[ -f "packages/$rpm_output_name" ]]; then
+    rpm -Uvh --replacepkgs "packages/$rpm_output_name"
+elif command -v dpkg >/dev/null 2>&1 && [[ -f "packages/$deb_output_name" ]]; then
+    dpkg -i "packages/$deb_output_name"
+else
+    echo "unsupported system: rpm or dpkg is required" >&2
+    exit 1
+fi
+systemctl is-active --quiet nat-query-service.service
+EOF
+    chmod 0755 "$bundle_dir/install.sh"
+    tar -C "$work_dir" -czf "$output_dir/$bundle_name.tar.gz" "$bundle_name"
+fi
+
+ls -lh "$output_dir/$rpm_output_name" "$output_dir/$deb_output_name" "$checksums_file" "$output_dir/fwlog-full-v${pkg_version}-amd64.tar.gz" 2>/dev/null || true

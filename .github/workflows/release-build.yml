@@ -171,9 +171,35 @@ jobs:
             nat-query-service_debian-server_amd64.deb \
             "fwlog-full-v${pkg_version}.x86_64.rpm" \
             "fwlog-full_${pkg_version}_amd64.deb" \
+            "fwlog-full-v${pkg_version}-amd64.tar.gz" \
             "fwlog-upgrade-v${pkg_version}.x86_64.rpm" \
             "fwlog-upgrade_${pkg_version}_amd64.deb" \
             > checksums.txt)
+          VERSION="$version" PKG_VERSION="$pkg_version" CLICKHOUSE_VERSION="$CLICKHOUSE_VERSION" python3 <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path("release")
+          pkg = os.environ["PKG_VERSION"]
+          names = {
+              "rpm": f"fwlog-upgrade-v{pkg}.x86_64.rpm",
+              "deb": f"fwlog-upgrade_{pkg}_amd64.deb",
+              "full": f"fwlog-full-v{pkg}-amd64.tar.gz",
+          }
+          assets = {}
+          for kind, name in names.items():
+              data = (root / name).read_bytes()
+              assets[kind] = {"name": name, "sha256": hashlib.sha256(data).hexdigest()}
+          manifest = {
+              "app_version": os.environ["VERSION"],
+              "runtime_version": f"clickhouse-{os.environ['CLICKHOUSE_VERSION']}",
+              "arch": "amd64",
+              "assets": assets,
+          }
+          (root / "latest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          PY
 
       - name: Upload release asset
         env:
@@ -191,9 +217,11 @@ jobs:
             "nat-query-service_debian-server_amd64.deb" \
             "fwlog-full-v${pkg_version}.x86_64.rpm" \
             "fwlog-full_${pkg_version}_amd64.deb" \
+            "fwlog-full-v${pkg_version}-amd64.tar.gz" \
             "fwlog-upgrade-v${pkg_version}.x86_64.rpm" \
             "fwlog-upgrade_${pkg_version}_amd64.deb" \
-            "checksums.txt")"
+            "checksums.txt" \
+            "latest.json")"
           while IFS= read -r asset_name; do
             if [[ -n "$asset_name" ]] && ! grep -Fxq "$asset_name" <<< "$allowed_assets"; then
               gh release delete-asset "$version" "$asset_name" --repo "$GH_REPO" --yes
