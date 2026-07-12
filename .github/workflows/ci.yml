@@ -107,7 +107,7 @@ jobs:
             apt-get install -y /packages/fwlog-upgrade_0.0.1_amd64.deb >/dev/null
             grep -Fx "VERSION=v0.0.1" /opt/nat-query/VERSION
             test "$(cat /opt/nat-query/RUNTIME_VERSION)" = "$runtime_before"
-            dpkg-query -W -f="${Status}" nat-query-service | grep -Fx "install ok installed"
+            dpkg-query -W -f="${Status}" fwlog-upgrade | grep -Fx "install ok installed"
           '
 
       - name: Test RPM package upgrade transaction
@@ -119,10 +119,10 @@ jobs:
             grep -Fx "VERSION=v0.0.0" /opt/nat-query/VERSION
             runtime_before="$(cat /opt/nat-query/RUNTIME_VERSION)"
             rm -f /opt/nat-query/clickhouse/bin/clickhouse
-            rpm -Uvh /packages/fwlog-upgrade-v0.0.1.x86_64.rpm >/dev/null
+            rpm -Uvh --replacefiles /packages/fwlog-upgrade-v0.0.1.x86_64.rpm >/dev/null
             grep -Fx "VERSION=v0.0.1" /opt/nat-query/VERSION
             test "$(cat /opt/nat-query/RUNTIME_VERSION)" = "$runtime_before"
-            rpm -q nat-query-service
+            rpm -q fwlog-upgrade
           '
 
       - name: Upload server package artifacts

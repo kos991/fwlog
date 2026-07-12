@@ -242,14 +242,14 @@ func TestPackageInstallScriptsPropagateServiceRestartFailure(t *testing.T) {
 	}
 }
 
-func TestFullAndUpgradeArtifactsShareStablePackageIdentity(t *testing.T) {
+func TestFullAndUpgradeArtifactsKeepRuntimeOwnerInstalled(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("build-server-packages.sh"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(data)
-	if strings.Count(text, `package_name="nat-query-service"`) != 2 {
-		t.Fatal("full and upgrade artifacts must use the same package identity so package managers perform an in-place upgrade")
+	if !strings.Contains(text, `package_name="fwlog-full"`) || !strings.Contains(text, `package_name="fwlog-upgrade"`) {
+		t.Fatal("full must keep owning runtime files while the thin upgrade package replaces only shared application files")
 	}
 }
 

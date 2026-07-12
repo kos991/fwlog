@@ -248,7 +248,7 @@ func installUpgradePackage(ctx context.Context, pkg upgradePackage) error {
 	switch pkg.Format {
 	case upgradePackageRPM:
 		commandName = "rpm"
-		commandArgs = []string{"-Uvh", pkg.Path}
+		commandArgs = []string{"-Uvh", "--replacefiles", pkg.Path}
 	case upgradePackageDEB:
 		commandName = "dpkg"
 		commandArgs = []string{"-i", pkg.Path}

@@ -102,7 +102,7 @@ work_dir="$(mktemp -d)"
 trap 'rm -rf "$work_dir"' EXIT
 
 include_clickhouse=true
-package_name="nat-query-service"
+package_name="fwlog-full"
 rpm_output_name="fwlog-full-v${pkg_version}.${rpm_arch}.rpm"
 deb_output_name="fwlog-full_${pkg_version}_${deb_arch}.deb"
 package_summary="FWLog offline full installer with bundled ClickHouse runtime"
@@ -110,7 +110,7 @@ package_description="FWLog NAT query service bundled with a private ClickHouse r
 
 if [[ "$mode" == "upgrade" ]]; then
     include_clickhouse=false
-    package_name="nat-query-service"
+    package_name="fwlog-upgrade"
     rpm_output_name="fwlog-upgrade-v${pkg_version}.${rpm_arch}.rpm"
     deb_output_name="fwlog-upgrade_${pkg_version}_${deb_arch}.deb"
     package_summary="FWLog application upgrade package"
@@ -228,7 +228,7 @@ Priority: optional
 Architecture: $deb_arch
 Depends: systemd
 Provides: nat-query-service
-Replaces: nat-query-service
+Replaces: nat-query-service, fwlog-full
 Breaks: nat-query-service
 Installed-Size: $installed_size
 Maintainer: fwlog <noreply@example.invalid>
