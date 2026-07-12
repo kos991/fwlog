@@ -358,8 +358,12 @@ func fetchReleaseManifest(ctx context.Context, release githubRelease) (releaseMa
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return releaseManifest{}, fmt.Errorf("release manifest returned status %d", resp.StatusCode)
 	}
+	return decodeReleaseManifest(io.LimitReader(resp.Body, 1024*1024))
+}
+
+func decodeReleaseManifest(reader io.Reader) (releaseManifest, error) {
 	var manifest releaseManifest
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1024*1024)).Decode(&manifest); err != nil {
+	if err := json.NewDecoder(reader).Decode(&manifest); err != nil {
 		return releaseManifest{}, err
 	}
 	return manifest, nil
