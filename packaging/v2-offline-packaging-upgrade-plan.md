@@ -326,18 +326,18 @@ fwlog-upgrade
 
 ## V2 任务清单
 
-- [ ] 拆分 full/upgrade 两种打包模式。
-- [ ] 新增 DEB 打包产物。
-- [ ] 新增全量离线 tar.gz 结构与 `install.sh`。
-- [ ] 生成 `latest.json` 和 `checksums.txt`。
-- [ ] 新增 `VERSION` 和 `RUNTIME_VERSION` 安装写入逻辑。
-- [ ] 后端新增本地版本读取接口。
+- [x] 拆分 full/upgrade 两种打包模式。
+- [x] 新增 DEB 打包产物。
+- [x] 新增全量离线 tar.gz 结构与 `install.sh`。
+- [x] 生成 `latest.json` 和 `checksums.txt`。
+- [x] 新增 `VERSION` 和 `RUNTIME_VERSION` 安装写入逻辑。
+- [x] 后端新增本地版本读取接口。
 - [ ] 后端新增 manifest 检查和升级状态接口。
 - [ ] 后端升级安装流程增加包类型、版本、架构、sha256、ClickHouse 路径校验。
-- [ ] 升级页改为应用版本检查，不默认判断 ClickHouse 版本。
+- [x] 升级页改为应用版本检查，不默认判断 ClickHouse 版本。
 - [ ] 升级页 runtime 不满足时提示使用全量离线包。
-- [ ] 升级页支持手动上传离线升级包。
-- [ ] RPM/DEB 升级脚本保留 app_settings。
+- [x] 升级页支持手动上传离线升级包。
+- [x] RPM/DEB 升级脚本保留 app_settings。
 - [ ] 验证 Kylin x86_64 全量安装。
 - [ ] 验证 Kylin x86_64 升级包升级。
 - [ ] 验证 Debian/Ubuntu amd64 全量安装。
