@@ -173,6 +173,8 @@ func TestPackagedServiceUnitMatchesPackageMode(t *testing.T) {
 			shellScript := "set -euo pipefail\n" +
 				"repo_root=" + shellQuote(filepath.ToSlash(repoRoot)) + "\n" +
 				"binary_path=" + shellQuote(filepath.ToSlash(binaryPath)) + "\n" +
+				"pkg_version=9.9.9\n" +
+				"CLICKHOUSE_VERSION=25.8.27.1\n" +
 				"include_clickhouse=" + shellQuote(tc.includeClickHouse) + "\n" +
 				stageFunction + "\n" +
 				"stage_rootfs " + shellQuote(filepath.ToSlash(rootfs)) + " " + shellQuote(filepath.ToSlash(clickHousePath)) + " " + shellQuote(filepath.ToSlash(geoIPPath)) + "\n"
@@ -191,6 +193,19 @@ func TestPackagedServiceUnitMatchesPackageMode(t *testing.T) {
 			}
 			if strings.Contains(unit, tc.forbidden) {
 				t.Fatalf("service unit contains forbidden dependency %q\n%s", tc.forbidden, unit)
+			}
+			versionData, err := os.ReadFile(filepath.Join(rootfs, "opt", "nat-query", "VERSION"))
+			if err != nil || strings.TrimSpace(string(versionData)) != "VERSION=v9.9.9" {
+				t.Fatalf("VERSION file is invalid: %q, error %v", versionData, err)
+			}
+			runtimePath := filepath.Join(rootfs, "opt", "nat-query", "RUNTIME_VERSION")
+			if tc.includeClickHouse == "true" {
+				runtimeData, err := os.ReadFile(runtimePath)
+				if err != nil || strings.TrimSpace(string(runtimeData)) != "RUNTIME_VERSION=clickhouse-25.8.27.1" {
+					t.Fatalf("RUNTIME_VERSION file is invalid: %q, error %v", runtimeData, err)
+				}
+			} else if _, err := os.Stat(runtimePath); !os.IsNotExist(err) {
+				t.Fatal("upgrade rootfs must not contain RUNTIME_VERSION")
 			}
 		})
 	}

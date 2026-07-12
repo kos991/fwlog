@@ -186,6 +186,7 @@ stage_rootfs() {
         "$rootfs/data/export"
 
     install -m 0755 "$binary_path" "$rootfs/opt/nat-query/nat-query-service"
+    printf 'VERSION=v%s\n' "$pkg_version" > "$rootfs/opt/nat-query/VERSION"
     local service_unit="$repo_root/nat-query-service.service"
     if [[ "$include_clickhouse" != "true" ]]; then
         service_unit="$repo_root/packaging/systemd/nat-query-service-upgrade.service"
@@ -194,6 +195,7 @@ stage_rootfs() {
     install -m 0644 "$geoip_db" "$rootfs/data/index/GeoLite2-City.mmdb"
 
     if [[ "$include_clickhouse" == "true" ]]; then
+        printf 'RUNTIME_VERSION=clickhouse-%s\n' "${CLICKHOUSE_VERSION:-25.8.27.1}" > "$rootfs/opt/nat-query/RUNTIME_VERSION"
         install -d "$rootfs/opt/nat-query/clickhouse/bin" \
             "$rootfs/opt/nat-query/clickhouse/etc" \
             "$rootfs/opt/nat-query/clickhouse/data" \

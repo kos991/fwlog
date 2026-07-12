@@ -2,7 +2,7 @@ import React from 'react';
 import { DownOutlined, InfoCircleOutlined, SearchOutlined, UpOutlined } from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
-import { Alert, Button, DatePicker, Descriptions, Form, Input, Select, Table, Tag, message } from 'antd';
+import { Alert, Button, DatePicker, Descriptions, Form, Input, Select, Tag, message } from 'antd';
 import type { FilterDropdownProps } from 'antd/es/table/interface';
 import dayjs, { type Dayjs } from 'dayjs';
 import { apiGet, buildQueryString, type QueryVisibility } from '../api';
@@ -196,7 +196,7 @@ function latestReadyRange(states: DateState[], fallbackDate?: string): [Dayjs, D
   return [dayjs().subtract(7, 'day').startOf('day'), dayjs().endOf('day')];
 }
 
-function textFilterDropdown(placeholder: string) {
+function textFilterDropdown(placeholder: string, onApply: (value: string) => void) {
   return (props: FilterDropdownProps) => {
     const { selectedKeys, setSelectedKeys, confirm, clearFilters } = props;
     return (
@@ -205,13 +205,25 @@ function textFilterDropdown(placeholder: string) {
           placeholder={placeholder}
           value={selectedKeys[0] as string}
           onChange={(e) => setSelectedKeys(e.target.value ? [e.target.value] : [])}
-          onPressEnter={() => confirm()}
+          onPressEnter={() => {
+            const value = String(selectedKeys[0] || '').trim();
+            confirm({ closeDropdown: true });
+            onApply(value);
+          }}
           style={{ width: 188, marginBottom: 8, display: 'block' }}
           allowClear
         />
         <div style={{ display: 'flex', gap: 8 }}>
-          <Button type="primary" size="small" onClick={() => confirm()}>筛选</Button>
-          <Button size="small" onClick={() => { clearFilters?.(); confirm(); }}>重置</Button>
+          <Button type="primary" size="small" onClick={() => {
+            const value = String(selectedKeys[0] || '').trim();
+            confirm({ closeDropdown: true });
+            onApply(value);
+          }}>筛选</Button>
+          <Button size="small" onClick={() => {
+            clearFilters?.();
+            confirm({ closeDropdown: true });
+            onApply('');
+          }}>重置</Button>
         </div>
       </div>
     );
@@ -284,6 +296,14 @@ export function LogSearchPage(_props: LogSearchPageProps) {
     }
   };
 
+  const applyColumnFilter = React.useCallback((field: keyof SearchFormValues, value: string) => {
+    form.setFieldValue(field, value || undefined);
+    const values = { ...form.getFieldsValue(), [field]: value || undefined } as SearchFormValues;
+    setAdvancedOpen(true);
+    setQueryValues(values);
+    void runSearch(values, 1, queryPageSize, undefined, true);
+  }, [form, queryPageSize, runSearch]);
+
   React.useEffect(() => {
     let active = true;
     const loadInitialData = async () => {
@@ -312,63 +332,46 @@ export function LogSearchPage(_props: LogSearchPageProps) {
     { title: '时间', dataIndex: 'timestamp', width: 180, render: (_, row) => mono(row.timestamp) },
     {
       title: '日志名称', dataIndex: 'log_tag', width: 150,
-      filterDropdown: textFilterDropdown('输入日志名称'),
-      onFilter: (value, row) => String(row.log_tag || '').toLowerCase().includes(String(value).toLowerCase()),
+      filteredValue: queryValues?.log_tag ? [queryValues.log_tag] : null,
+      filterDropdown: textFilterDropdown('输入日志名称', (value) => applyColumnFilter('log_tag', value)),
     },
     {
       title: '源 IP / 端口', width: 180,
       render: (_, row) => mono(address(row.src_ip, row.src_port)),
-      filterDropdown: textFilterDropdown('输入源 IP'),
-      onFilter: (value, row) => String(row.src_ip || '').includes(String(value)),
+      filteredValue: queryValues?.src_ip ? [queryValues.src_ip] : null,
+      filterDropdown: textFilterDropdown('输入源 IP', (value) => applyColumnFilter('src_ip', value)),
     },
     {
       title: '目标 IP / 端口', width: 180,
       render: (_, row) => mono(address(row.dst_ip, row.dst_port)),
-      filterDropdown: textFilterDropdown('输入目标 IP'),
-      onFilter: (value, row) => String(row.dst_ip || '').includes(String(value)),
+      filteredValue: queryValues?.dst_ip ? [queryValues.dst_ip] : null,
+      filterDropdown: textFilterDropdown('输入目标 IP', (value) => applyColumnFilter('dst_ip', value)),
     },
     {
       title: 'NAT IP / 端口', width: 180,
       render: (_, row) => mono(address(row.nat_ip, row.nat_port)),
-      filterDropdown: textFilterDropdown('输入 NAT IP'),
-      onFilter: (value, row) => String(row.nat_ip || '').includes(String(value)),
+      filteredValue: queryValues?.nat_ip ? [queryValues.nat_ip] : null,
+      filterDropdown: textFilterDropdown('输入 NAT IP', (value) => applyColumnFilter('nat_ip', value)),
     },
     {
       title: '协议', dataIndex: 'protocol', width: 90,
       render: (_, row) => mono(normalizeProtocolText(row.protocol)),
-      filters: [
-        { text: 'TCP', value: 'TCP' },
-        { text: 'UDP', value: 'UDP' },
-        { text: 'ICMP', value: 'ICMP' },
-      ],
-      onFilter: (value, row) => normalizeProtocolText(row.protocol) === String(value),
+      filteredValue: queryValues?.protocol ? [queryValues.protocol] : null,
+      filterDropdown: textFilterDropdown('输入 TCP、UDP 或 ICMP', (value) => applyColumnFilter('protocol', value.toUpperCase())),
     },
     {
       title: '结果', dataIndex: 'action', width: 100,
       render: (_, row) => <Tag color={row.action === 'DENY' ? 'error' : 'processing'}>{actionText(row.action)}</Tag>,
-      filters: [
-        { text: '放行', value: 'ALLOW' },
-        { text: '拒绝', value: 'DENY' },
-      ],
-      onFilter: (value, row) => row.action === String(value),
+      filteredValue: queryValues?.action ? [queryValues.action] : null,
+      filterDropdown: textFilterDropdown('输入 ALLOW 或 DENY', (value) => applyColumnFilter('action', value.toUpperCase())),
     },
     {
       title: '源 IP 标注', dataIndex: 'src_ip_label', width: 160,
       render: (_, row) => row.src_ip_label || matchCidrAlias(row.src_ip, cidrAliases) || '-',
-      filterDropdown: textFilterDropdown('输入标注关键词'),
-      onFilter: (value, row) => {
-        const label = row.src_ip_label || matchCidrAlias(row.src_ip, cidrAliases) || '';
-        return label.toLowerCase().includes(String(value).toLowerCase());
-      },
     },
     {
       title: '目标地区', dataIndex: 'dst_geo', width: 160,
       render: (_, row) => row.dst_geo || geoFallback(row.dst_ip),
-      filterDropdown: textFilterDropdown('输入地区关键词'),
-      onFilter: (value, row) => {
-        const geo = row.dst_geo || geoFallback(row.dst_ip) || '';
-        return geo.toLowerCase().includes(String(value).toLowerCase());
-      },
     },
   ];
 

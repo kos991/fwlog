@@ -1359,6 +1359,7 @@ body {
 
 .progress-list {
   display: grid;
+  overflow-x: auto;
 }
 
 .progress-list-row {
@@ -1370,6 +1371,15 @@ body {
   min-height: 46px;
   padding: 8px 14px;
   border-bottom: 1px solid var(--fw-line-soft);
+  min-width: 820px;
+}
+
+.progress-list-row > strong,
+.progress-list-row > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .progress-list-row:last-child {
@@ -2126,6 +2136,7 @@ body {
   .progress-list-row {
     grid-template-columns: 82px 92px 72px 64px 84px minmax(110px, 1fr);
     gap: 8px;
+    min-width: 620px;
   }
 
   .progress-list-row > span:last-child,

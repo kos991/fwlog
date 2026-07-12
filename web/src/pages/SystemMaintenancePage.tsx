@@ -118,11 +118,11 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   const [rebuildDate, setRebuildDate] = React.useState<Dayjs | null>(dayjs());
   const [fullRebuild, setFullRebuild] = React.useState(false);
   const [importSourceID, setImportSourceID] = React.useState('');
+  const [savedLogSources, setSavedLogSources] = React.useState<LogSourceSetting[]>([]);
   const [upgradeRestarting, setUpgradeRestarting] = React.useState(false);
   const geoipPath = Form.useWatch('geoip_db_path', form);
   const customIpPath = Form.useWatch('custom_ip_map_path', form);
   const autoScanEnabled = Form.useWatch('auto_scan_enabled', form);
-  const configuredSources = Form.useWatch('log_sources', form);
 
   const load = React.useCallback(async () => {
     try {
@@ -138,6 +138,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
         },
       ];
       const cidrAliases = parseCidrAliases(settings.cidr_aliases);
+      setSavedLogSources(logSources);
       form.setFieldsValue({
         ...settings,
         log_sources: logSources,
@@ -216,6 +217,10 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
         auto_scan_timezone: values.auto_scan_timezone || 'Asia/Shanghai',
         auto_scan_interval_sec: String(Number(values.auto_scan_interval_sec) || 3600),
       });
+      setSavedLogSources(logSources);
+      if (importSourceID && !logSources.some((source) => source.enabled !== false && source.source_id === importSourceID)) {
+        setImportSourceID('');
+      }
       message.success('设置已保存');
     } catch (error) {
       message.error(error instanceof Error ? error.message : '保存设置失败');
@@ -224,10 +229,11 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
     }
   };
 
-  const trigger = async (path: string, ok: string) => {
+  const trigger = async (path: string, ok: string, includeSource = false) => {
     try {
       setLoading(true);
-      const target = importSourceID
+      const sourceScoped = includeSource || path.startsWith('/api/rebuild');
+      const target = sourceScoped && importSourceID
         ? `${path}${path.includes('?') ? '&' : '?'}source_id=${encodeURIComponent(importSourceID)}`
         : path;
       await apiPost(target);
@@ -248,7 +254,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
       message.error('请先选择重建日期');
       return;
     }
-    await trigger(`/api/rebuild?date=${rebuildDate.format('YYYY-MM-DD')}`, '已触发指定日期重建');
+    await trigger(`/api/rebuild?date=${rebuildDate.format('YYYY-MM-DD')}`, '已触发指定日期重建', true);
   };
 
   const checkUpgrade = async () => {
@@ -514,7 +520,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                           onChange={setImportSourceID}
                           options={[
                             { value: '', label: 'All enabled sources' },
-                            ...parseLogSources(configuredSources)
+                            ...savedLogSources
                               .filter((source) => source.enabled !== false)
                               .map((source) => ({
                                 value: source.source_id || 'default',
@@ -525,7 +531,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                       </div>
                       <div className="maintenance-field">
                         <label>手动入库</label>
-                        <Button type="primary" icon={<SyncOutlined />} onClick={() => void trigger('/api/sync', '已开始入库')} loading={loading}>
+                        <Button type="primary" icon={<SyncOutlined />} onClick={() => void trigger('/api/sync', '已开始入库', true)} loading={loading}>
                           执行
                         </Button>
                       </div>

@@ -110,7 +110,9 @@ fi
 %files
 %dir /opt/nat-query
 /opt/nat-query/nat-query-service
+/opt/nat-query/VERSION
 %if %{include_clickhouse}
+/opt/nat-query/RUNTIME_VERSION
 %dir /opt/nat-query/clickhouse
 %dir /opt/nat-query/clickhouse/bin
 /opt/nat-query/clickhouse/bin/clickhouse
