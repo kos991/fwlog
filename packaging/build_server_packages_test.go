@@ -139,6 +139,9 @@ func TestPackagedServiceUnitMatchesPackageMode(t *testing.T) {
 	if strings.Contains(string(scriptData), "systemctl restart nat-query-service.service || true") {
 		t.Fatal("package install must fail when the application service cannot restart")
 	}
+	if !strings.Contains(string(scriptData), `cd "\$bundle_dir/packages"`) || !strings.Contains(string(scriptData), `sha256sum -c ../checksums.txt`) {
+		t.Fatal("offline installer must verify package checksums from the packages directory")
+	}
 
 	for _, tc := range []struct {
 		name              string

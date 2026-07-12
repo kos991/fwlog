@@ -384,11 +384,12 @@ if [[ "$mode" == "full" ]]; then
 set -euo pipefail
 bundle_dir="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
 cd "\$bundle_dir"
-sha256sum -c checksums.txt --ignore-missing
-if command -v rpm >/dev/null 2>&1 && [[ -f "packages/$rpm_output_name" ]]; then
-    rpm -Uvh --replacepkgs "packages/$rpm_output_name"
-elif command -v dpkg >/dev/null 2>&1 && [[ -f "packages/$deb_output_name" ]]; then
-    dpkg -i "packages/$deb_output_name"
+cd "\$bundle_dir/packages"
+sha256sum -c ../checksums.txt --ignore-missing
+if command -v rpm >/dev/null 2>&1 && [[ -f "$rpm_output_name" ]]; then
+    rpm -Uvh --replacepkgs "$rpm_output_name"
+elif command -v dpkg >/dev/null 2>&1 && [[ -f "$deb_output_name" ]]; then
+    dpkg -i "$deb_output_name"
 else
     echo "unsupported system: rpm or dpkg is required" >&2
     exit 1
