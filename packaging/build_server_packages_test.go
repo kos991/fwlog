@@ -242,6 +242,17 @@ func TestPackageInstallScriptsPropagateServiceRestartFailure(t *testing.T) {
 	}
 }
 
+func TestFullAndUpgradeArtifactsShareStablePackageIdentity(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("build-server-packages.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if strings.Count(text, `package_name="nat-query-service"`) != 2 {
+		t.Fatal("full and upgrade artifacts must use the same package identity so package managers perform an in-place upgrade")
+	}
+}
+
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
