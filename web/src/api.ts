@@ -298,4 +298,7 @@ export type UpgradeCheckResponse = {
   missing_assets: string[];
   message?: string;
   status: UpgradeStatus;
+  runtime_version?: string;
+  required_runtime_version?: string;
+  runtime_compatible?: boolean;
 };

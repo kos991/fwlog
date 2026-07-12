@@ -29,6 +29,7 @@ const (
 	upgradeHTTPTimeout     = 10 * time.Minute
 	maxUpgradePackageBytes = 512 * 1024 * 1024
 	checksumsAssetName     = "checksums.txt"
+	manifestAssetName      = "latest.json"
 )
 
 var appVersion = "dev"
@@ -62,14 +63,22 @@ type UpgradeStatus struct {
 }
 
 type UpgradeCheckResponse struct {
-	CurrentVersion  string        `json:"current_version"`
-	LatestVersion   string        `json:"latest_version"`
-	UpdateAvailable bool          `json:"update_available"`
-	ReleaseURL      string        `json:"release_url"`
-	AssetsReady     bool          `json:"assets_ready"`
-	MissingAssets   []string      `json:"missing_assets"`
-	Message         string        `json:"message,omitempty"`
-	Status          UpgradeStatus `json:"status"`
+	CurrentVersion         string        `json:"current_version"`
+	LatestVersion          string        `json:"latest_version"`
+	UpdateAvailable        bool          `json:"update_available"`
+	ReleaseURL             string        `json:"release_url"`
+	AssetsReady            bool          `json:"assets_ready"`
+	MissingAssets          []string      `json:"missing_assets"`
+	Message                string        `json:"message,omitempty"`
+	Status                 UpgradeStatus `json:"status"`
+	RuntimeVersion         string        `json:"runtime_version"`
+	RequiredRuntimeVersion string        `json:"required_runtime_version,omitempty"`
+	RuntimeCompatible      bool          `json:"runtime_compatible"`
+}
+
+type releaseManifest struct {
+	AppVersion     string `json:"app_version"`
+	RuntimeVersion string `json:"runtime_version"`
 }
 
 type upgradeTarget struct {
@@ -295,21 +304,65 @@ func (a *App) upgradeCheckHandler() http.Handler {
 			return
 		}
 		_, missing := releaseUpgradeAssets(release)
+		manifest, manifestErr := fetchReleaseManifest(r.Context(), release)
+		if manifestErr != nil {
+			missing = append(missing, manifestAssetName)
+		}
+		installed := installedVersionInfo()
+		runtimeCompatible := manifest.RuntimeVersion == "" || installed.RuntimeVersion == manifest.RuntimeVersion
 		latestVersion := strings.TrimSpace(release.TagName)
 		response := UpgradeCheckResponse{
-			CurrentVersion:  a.currentAppVersion(),
-			LatestVersion:   latestVersion,
-			UpdateAvailable: latestVersion != "" && latestVersion != a.currentAppVersion(),
-			ReleaseURL:      release.HTMLURL,
-			AssetsReady:     len(missing) == 0,
-			MissingAssets:   missing,
-			Status:          a.currentUpgradeStatus(),
+			CurrentVersion:         a.currentAppVersion(),
+			LatestVersion:          latestVersion,
+			UpdateAvailable:        latestVersion != "" && latestVersion != a.currentAppVersion(),
+			ReleaseURL:             release.HTMLURL,
+			AssetsReady:            len(missing) == 0,
+			MissingAssets:          missing,
+			Status:                 a.currentUpgradeStatus(),
+			RuntimeVersion:         installed.RuntimeVersion,
+			RequiredRuntimeVersion: manifest.RuntimeVersion,
+			RuntimeCompatible:      runtimeCompatible,
+		}
+		if !runtimeCompatible {
+			response.AssetsReady = false
+			response.Message = "当前 runtime 不满足升级要求，请使用 full 离线包"
 		}
 		if len(missing) > 0 {
 			response.Message = "Release 缺少 Linux 升级资产"
 		}
 		writeJSON(w, response)
 	})
+}
+
+func fetchReleaseManifest(ctx context.Context, release githubRelease) (releaseManifest, error) {
+	assetURL := ""
+	for _, asset := range release.Assets {
+		if asset.Name == manifestAssetName {
+			assetURL = strings.TrimSpace(asset.BrowserDownloadURL)
+			break
+		}
+	}
+	if assetURL == "" {
+		return releaseManifest{}, errors.New("release manifest is missing")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, assetURL, nil)
+	if err != nil {
+		return releaseManifest{}, err
+	}
+	req.Header.Set("User-Agent", "fwlog-auto-upgrade")
+	resp, err := upgradeHTTPClient.Do(req)
+	if err != nil {
+		return releaseManifest{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return releaseManifest{}, fmt.Errorf("release manifest returned status %d", resp.StatusCode)
+	}
+	var manifest releaseManifest
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1024*1024)).Decode(&manifest); err != nil {
+		return releaseManifest{}, err
+	}
+	return manifest, nil
 }
 
 func (a *App) upgradeStatusHandler() http.Handler {

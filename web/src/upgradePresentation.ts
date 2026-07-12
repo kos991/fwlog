@@ -6,6 +6,7 @@ export type UpgradePanelState =
   | 'available'
   | 'latest'
   | 'asset_missing'
+  | 'runtime_incompatible'
   | 'running'
   | 'failed'
   | 'succeeded';
@@ -56,6 +57,7 @@ function resolvePanelState(input: BuildUpgradeViewInput): UpgradePanelState {
   if (input.isChecking) return 'checking';
   if (input.status?.state === 'running') return 'running';
   if (input.check) {
+    if (input.check.runtime_compatible === false) return 'runtime_incompatible';
     if (input.check.update_available && !input.check.assets_ready) return 'asset_missing';
     if (input.check.update_available && input.check.assets_ready) return 'available';
     return 'latest';
@@ -87,6 +89,11 @@ function buildMessage(input: BuildUpgradeViewInput, state: UpgradePanelState, la
     const missing = input.check?.missing_assets || [];
     return missing.length ? `缺少发布资产：${missing.join(', ')}` : input.check?.message || '发布资产不完整，暂不能升级。';
   }
+  if (state === 'runtime_incompatible') {
+    const current = input.check?.runtime_version || 'unknown';
+    const required = input.check?.required_runtime_version || 'unknown';
+    return `当前 runtime ${current}，目标版本要求 ${required}，请使用 full 离线包升级。`;
+  }
   if (state === 'available') {
     return latestVersion ? `发现新版本：${latestVersion}，可手动升级。` : '发现新版本，可手动升级。';
   }
@@ -98,7 +105,7 @@ function buildMessage(input: BuildUpgradeViewInput, state: UpgradePanelState, la
 function resolveStatusTone(state: UpgradePanelState): UpgradeView['statusTone'] {
   if (state === 'running' || state === 'checking') return 'processing';
   if (state === 'succeeded' || state === 'latest') return 'success';
-  if (state === 'available' || state === 'asset_missing') return 'warning';
+  if (state === 'available' || state === 'asset_missing' || state === 'runtime_incompatible') return 'warning';
   if (state === 'failed') return 'error';
   return 'default';
 }
@@ -113,6 +120,8 @@ function resolveStateText(state: UpgradePanelState) {
       return '已是最新';
     case 'asset_missing':
       return '资产缺失';
+    case 'runtime_incompatible':
+      return '需要全量包';
     case 'running':
       return '升级中';
     case 'failed':

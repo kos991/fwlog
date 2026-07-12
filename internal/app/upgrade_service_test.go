@@ -430,6 +430,25 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
 
+func TestFetchReleaseManifestReadsRuntimeRequirement(t *testing.T) {
+	oldClient := upgradeHTTPClient
+	upgradeHTTPClient = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{"app_version":"v2.0.0","runtime_version":"clickhouse-25.8.27.1"}`)),
+			Header:     make(http.Header),
+		}, nil
+	})}
+	defer func() { upgradeHTTPClient = oldClient }()
+	manifest, err := fetchReleaseManifest(context.Background(), githubRelease{Assets: []githubReleaseAsset{{Name: manifestAssetName, BrowserDownloadURL: "https://example.test/latest.json"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.AppVersion != "v2.0.0" || manifest.RuntimeVersion != "clickhouse-25.8.27.1" {
+		t.Fatalf("manifest = %#v", manifest)
+	}
+}
+
 func stubHTTPClient(t *testing.T, responses map[string]string) func() {
 	t.Helper()
 	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {

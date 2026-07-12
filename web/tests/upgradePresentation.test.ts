@@ -47,6 +47,27 @@ test('prefers a fresh available release over a previous failed upgrade status', 
   assert.equal(view.statusTone, 'warning');
 });
 
+test('requires the full bundle when the installed runtime is incompatible', () => {
+  const view = buildUpgradeView({
+    status: { state: 'idle', current_version: 'v1.0.10' },
+    check: {
+      current_version: 'v1.0.10',
+      latest_version: 'v2.0.0',
+      update_available: true,
+      assets_ready: false,
+      runtime_version: 'clickhouse-24.1',
+      required_runtime_version: 'clickhouse-25.8',
+      runtime_compatible: false,
+    },
+    isChecking: false,
+    lastCheckedAt: null,
+  });
+
+  assert.equal(view.state, 'runtime_incompatible');
+  assert.equal(view.showUpgradeAction, false);
+  assert.match(view.message, /full/);
+});
+
 test('maintenance page uses the resolved upgrade view tone for the status tag', () => {
   const page = fs.readFileSync(path.resolve('src/pages/SystemMaintenancePage.tsx'), 'utf8');
 
