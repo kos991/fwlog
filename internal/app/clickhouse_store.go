@@ -58,7 +58,7 @@ func (s *ClickHouseStore) EnsureTables(ctx context.Context) error {
 		}
 	}
 
-	return nil
+	return s.migrateNatLogsSourceDatePartition(ctx)
 }
 
 func (s *ClickHouseStore) ListDateStates(ctx context.Context, since time.Time) ([]DateIngestState, error) {
@@ -512,7 +512,16 @@ ORDER BY (source_id, log_date)`,
 ENGINE = ReplacingMergeTree(updated_at)
 PRIMARY KEY path
 ORDER BY path`,
-		`CREATE TABLE IF NOT EXISTS nat_logs
+		natLogsTableDDL("nat_logs", true),
+	}
+}
+
+func natLogsTableDDL(table string, ifNotExists bool) string {
+	clause := ""
+	if ifNotExists {
+		clause = " IF NOT EXISTS"
+	}
+	return fmt.Sprintf(`CREATE TABLE%s %s
 (
     source_id String CODEC(ZSTD(3)),
     log_tag LowCardinality(String) CODEC(ZSTD(3)),
@@ -532,8 +541,7 @@ ORDER BY path`,
     ingested_at DateTime DEFAULT now() CODEC(DoubleDelta, ZSTD(3))
 )
 ENGINE = MergeTree
-PARTITION BY log_date
+PARTITION BY (source_id, log_date)
 ORDER BY (log_date, source_id, src_ip, timestamp)
-SETTINGS index_granularity = 8192`,
-	}
+SETTINGS index_granularity = 8192`, clause, table)
 }

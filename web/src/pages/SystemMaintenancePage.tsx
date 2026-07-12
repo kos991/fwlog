@@ -17,7 +17,7 @@ import {
   TagsOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
-import { Button, DatePicker, Form, Input, Popconfirm, Space, Switch, Tabs, Tag, TimePicker, Typography, message } from 'antd';
+import { Button, DatePicker, Form, Input, Popconfirm, Select, Space, Switch, Tabs, Tag, TimePicker, Typography, message } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { apiGet, apiPost, type UpgradeCheckResponse, type UpgradeStatus } from '../api';
 import { buildUpgradeView } from '../upgradePresentation';
@@ -117,10 +117,12 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   const [upgradeLastCheckedAt, setUpgradeLastCheckedAt] = React.useState<Date | null>(null);
   const [rebuildDate, setRebuildDate] = React.useState<Dayjs | null>(dayjs());
   const [fullRebuild, setFullRebuild] = React.useState(false);
+  const [importSourceID, setImportSourceID] = React.useState('');
   const [upgradeRestarting, setUpgradeRestarting] = React.useState(false);
   const geoipPath = Form.useWatch('geoip_db_path', form);
   const customIpPath = Form.useWatch('custom_ip_map_path', form);
   const autoScanEnabled = Form.useWatch('auto_scan_enabled', form);
+  const configuredSources = Form.useWatch('log_sources', form);
 
   const load = React.useCallback(async () => {
     try {
@@ -225,7 +227,10 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   const trigger = async (path: string, ok: string) => {
     try {
       setLoading(true);
-      await apiPost(path);
+      const target = importSourceID
+        ? `${path}${path.includes('?') ? '&' : '?'}source_id=${encodeURIComponent(importSourceID)}`
+        : path;
+      await apiPost(target);
       message.success(ok);
     } catch (error) {
       message.error(error instanceof Error ? error.message : '操作失败');
@@ -502,6 +507,22 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                     </div>
 
                     <div className="maintenance-run-grid">
+                      <div className="maintenance-field">
+                        <label>Source</label>
+                        <Select
+                          value={importSourceID}
+                          onChange={setImportSourceID}
+                          options={[
+                            { value: '', label: 'All enabled sources' },
+                            ...parseLogSources(configuredSources)
+                              .filter((source) => source.enabled !== false)
+                              .map((source) => ({
+                                value: source.source_id || 'default',
+                                label: source.log_tag || source.source_id || 'default',
+                              })),
+                          ]}
+                        />
+                      </div>
                       <div className="maintenance-field">
                         <label>手动入库</label>
                         <Button type="primary" icon={<SyncOutlined />} onClick={() => void trigger('/api/sync', '已开始入库')} loading={loading}>

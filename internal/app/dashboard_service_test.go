@@ -38,6 +38,21 @@ func TestBuildIngestProgressCanIncludeReadyDates(t *testing.T) {
 	}
 }
 
+func TestBuildIngestProgressIncludesEachSource(t *testing.T) {
+	states := []DateIngestState{
+		{SourceID: "fw-b", LogDate: dateOnly(2026, 7, 1), Status: StatusReady},
+		{SourceID: "fw-a", LogDate: dateOnly(2026, 7, 1), Status: StatusImporting, ProgressPct: 40},
+		{SourceID: "fw-b", LogDate: dateOnly(2026, 7, 2), Status: StatusImporting, ProgressPct: 60},
+	}
+	progress := BuildIngestProgress(states, true)
+	if len(progress.Sources) != 2 || progress.Sources[0].SourceID != "fw-a" || progress.Sources[1].SourceID != "fw-b" {
+		t.Fatalf("sources = %#v", progress.Sources)
+	}
+	if progress.Sources[1].Status != StatusImporting || progress.Sources[1].ProgressPct != 60 {
+		t.Fatalf("fw-b progress = %#v", progress.Sources[1])
+	}
+}
+
 func TestBuildIngestProgressPicksCurrentImportingDate(t *testing.T) {
 	updatedAt := time.Date(2026, 7, 2, 9, 30, 0, 0, time.Local)
 	states := []DateIngestState{
@@ -156,6 +171,16 @@ func TestBuildHealthDashboardDoesNotExposeNATRanking(t *testing.T) {
 
 	if len(dashboard.IPDistribution.TopNATIPs) != 0 {
 		t.Fatalf("NAT ranking should not be exposed on dashboard: %#v", dashboard.IPDistribution.TopNATIPs)
+	}
+}
+
+func TestBuildSourceIngestProgressUsesLatestStateInsteadOfHistoricalFailure(t *testing.T) {
+	oldFailure := DateIngestState{SourceID: "fw-a", LogTag: "A", LogDate: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), Status: StatusFailed, UpdatedAt: time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC), Error: "old"}
+	newReady := DateIngestState{SourceID: "fw-a", LogTag: "A", LogDate: time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC), Status: StatusReady, UpdatedAt: time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC)}
+
+	progress := buildSourceIngestProgress([]DateIngestState{oldFailure, newReady})
+	if len(progress) != 1 || progress[0].Status != StatusReady || progress[0].CurrentDate != "2026-07-02" {
+		t.Fatalf("latest source state should win: %#v", progress)
 	}
 }
 

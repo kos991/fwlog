@@ -3,9 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -13,35 +11,24 @@ import (
 
 func (a *App) importHandler(rebuild bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		store := a.currentStore()
-		if store == nil {
-			writeJSONStatus(w, http.StatusServiceUnavailable, map[string]any{
-				"error":   "clickhouse_not_connected",
-				"message": "ClickHouse 尚未连接，无法执行入库",
-			})
+		if a.currentStore() == nil {
+			writeJSONStatus(w, http.StatusServiceUnavailable, map[string]any{"error": "clickhouse_not_connected", "message": "ClickHouse is not connected"})
 			return
 		}
 		targetDate, err := parseImportTargetDate(r)
 		if err != nil {
-			writeJSONStatus(w, http.StatusBadRequest, map[string]any{
-				"error":   "invalid_date",
-				"message": "date must use YYYY-MM-DD format",
-			})
+			writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "invalid_date", "message": "date must use YYYY-MM-DD format"})
 			return
 		}
-
-		if !a.startBackgroundImport(rebuild, targetDate) {
-			writeJSONStatus(w, http.StatusAccepted, map[string]any{
-				"status":  string(StatusImporting),
-				"message": "已有入库任务正在执行",
-				"rebuild": rebuild,
-			})
+		sources, found := selectImportSources(a.currentLogSources(), r.URL.Query().Get("source_id"))
+		if !found {
+			writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "unknown_source", "message": "source_id is not enabled"})
 			return
 		}
+		result := a.startBackgroundImportSources(rebuild, targetDate, sources)
 		writeJSONStatus(w, http.StatusAccepted, map[string]any{
-			"status":  string(StatusImporting),
-			"message": "入库任务已开始",
-			"rebuild": rebuild,
+			"status": string(StatusImporting), "message": "import request accepted", "rebuild": rebuild,
+			"accepted_sources": result.Accepted, "busy_sources": result.Busy,
 		})
 	})
 }
@@ -52,6 +39,19 @@ func parseImportTargetDate(r *http.Request) (time.Time, error) {
 		return time.Time{}, nil
 	}
 	return time.ParseInLocation("2006-01-02", value, time.Local)
+}
+
+func selectImportSources(sources []LogSource, sourceID string) ([]LogSource, bool) {
+	sourceID = strings.TrimSpace(sourceID)
+	if sourceID == "" {
+		return sources, true
+	}
+	for _, source := range sources {
+		if source.SourceID == sourceID {
+			return []LogSource{source}, true
+		}
+	}
+	return nil, false
 }
 
 func (a *App) currentStore() *ClickHouseStore {
@@ -149,74 +149,35 @@ func parseEnabledLogSources(raw string) ([]LogSource, bool) {
 const maxImportDuration = 2 * time.Hour
 
 func (a *App) startBackgroundImport(rebuild bool, targetDate time.Time) bool {
+	return len(a.startBackgroundImportSources(rebuild, targetDate, a.currentLogSources()).Accepted) > 0
+}
+
+func (a *App) startBackgroundImportSources(rebuild bool, targetDate time.Time, sources []LogSource) ImportStartResult {
 	store := a.currentStore()
-	if store == nil {
-		return false
+	if store == nil || len(sources) == 0 {
+		return ImportStartResult{}
 	}
-	if !a.tryBeginImport() {
-		return false
-	}
-	go func() {
-		defer a.endImport()
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Fprintf(os.Stderr, "import goroutine panic: %v\n", r)
-			}
-		}()
-		ctx, cancel := context.WithTimeout(context.Background(), maxImportDuration)
+	return a.imports.Start(context.Background(), sources, func(parent context.Context, source LogSource) error {
+		ctx, cancel := context.WithTimeout(parent, maxImportDuration)
 		defer cancel()
-		_, _, _, _, _ = a.importConfiguredSources(ctx, store, rebuild, targetDate)
-	}()
-	return true
-}
-
-func (a *App) tryBeginImport() bool {
-	a.importMu.Lock()
-	defer a.importMu.Unlock()
-	if a.importing {
-		return false
-	}
-	a.importing = true
-	return true
-}
-
-func (a *App) endImport() {
-	a.importMu.Lock()
-	defer a.importMu.Unlock()
-	a.importing = false
-}
-
-func (a *App) importConfiguredSources(ctx context.Context, store *ClickHouseStore, rebuild bool, targetDate time.Time) ([]string, []string, map[string][]string, map[string][]string, error) {
-	sources := a.currentLogSources()
-	importedAll := make([]string, 0)
-	skippedAll := make([]string, 0)
-	importedBySource := make(map[string][]string, len(sources))
-	skippedBySource := make(map[string][]string, len(sources))
-
-	runner := a.importRunner
-	if runner == nil {
-		runner = importArchivedDates
-	}
-
-	for _, source := range sources {
-		imported, skipped, err := importSourceDates(ctx, store, source, rebuild, targetDate, runner)
-		if len(imported) > 0 {
-			importedBySource[source.SourceID] = imported
-			importedAll = append(importedAll, imported...)
+		if targetDate.IsZero() {
+			if a.importRunner != nil {
+				_, _, err := a.importRunner(ctx, store, source, rebuild)
+				return err
+			}
+			_, _, err := importArchivedDatesWithGate(ctx, store, source, rebuild, a.imports)
+			return err
 		}
-		if len(skipped) > 0 {
-			skippedBySource[source.SourceID] = skipped
-			skippedAll = append(skippedAll, skipped...)
-		}
-		if err != nil {
-			return importedAll, skippedAll, importedBySource, skippedBySource, err
-		}
-	}
-	return importedAll, skippedAll, importedBySource, skippedBySource, nil
+		_, _, err := importSourceDates(ctx, store, source, rebuild, targetDate, a.importRunner, a.imports)
+		return err
+	})
 }
 
-func importSourceDates(ctx context.Context, store *ClickHouseStore, source LogSource, rebuild bool, targetDate time.Time, runner importRunnerFunc) ([]string, []string, error) {
+func importSourceDates(ctx context.Context, store *ClickHouseStore, source LogSource, rebuild bool, targetDate time.Time, runner importRunnerFunc, gate batchWriteGate) ([]string, []string, error) {
 	if targetDate.IsZero() {
+		if runner == nil {
+			return importArchivedDatesWithGate(ctx, store, source, rebuild, gate)
+		}
 		return runner(ctx, store, source, rebuild)
 	}
 
@@ -232,9 +193,10 @@ func importSourceDates(ctx context.Context, store *ClickHouseStore, source LogSo
 	}
 
 	importer := &Importer{
-		store:  store,
-		writer: store.conn,
-		states: store,
+		store:     store,
+		writer:    store.conn,
+		states:    store,
+		writeGate: gate,
 	}
 	if err := importer.ImportDate(ctx, source, date); err != nil {
 		return nil, nil, err
@@ -243,6 +205,10 @@ func importSourceDates(ctx context.Context, store *ClickHouseStore, source LogSo
 }
 
 func importArchivedDates(ctx context.Context, store *ClickHouseStore, source LogSource, rebuild bool) ([]string, []string, error) {
+	return importArchivedDatesWithGate(ctx, store, source, rebuild, nil)
+}
+
+func importArchivedDatesWithGate(ctx context.Context, store *ClickHouseStore, source LogSource, rebuild bool, gate batchWriteGate) ([]string, []string, error) {
 	files, err := ScanArchivedLogFiles(source.LogDir, time.Now())
 	if err != nil {
 		return nil, nil, err
@@ -262,9 +228,10 @@ func importArchivedDates(ctx context.Context, store *ClickHouseStore, source Log
 	})
 
 	importer := &Importer{
-		store:  store,
-		writer: store.conn,
-		states: store,
+		store:     store,
+		writer:    store.conn,
+		states:    store,
+		writeGate: gate,
 	}
 
 	imported := make([]string, 0, len(dates))

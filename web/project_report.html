@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>fwlog 离线防火墙 NAT 日志分析系统</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "PingFang SC","Microsoft YaHei",system-ui,sans-serif; background: #f3f6fa; color: #172033; padding: 48px 40px; }
+  .container { max-width: 920px; margin: 0 auto; }
+  h1 { font-size: 28px; color: #1d4ed8; margin-bottom: 6px; }
+  .subtitle { font-size: 14px; color: #627084; margin-bottom: 32px; }
+  h2 { font-size: 20px; color: #2563eb; margin: 36px 0 16px; padding-bottom: 8px; border-bottom: 2px solid #e0e7ff; }
+  h3 { font-size: 16px; color: #1e293b; margin: 20px 0 10px; }
+  .feature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .feature-card { background: #fff; border-radius: 10px; padding: 18px 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); border: 1px solid #eef2f7; }
+  .feature-card h3 { margin-top: 0; color: #1d4ed8; font-size: 15px; }
+  .feature-card p { font-size: 13px; line-height: 1.7; color: #475569; }
+  .purpose-list { list-style: none; }
+  .purpose-list li { background: #fff; border-left: 4px solid #2563eb; border-radius: 0 8px 8px 0; padding: 16px 20px; margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+  .purpose-list strong { color: #1d4ed8; font-size: 15px; }
+  .purpose-list p { font-size: 13px; line-height: 1.7; color: #475569; margin-top: 6px; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+  th { background: #2563eb; color: #fff; font-size: 13px; padding: 12px 16px; text-align: left; }
+  td { font-size: 13px; padding: 12px 16px; border-bottom: 1px solid #f1f5f9; line-height: 1.6; color: #475569; }
+  td:first-child { font-weight: 600; color: #1e293b; white-space: nowrap; }
+  td:nth-child(2) { font-weight: 600; color: #1d4ed8; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  .footer { text-align: center; margin-top: 40px; font-size: 12px; color: #94a3b8; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>fwlog 离线防火墙 NAT 日志分析系统</h1>
+  <p class="subtitle">面向内网运维场景 · 银河麒麟 V10 / Debian 服务器 · 纯离线部署</p>
+
+  <h2>主要功能</h2>
+  <div class="feature-grid">
+    <div class="feature-card">
+      <h3>日志自动入库</h3>
+      <p>自动扫描深信服防火墙归档日志，解析 NAT 映射记录，批量写入内置 ClickHouse，支持增量导入和全量重建两种模式。</p>
+    </div>
+    <div class="feature-card">
+      <h3>多维度日志查询</h3>
+      <p>按时间、IP（源/目的/NAT）、端口、协议、动作、日志标签筛选，游标分页避免深翻页，自动只查已入库日期范围。</p>
+    </div>
+    <div class="feature-card">
+      <h3>可视化仪表盘</h3>
+      <p>入库进度、磁盘用量、今日/昨日行数、14 天日志趋势、IP 流量排行、GeoIP 国家地区分布、系统健康状态一览。</p>
+    </div>
+    <div class="feature-card">
+      <h3>自动扫描计划</h3>
+      <p>支持定点定时（daily）和固定间隔（interval）两种调度模式，自动触发增量入库，无需人工干预。</p>
+    </div>
+    <div class="feature-card">
+      <h3>IP 归属标注</h3>
+      <p>内置 GeoLite2 城市级地理库 + 自定义 CIDR 网段别名 + CSV 手工映射，查询结果和仪表盘自动标注 IP 归属。</p>
+    </div>
+    <div class="feature-card">
+      <h3>系统运维管理</h3>
+      <p>多日志源配置、CIDR 别名管理、GeoIP 开关、管理员密码修改、入库进度详情页（按日期/源展示文件级状态）。</p>
+    </div>
+    <div class="feature-card" style="grid-column: span 2;">
+      <h3>在线升级</h3>
+      <p>从 GitHub Release 拉取升级包，SHA256 完整性校验，校验包内不含 ClickHouse 文件，systemd-run 沙箱安装，自动备份配置和版本文件，安装后自动重启。</p>
+    </div>
+  </div>
+
+  <h2>目的</h2>
+  <ul class="purpose-list">
+    <li>
+      <strong>留存</strong>
+      <p>防火墙自身存储有限，日志滚动快，历史记录容易丢失。fwlog 将日志持久化到 ClickHouse，压缩存储，无时间限制，磁盘有多大存多久，满足等保合规对日志留存周期的要求。</p>
+    </li>
+    <li>
+      <strong>检索</strong>
+      <p>防火墙自带日志查看功能弱，无法跨日期、跨条件快速查询。fwlog 提供多维度筛选 + 秒级响应，运维人员能快速定位"某 IP 在某时间访问了什么"。</p>
+    </li>
+    <li>
+      <strong>溯源</strong>
+      <p>NAT 转换后真实 IP 与公网 IP 的映射关系是安全溯源的关键。fwlog 完整保留 NAT 映射记录，支持通过任意一端 IP（源/目的/NAT）反查完整链路，配合 GeoIP 标注快速判断访问来源。</p>
+    </li>
+  </ul>
+
+  <h2>优势</h2>
+  <table>
+    <thead>
+      <tr><th>维度</th><th>优势</th><th>说明</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>离线部署</td><td>一个安装包带齐全部</td><td>全量包 ~220MB，含应用二进制、前端界面、ClickHouse 数据库、GeoIP 数据库、systemd 服务文件、安装脚本，内网现场不需要联网，一条命令装完即用</td></tr>
+      <tr><td>国产化适配</td><td>银河麒麟 V10 已验证</td><td>在银河麒麟高级服务器 V10 上完成全链路验证（安装、ClickHouse、GeoIP、接口、界面），同时支持 Debian/Ubuntu，RPM/DEB 双格式交付</td></tr>
+      <tr><td>运行时自包含</td><td>不依赖系统环境</td><td>ClickHouse 打包在应用目录下，独立于系统包管理器；前端编译进后端二进制，不需要 Node.js；Go 静态编译，无额外依赖</td></tr>
+      <tr><td>存储无限制</td><td>磁盘有多大存多久</td><td>无 TTL 自动清理，数据保留完全由磁盘容量决定；ZSTD 压缩后单条约 40-60 字节，日均 100 万条约 50MB，1 年约 18GB</td></tr>
+      <tr><td>去重不重复</td><td>ReplacingMergeTree 幂等</td><td>按业务唯一键（日期+源+文件+偏移量）去重，重复导入不产生重复行，增量导入自动跳过已完成文件</td></tr>
+      <tr><td>升级轻量</td><td>37MB 小包搞定</td><td>后续版本只携带应用和前端，不重复携带 ClickHouse，页面一键操作或 rpm/dpkg 安装，升级前后自动备份，不触碰历史数据</td></tr>
+      <tr><td>安全加固</td><td>全链路防护</td><td>所有 API 强制鉴权，登录限流防爆破，密码 PBKDF2 哈希，升级包 SHA256 校验，systemd 安全沙箱，ClickHouse 仅监听本机</td></tr>
+      <tr><td>查询性能</td><td>ClickHouse 列式引擎</td><td>亿级日志秒级查询，按天分区裁剪，游标分页，服务端 max_execution_time 超时保护，客户端 10s 查询超时兜底</td></tr>
+      <tr><td>稳定性</td><td>生产级容错</td><td>后台任务 panic 自动恢复不崩溃，HTTP 优雅关闭不丢请求，升级中断后重启自动重置状态，导入 2h 超时防永久阻塞</td></tr>
+    </tbody>
+  </table>
+
+  <p class="footer">fwlog v1.0.17 · 当前版本已发布</p>
+</div>
+</body>
+</html>

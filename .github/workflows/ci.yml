@@ -11,6 +11,10 @@ on:
       - v3-dev
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   test-and-build:
     name: Test and build server packages
@@ -48,13 +52,13 @@ jobs:
         working-directory: web
         run: npm test
 
-      - name: Run Go tests
-        run: go test -race -count=1 ./...
-
       - name: Install package build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y rpm
+          sudo apt-get install -y cpio rpm
+
+      - name: Run Go tests
+        run: go test -race -count=1 ./...
 
       - name: Build Linux amd64 binary
         shell: bash

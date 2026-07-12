@@ -1364,7 +1364,7 @@ body {
 .progress-list-row {
   position: relative;
   display: grid;
-  grid-template-columns: 130px 96px 92px 130px minmax(170px, 0.8fr) minmax(220px, 1.2fr);
+  grid-template-columns: 100px 120px 88px 82px 110px minmax(150px, 0.8fr) minmax(200px, 1.2fr);
   gap: 14px;
   align-items: center;
   min-height: 46px;
@@ -2124,7 +2124,7 @@ body {
   }
 
   .progress-list-row {
-    grid-template-columns: 96px 82px 72px 96px minmax(120px, 1fr);
+    grid-template-columns: 82px 92px 72px 64px 84px minmax(110px, 1fr);
     gap: 8px;
   }
 

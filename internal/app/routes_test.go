@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -520,6 +521,7 @@ func TestRouterSyncUsesAllEnabledLogSources(t *testing.T) {
 			t.Fatalf("timed out waiting for enabled sources, got %#v", got)
 		}
 	}
+	sort.Strings(got)
 	if strings.Join(got, ",") != "fw-a,fw-b" {
 		t.Fatalf("imported sources = %#v", got)
 	}
@@ -575,6 +577,63 @@ func TestRouterSyncReturnsInProgressWhenBackgroundImportIsRunning(t *testing.T) 
 	}
 	if runs != 1 {
 		t.Fatalf("sync should not start another import while one is running, runs = %d", runs)
+	}
+}
+
+func TestRouterSyncSelectsOneSourceAndReportsBusy(t *testing.T) {
+	app := NewApp(LoadConfig())
+	app.mu.Lock()
+	app.store = &ClickHouseStore{}
+	app.mu.Unlock()
+	app.updateSettings(map[string]any{"log_sources": []any{
+		map[string]any{"source_id": "fw-a", "log_dir": "/data/a", "enabled": true},
+		map[string]any{"source_id": "fw-b", "log_dir": "/data/b", "enabled": true},
+	}})
+	started := make(chan string, 1)
+	release := make(chan struct{})
+	app.importRunner = func(_ context.Context, _ *ClickHouseStore, source LogSource, _ bool) ([]string, []string, error) {
+		started <- source.SourceID
+		<-release
+		return nil, nil, nil
+	}
+	router := app.Router()
+	cookie := loginForTest(t, router)
+
+	first := httptest.NewRequest(http.MethodPost, "/api/sync?source_id=fw-a", nil)
+	first.AddCookie(cookie)
+	firstRes := httptest.NewRecorder()
+	router.ServeHTTP(firstRes, first)
+	if firstRes.Code != http.StatusAccepted || !strings.Contains(firstRes.Body.String(), `"accepted_sources":["fw-a"]`) {
+		t.Fatalf("first response = %d %s", firstRes.Code, firstRes.Body.String())
+	}
+	if got := <-started; got != "fw-a" {
+		t.Fatalf("started source = %q", got)
+	}
+
+	second := httptest.NewRequest(http.MethodPost, "/api/sync?source_id=fw-a", nil)
+	second.AddCookie(cookie)
+	secondRes := httptest.NewRecorder()
+	router.ServeHTTP(secondRes, second)
+	if !strings.Contains(secondRes.Body.String(), `"busy_sources":["fw-a"]`) {
+		t.Fatalf("busy response = %s", secondRes.Body.String())
+	}
+	close(release)
+}
+
+func TestRouterSyncRejectsUnknownSource(t *testing.T) {
+	app := NewApp(LoadConfig())
+	app.mu.Lock()
+	app.store = &ClickHouseStore{}
+	app.mu.Unlock()
+	app.updateSettings(map[string]any{"log_sources": []any{map[string]any{"source_id": "fw-a", "enabled": true}}})
+	router := app.Router()
+	cookie := loginForTest(t, router)
+	req := httptest.NewRequest(http.MethodPost, "/api/sync?source_id=missing", nil)
+	req.AddCookie(cookie)
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusBadRequest || !strings.Contains(res.Body.String(), "unknown_source") {
+		t.Fatalf("response = %d %s", res.Code, res.Body.String())
 	}
 }
 

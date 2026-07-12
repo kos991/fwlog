@@ -39,6 +39,11 @@ type Importer struct {
 	now       func() time.Time
 	sleep     func(time.Duration)
 	batchSize int
+	writeGate batchWriteGate
+}
+
+type batchWriteGate interface {
+	WithWriteSlot(context.Context, func() error) error
 }
 
 func (i *Importer) AppendBatch(ctx context.Context, rows []NATLogRow) error {
@@ -51,37 +56,42 @@ func (i *Importer) AppendBatch(ctx context.Context, rows []NATLogRow) error {
 		return err
 	}
 
-	batch, err := writer.PrepareBatch(ctx, `INSERT INTO nat_logs (
+	write := func() error {
+		batch, err := writer.PrepareBatch(ctx, `INSERT INTO nat_logs (
     source_id, log_tag, log_date, timestamp, src_ip, src_port, dst_ip, dst_port,
     nat_ip, nat_port, protocol, action, source_file, source_offset, batch_id
 )`)
-	if err != nil {
-		return err
-	}
-
-	for _, row := range rows {
-		if err := batch.Append(
-			row.SourceID,
-			row.LogTag,
-			row.LogDate,
-			row.Timestamp,
-			row.SrcIP,
-			row.SrcPort,
-			row.DstIP,
-			row.DstPort,
-			row.NATIP,
-			row.NATPort,
-			row.Protocol,
-			row.Action,
-			row.SourceFile,
-			row.SourceOffset,
-			row.BatchID,
-		); err != nil {
+		if err != nil {
 			return err
 		}
-	}
 
-	return batch.Send()
+		for _, row := range rows {
+			if err := batch.Append(
+				row.SourceID,
+				row.LogTag,
+				row.LogDate,
+				row.Timestamp,
+				row.SrcIP,
+				row.SrcPort,
+				row.DstIP,
+				row.DstPort,
+				row.NATIP,
+				row.NATPort,
+				row.Protocol,
+				row.Action,
+				row.SourceFile,
+				row.SourceOffset,
+				row.BatchID,
+			); err != nil {
+				return err
+			}
+		}
+		return batch.Send()
+	}
+	if i.writeGate != nil {
+		return i.writeGate.WithWriteSlot(ctx, write)
+	}
+	return write()
 }
 
 func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.Time) error {
@@ -91,7 +101,7 @@ func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.T
 	}
 
 	now := i.nowOrDefault()()
-	if err := writer.Exec(ctx, dropLogDatePartitionSQL(date)); err != nil {
+	if err := writer.Exec(ctx, dropLogSourceDatePartitionSQL(source.SourceID, date)); err != nil {
 		return err
 	}
 	i.sleepOrDefault()(time.Second)
@@ -221,8 +231,9 @@ func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.T
 	})
 }
 
-func dropLogDatePartitionSQL(date time.Time) string {
-	return fmt.Sprintf("ALTER TABLE nat_logs DROP PARTITION '%s'", date.Format("2006-01-02"))
+func dropLogSourceDatePartitionSQL(sourceID string, date time.Time) string {
+	sourceID = strings.ReplaceAll(sourceID, "'", "''")
+	return fmt.Sprintf("ALTER TABLE nat_logs DROP PARTITION ('%s', '%s')", sourceID, date.Format("2006-01-02"))
 }
 
 func (i *Importer) importFile(ctx context.Context, source LogSource, date time.Time, file LogFileSnapshot) (uint64, error) {

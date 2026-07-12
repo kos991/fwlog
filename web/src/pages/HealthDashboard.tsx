@@ -50,6 +50,7 @@ type HealthDashboardResponse = {
     last_successful_ingest_at: string;
     elapsed_sec: number;
     eta_sec: number;
+    sources?: Array<{ source_id: string; status: string; progress_pct: number }>;
   };
   system_health?: {
     cpu: {
@@ -468,10 +469,10 @@ export function HealthDashboard(_props: HealthDashboardProps) {
   React.useEffect(() => {
     const summaryTimer = window.setInterval(
       () => void loadSummary(),
-      data?.ingest_health?.status === 'importing' ? 5000 : 30000,
+      data?.ingest_health?.sources?.some((source) => source.status === 'importing') || data?.ingest_health?.status === 'importing' ? 5000 : 30000,
     );
     return () => window.clearInterval(summaryTimer);
-  }, [loadSummary, data?.ingest_health?.status]);
+  }, [loadSummary, data?.ingest_health?.status, data?.ingest_health?.sources]);
 
   const health = data?.data_health;
   const ingest = data?.ingest_health;

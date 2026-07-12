@@ -19,7 +19,7 @@ func TestClickHouseDDLContainsCoreTables(t *testing.T) {
 func TestNatLogsDDLUsesExpectedPartitionAndOrderKey(t *testing.T) {
 	sql := strings.Join(ClickHouseDDL(), "\n")
 
-	if !strings.Contains(sql, "PARTITION BY log_date") {
+	if !strings.Contains(sql, "PARTITION BY (source_id, log_date)") {
 		t.Fatalf("nat_logs 必须按 log_date 分区:\n%s", sql)
 	}
 	if !strings.Contains(sql, "ORDER BY (log_date, source_id, src_ip, timestamp)") {
@@ -40,6 +40,23 @@ func TestStateTablesUseReplacingMergeTree(t *testing.T) {
 	} {
 		if !strings.Contains(sql, snippet) {
 			t.Fatalf("DDL 缺少 %q:\n%s", snippet, sql)
+		}
+	}
+}
+
+func TestNormalizePartitionKey(t *testing.T) {
+	for _, raw := range []string{"tuple(source_id, log_date)", "(source_id, log_date)", " tuple( source_id , log_date ) "} {
+		if got := normalizePartitionKey(raw); got != "source_id,log_date" {
+			t.Fatalf("normalizePartitionKey(%q) = %q", raw, got)
+		}
+	}
+}
+
+func TestNatLogsMigrationSQLPreservesBackupAndCopiesRows(t *testing.T) {
+	statements := strings.Join(natLogsMigrationSQL(), "\n")
+	for _, want := range []string{"CREATE TABLE nat_logs_source_date", "PARTITION BY (source_id, log_date)", "INSERT INTO nat_logs_source_date SELECT * FROM nat_logs", "RENAME TABLE nat_logs TO nat_logs_date_partition_backup, nat_logs_source_date TO nat_logs"} {
+		if !strings.Contains(statements, want) {
+			t.Fatalf("migration SQL missing %q:\n%s", want, statements)
 		}
 	}
 }

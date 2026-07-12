@@ -82,6 +82,7 @@ func TestCIWorkflowMatchesClickHouseBuildFlow(t *testing.T) {
 		t,
 		".github/workflows/ci.yml",
 		[]string{
+			"pull-requests: read",
 			"node-version: 22",
 			"TZ: Asia/Shanghai",
 			"working-directory: web",
@@ -89,7 +90,7 @@ func TestCIWorkflowMatchesClickHouseBuildFlow(t *testing.T) {
 			"npm run build",
 			"npm test",
 			"go test -race -count=1 ./...",
-			"sudo apt-get install -y rpm",
+			"sudo apt-get install -y cpio rpm",
 			"go build -trimpath -ldflags \"-s -w\" -o dist/nat-query-service_linux_amd64 ./cmd/nat-query-service",
 			"PACKAGING_MODE=full bash packaging/build-server-packages.sh --version 0.0.0 --binary dist/nat-query-service_linux_amd64 --output dist",
 			"PACKAGING_MODE=upgrade bash packaging/build-server-packages.sh --version 0.0.0 --binary dist/nat-query-service_linux_amd64 --output dist",
@@ -107,6 +108,7 @@ func TestReleaseWorkflowMatchesClickHouseBuildFlow(t *testing.T) {
 		t,
 		".github/workflows/release-build.yml",
 		[]string{
+			"pull-requests: read",
 			"node-version: 22",
 			"TZ: Asia/Shanghai",
 			"working-directory: web",
@@ -118,7 +120,7 @@ func TestReleaseWorkflowMatchesClickHouseBuildFlow(t *testing.T) {
 			"GOOS: linux",
 			"GOARCH: amd64",
 			"-X nat-query-service/internal/app.appVersion",
-			"sudo apt-get install -y rpm",
+			"sudo apt-get install -y cpio rpm",
 			"PACKAGING_MODE=full bash packaging/build-server-packages.sh --version \"$version\" --binary \"release/$asset\" --output release",
 			"PACKAGING_MODE=upgrade bash packaging/build-server-packages.sh --version \"$version\" --binary \"release/$asset\" --output release",
 			"cp \"release/fwlog-upgrade-v${pkg_version}.x86_64.rpm\" \"release/nat-query-service_kylin-server_amd64.rpm\"",

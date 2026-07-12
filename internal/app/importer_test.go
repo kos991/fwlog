@@ -15,7 +15,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
 
-func TestImportDateSuccessDropsPartitionSleepsAndMarksReady(t *testing.T) {
+func TestImportDateSuccessDropsSourceDatePartitionSleepsAndMarksReady(t *testing.T) {
 	dir := t.TempDir()
 	logDate := time.Date(2026, 7, 2, 0, 0, 0, 0, time.Local)
 	logFile := filepath.Join(dir, "edge-fw.log-20260702")
@@ -53,7 +53,7 @@ func TestImportDateSuccessDropsPartitionSleepsAndMarksReady(t *testing.T) {
 	if len(writer.execCalls) != 1 {
 		t.Fatalf("Exec calls = %d, want 1", len(writer.execCalls))
 	}
-	if got := writer.execCalls[0].query; got != "ALTER TABLE nat_logs DROP PARTITION '2026-07-02'" {
+	if got := writer.execCalls[0].query; got != "ALTER TABLE nat_logs DROP PARTITION ('fw-a', '2026-07-02')" {
 		t.Fatalf("drop partition query = %q", got)
 	}
 	if got := writer.execCalls[0].args; !reflect.DeepEqual(got, []any(nil)) {
@@ -111,6 +111,18 @@ func TestImportDateSuccessDropsPartitionSleepsAndMarksReady(t *testing.T) {
 	}
 	if got := row[8]; got != netip.MustParseAddr("10.0.0.3") {
 		t.Fatalf("nat_ip = %v", got)
+	}
+}
+
+func TestDropLogSourceDatePartitionSQLSeparatesSources(t *testing.T) {
+	date := time.Date(2026, 7, 2, 0, 0, 0, 0, time.Local)
+	a := dropLogSourceDatePartitionSQL("fw-a", date)
+	b := dropLogSourceDatePartitionSQL("fw-b", date)
+	if a == b {
+		t.Fatalf("source partitions must differ: %q", a)
+	}
+	if strings.Contains(a, "DROP PARTITION '2026-07-02'") {
+		t.Fatalf("partition drop must not be date-only: %q", a)
 	}
 }
 
@@ -353,6 +365,25 @@ func TestAppendBatchWithNoRowsReturnsNil(t *testing.T) {
 	if err := importer.AppendBatch(context.Background(), nil); err != nil {
 		t.Fatalf("AppendBatch should ignore empty rows: %v", err)
 	}
+}
+
+func TestAppendBatchUsesWriteGate(t *testing.T) {
+	gate := &fakeWriteGate{}
+	importer := &Importer{writer: &fakeClickHouseWriter{batch: &fakeBatch{}}, writeGate: gate}
+	row := NATLogRow{SourceID: "fw-a", LogDate: time.Date(2026, 7, 2, 0, 0, 0, 0, time.Local)}
+	if err := importer.AppendBatch(context.Background(), []NATLogRow{row}); err != nil {
+		t.Fatalf("AppendBatch returned error: %v", err)
+	}
+	if gate.calls != 1 {
+		t.Fatalf("write gate calls = %d, want 1", gate.calls)
+	}
+}
+
+type fakeWriteGate struct{ calls int }
+
+func (g *fakeWriteGate) WithWriteSlot(_ context.Context, write func() error) error {
+	g.calls++
+	return write()
 }
 
 type fakeClickHouseWriter struct {

@@ -30,27 +30,39 @@ type DataHealth struct {
 }
 
 type IngestHealth struct {
-	Status               IngestStatus `json:"status"`
-	SourceID             string       `json:"source_id"`
-	LogTag               string       `json:"log_tag"`
-	CurrentDate          string       `json:"current_date"`
-	CurrentFile          string       `json:"current_file"`
-	FilesTotal           uint64       `json:"files_total"`
-	FilesDone            uint64       `json:"files_done"`
-	BytesTotal           uint64       `json:"bytes_total"`
-	BytesDone            uint64       `json:"bytes_done"`
-	RowsImported         uint64       `json:"rows_imported"`
-	ProgressPct          float64      `json:"progress_pct"`
-	Error                string       `json:"error"`
-	LastAutoScanAt       string       `json:"last_auto_scan_at"`
-	NextAutoScanAt       string       `json:"next_auto_scan_at"`
-	AutoScanPolicy       string       `json:"auto_scan_policy"`
-	AutoScanEnabled      bool         `json:"auto_scan_enabled"`
-	AutoScanMode         string       `json:"auto_scan_mode"`
-	ElapsedSec           int64        `json:"elapsed_sec"`
-	ETASeconds           int64        `json:"eta_sec"`
-	LastUpdatedAt        time.Time    `json:"last_updated_at"`
-	LastSuccessfulIngest time.Time    `json:"last_successful_ingest_at"`
+	Status               IngestStatus           `json:"status"`
+	SourceID             string                 `json:"source_id"`
+	LogTag               string                 `json:"log_tag"`
+	CurrentDate          string                 `json:"current_date"`
+	CurrentFile          string                 `json:"current_file"`
+	FilesTotal           uint64                 `json:"files_total"`
+	FilesDone            uint64                 `json:"files_done"`
+	BytesTotal           uint64                 `json:"bytes_total"`
+	BytesDone            uint64                 `json:"bytes_done"`
+	RowsImported         uint64                 `json:"rows_imported"`
+	ProgressPct          float64                `json:"progress_pct"`
+	Error                string                 `json:"error"`
+	LastAutoScanAt       string                 `json:"last_auto_scan_at"`
+	NextAutoScanAt       string                 `json:"next_auto_scan_at"`
+	AutoScanPolicy       string                 `json:"auto_scan_policy"`
+	AutoScanEnabled      bool                   `json:"auto_scan_enabled"`
+	AutoScanMode         string                 `json:"auto_scan_mode"`
+	ElapsedSec           int64                  `json:"elapsed_sec"`
+	ETASeconds           int64                  `json:"eta_sec"`
+	LastUpdatedAt        time.Time              `json:"last_updated_at"`
+	LastSuccessfulIngest time.Time              `json:"last_successful_ingest_at"`
+	Sources              []SourceIngestProgress `json:"sources"`
+}
+
+type SourceIngestProgress struct {
+	SourceID     string       `json:"source_id"`
+	LogTag       string       `json:"log_tag"`
+	Status       IngestStatus `json:"status"`
+	CurrentDate  string       `json:"current_date"`
+	CurrentFile  string       `json:"current_file"`
+	RowsImported uint64       `json:"rows_imported"`
+	ProgressPct  float64      `json:"progress_pct"`
+	Error        string       `json:"error"`
 }
 
 type IPDistribution struct {
@@ -131,26 +143,27 @@ type DashboardMetrics struct {
 }
 
 type IngestProgressResponse struct {
-	Status          IngestStatus      `json:"status"`
-	SourceID        string            `json:"source_id"`
-	LogTag          string            `json:"log_tag"`
-	CurrentDate     string            `json:"current_date"`
-	CurrentFile     string            `json:"current_file"`
-	FilesTotal      uint64            `json:"files_total"`
-	FilesDone       uint64            `json:"files_done"`
-	BytesTotal      uint64            `json:"bytes_total"`
-	BytesDone       uint64            `json:"bytes_done"`
-	RowsImported    uint64            `json:"rows_imported"`
-	ProgressPct     float64           `json:"progress_pct"`
-	ElapsedSec      int64             `json:"elapsed_sec"`
-	ETASeconds      int64             `json:"eta_sec"`
-	LastAutoScanAt  string            `json:"last_auto_scan_at"`
-	NextAutoScanAt  string            `json:"next_auto_scan_at"`
-	AutoScanPolicy  string            `json:"auto_scan_policy"`
-	AutoScanEnabled bool              `json:"auto_scan_enabled"`
-	AutoScanMode    string            `json:"auto_scan_mode"`
-	Error           string            `json:"error"`
-	Dates           []DateIngestState `json:"dates"`
+	Status          IngestStatus           `json:"status"`
+	SourceID        string                 `json:"source_id"`
+	LogTag          string                 `json:"log_tag"`
+	CurrentDate     string                 `json:"current_date"`
+	CurrentFile     string                 `json:"current_file"`
+	FilesTotal      uint64                 `json:"files_total"`
+	FilesDone       uint64                 `json:"files_done"`
+	BytesTotal      uint64                 `json:"bytes_total"`
+	BytesDone       uint64                 `json:"bytes_done"`
+	RowsImported    uint64                 `json:"rows_imported"`
+	ProgressPct     float64                `json:"progress_pct"`
+	ElapsedSec      int64                  `json:"elapsed_sec"`
+	ETASeconds      int64                  `json:"eta_sec"`
+	LastAutoScanAt  string                 `json:"last_auto_scan_at"`
+	NextAutoScanAt  string                 `json:"next_auto_scan_at"`
+	AutoScanPolicy  string                 `json:"auto_scan_policy"`
+	AutoScanEnabled bool                   `json:"auto_scan_enabled"`
+	AutoScanMode    string                 `json:"auto_scan_mode"`
+	Error           string                 `json:"error"`
+	Dates           []DateIngestState      `json:"dates"`
+	Sources         []SourceIngestProgress `json:"sources"`
 }
 
 func BuildHealthDashboard(states []DateIngestState, metrics DashboardMetrics) HealthDashboardResponse {
@@ -189,6 +202,7 @@ func BuildIngestProgress(states []DateIngestState, includeReady bool, metricArgs
 		AutoScanEnabled: metrics.AutoScanEnabled,
 		AutoScanMode:    metrics.AutoScanMode,
 		Dates:           make([]DateIngestState, 0, len(states)),
+		Sources:         buildSourceIngestProgress(states),
 	}
 	if current.Status != "" {
 		response.Status = current.Status
@@ -273,6 +287,7 @@ func buildIngestHealth(states []DateIngestState, metrics DashboardMetrics) Inges
 		AutoScanPolicy:  metrics.AutoScanPolicy,
 		AutoScanEnabled: metrics.AutoScanEnabled,
 		AutoScanMode:    metrics.AutoScanMode,
+		Sources:         buildSourceIngestProgress(states),
 	}
 
 	for _, state := range states {
@@ -284,6 +299,35 @@ func buildIngestHealth(states []DateIngestState, metrics DashboardMetrics) Inges
 		}
 	}
 	return health
+}
+
+func buildSourceIngestProgress(states []DateIngestState) []SourceIngestProgress {
+	selected := make(map[string]DateIngestState)
+	for _, state := range states {
+		if state.SourceID == "" {
+			continue
+		}
+		current, exists := selected[state.SourceID]
+		if !exists || state.UpdatedAt.After(current.UpdatedAt) ||
+			(state.UpdatedAt.Equal(current.UpdatedAt) && state.LogDate.After(current.LogDate)) {
+			selected[state.SourceID] = state
+		}
+	}
+	sourceIDs := make([]string, 0, len(selected))
+	for sourceID := range selected {
+		sourceIDs = append(sourceIDs, sourceID)
+	}
+	sort.Strings(sourceIDs)
+	progress := make([]SourceIngestProgress, 0, len(sourceIDs))
+	for _, sourceID := range sourceIDs {
+		state := selected[sourceID]
+		progress = append(progress, SourceIngestProgress{
+			SourceID: sourceID, LogTag: state.LogTag, Status: state.Status,
+			CurrentDate: formatDate(state.LogDate), CurrentFile: state.CurrentFile,
+			RowsImported: state.RowsImported, ProgressPct: state.ProgressPct, Error: state.Error,
+		})
+	}
+	return progress
 }
 
 func buildIPDistribution(metrics DashboardMetrics) IPDistribution {

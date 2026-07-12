@@ -22,8 +22,7 @@ type App struct {
 	sessionToken  string
 	loginLimiter  loginLimiter
 	importRunner  importRunnerFunc
-	importMu      sync.Mutex
-	importing     bool
+	imports       *ImportCoordinator
 	querySem      chan struct{}
 	upgradeMu     sync.Mutex
 	upgradeStatus UpgradeStatus
@@ -52,7 +51,7 @@ func NewApp(cfg Config) *App {
 		ipEngine:      NewIPEngine(),
 		ipStatus:      defaultIPDataStatus(cfg),
 		passwordHash:  passwordHash,
-		importRunner:  importArchivedDates,
+		imports:       NewImportCoordinator(cfg.Workers, defaultConcurrentWrites),
 		querySem:      make(chan struct{}, 4),
 		upgradeStatus: defaultUpgradeStatus(),
 	}

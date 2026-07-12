@@ -7,6 +7,7 @@ import { buildIngestProgressView } from '../ingestPresentation';
 const { Text } = Typography;
 
 type DateState = {
+  source_id?: string;
   log_date?: string;
   status?: string;
   files_total?: number;
@@ -29,6 +30,7 @@ type ProgressResponse = DateState & {
   log_tag?: string;
   current_date?: string;
   dates: DateState[];
+  sources?: DateState[];
 };
 
 function statusText(status?: string) {
@@ -74,9 +76,10 @@ export function IncrementalProgressPage() {
 
   React.useEffect(() => {
     void load();
-    const timer = window.setInterval(() => void load(), data?.status === 'importing' ? 5000 : 30000);
+    const anyImporting = data?.sources?.some((source) => source.status === 'importing') || data?.status === 'importing';
+    const timer = window.setInterval(() => void load(), anyImporting ? 5000 : 30000);
     return () => window.clearInterval(timer);
-  }, [load, data?.status]);
+  }, [load, data?.status, data?.sources]);
 
   const currentProgressView = buildIngestProgressView(data);
   const autoScanEnabled = data?.auto_scan_enabled === true;
@@ -151,6 +154,7 @@ export function IncrementalProgressPage() {
         </div>
         <div className="progress-list">
           <div className="progress-list-row progress-list-head">
+            <span>Source</span>
             <span>日期</span>
             <span>状态</span>
             <span>文件</span>
@@ -161,7 +165,8 @@ export function IncrementalProgressPage() {
           {(data?.dates || []).map((row) => {
             const rowProgressView = buildIngestProgressView(row);
             return (
-              <div className="progress-list-row" key={row.log_date}>
+              <div className="progress-list-row" key={`${row.source_id || 'default'}-${row.log_date}`}>
+                <strong>{row.source_id || 'default'}</strong>
                 <strong>{formatLogDate(row.log_date)}</strong>
                 <Tag color={row.status === 'failed' ? 'error' : row.status === 'ready' ? 'success' : 'processing'}>{statusText(row.status)}</Tag>
                 <span className="mono-number">{row.files_done ?? 0}/{row.files_total ?? 0}</span>

@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: read
 
 jobs:
   prepare-release:
@@ -139,13 +140,13 @@ jobs:
         working-directory: web
         run: npm test
 
-      - name: Run Go tests
-        run: go test -race -count=1 ./...
-
       - name: Install package build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y rpm
+          sudo apt-get install -y cpio rpm
+
+      - name: Run Go tests
+        run: go test -race -count=1 ./...
 
       - name: Build Linux binary and server packages
         shell: bash

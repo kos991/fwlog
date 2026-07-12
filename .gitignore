@@ -5,6 +5,12 @@
 /tmp/
 /.cache/
 /docs/
+!/docs/
+/docs/*
+!/docs/superpowers/
+/docs/superpowers/*
+!/docs/superpowers/plans/
+!/docs/superpowers/plans/*.md
 /internal/app/web/dist/
 
 # Locally downloaded native dependencies used for packaging
