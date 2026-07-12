@@ -243,7 +243,7 @@ func TestServerPackagesReplaceLegacyNatQueryPackage(t *testing.T) {
 	for _, want := range []string{
 		"Provides: nat-query-service",
 		"Replaces: nat-query-service",
-		"Breaks: nat-query-service",
+		`Breaks: $([[ "$include_clickhouse" == "true" ]] && echo nat-query-service)`,
 	} {
 		if !strings.Contains(buildScript, want) {
 			t.Fatalf("DEB control generation missing legacy package replacement rule %q", want)
