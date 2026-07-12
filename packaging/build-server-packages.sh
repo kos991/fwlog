@@ -186,7 +186,11 @@ stage_rootfs() {
         "$rootfs/data/export"
 
     install -m 0755 "$binary_path" "$rootfs/opt/nat-query/nat-query-service"
-    install -m 0644 "$repo_root/nat-query-service.service" "$rootfs/etc/systemd/system/nat-query-service.service"
+    local service_unit="$repo_root/nat-query-service.service"
+    if [[ "$include_clickhouse" != "true" ]]; then
+        service_unit="$repo_root/packaging/systemd/nat-query-service-upgrade.service"
+    fi
+    install -m 0644 "$service_unit" "$rootfs/etc/systemd/system/nat-query-service.service"
     install -m 0644 "$geoip_db" "$rootfs/data/index/GeoLite2-City.mmdb"
 
     if [[ "$include_clickhouse" == "true" ]]; then
@@ -288,7 +292,7 @@ if command -v systemctl >/dev/null 2>&1; then
                 echo "app_settings 恢复失败，备份文件保留在 \$backup" >&2
             fi
         fi
-        systemctl restart nat-query-service.service || true
+        systemctl restart nat-query-service.service
     fi
 fi
 exit 0

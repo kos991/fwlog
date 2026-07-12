@@ -31,7 +31,14 @@ cp -a . %{buildroot}/
 %pre
 if [ "$1" -ge 2 ]; then
     backup="/data/nat-query/backups/app_settings-before-package.tsv"
+    client=""
+%if %{include_clickhouse}
     client="/opt/nat-query/clickhouse/bin/clickhouse"
+%else
+    for candidate in /usr/bin/clickhouse-client /usr/bin/clickhouse /opt/nat-query/clickhouse/bin/clickhouse; do
+        if [ -x "$candidate" ]; then client="$candidate"; break; fi
+    done
+%endif
     mkdir -p "$(dirname "$backup")"
     chmod 700 "$(dirname "$backup")" || true
     if [ -x "$client" ]; then
@@ -69,7 +76,10 @@ if command -v systemctl >/dev/null 2>&1; then
             exit 1
         fi
 %else
-        client="/opt/nat-query/clickhouse/bin/clickhouse"
+        client=""
+        for candidate in /usr/bin/clickhouse-client /usr/bin/clickhouse /opt/nat-query/clickhouse/bin/clickhouse; do
+            if [ -x "$candidate" ]; then client="$candidate"; break; fi
+        done
 %endif
         backup="/data/nat-query/backups/app_settings-before-package.tsv"
         if [ -s "$backup" ] && [ -x "$client" ]; then
@@ -77,7 +87,7 @@ if command -v systemctl >/dev/null 2>&1; then
                 echo "app_settings 恢复失败，备份文件保留在 $backup" >&2
             fi
         fi
-        systemctl restart nat-query-service.service || true
+        systemctl restart nat-query-service.service
     fi
 fi
 
