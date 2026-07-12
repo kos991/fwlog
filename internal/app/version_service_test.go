@@ -26,13 +26,12 @@ func TestInstalledVersionInfoReadsPackageMetadata(t *testing.T) {
 
 func TestInstalledVersionInfoFallsBackWhenFilesAreMissing(t *testing.T) {
 	dir := t.TempDir()
-	oldAppPath, oldRuntimePath, oldVersion := appVersionFile, runtimeVersionFile, appVersion
+	oldAppPath, oldRuntimePath := appVersionFile, runtimeVersionFile
 	appVersionFile = filepath.Join(dir, "missing-version")
 	runtimeVersionFile = filepath.Join(dir, "missing-runtime")
-	appVersion = "v-test"
-	defer func() { appVersionFile, runtimeVersionFile, appVersion = oldAppPath, oldRuntimePath, oldVersion }()
+	defer func() { appVersionFile, runtimeVersionFile = oldAppPath, oldRuntimePath }()
 	info := installedVersionInfo()
-	if info.AppVersion != "v-test" || info.RuntimeVersion != "unknown" {
+	if info.AppVersion != appVersion || info.RuntimeVersion != "unknown" {
 		t.Fatalf("fallback version info = %#v", info)
 	}
 }
