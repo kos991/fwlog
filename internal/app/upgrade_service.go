@@ -275,7 +275,7 @@ func runPackageManagerCommand(ctx context.Context, name string, args ...string) 
 func defaultUpgradeStatus() UpgradeStatus {
 	return UpgradeStatus{
 		State:          UpgradeStateIdle,
-		CurrentVersion: appVersion,
+		CurrentVersion: currentAppVersion(),
 	}
 }
 
@@ -297,9 +297,9 @@ func (a *App) upgradeCheckHandler() http.Handler {
 		_, missing := releaseUpgradeAssets(release)
 		latestVersion := strings.TrimSpace(release.TagName)
 		response := UpgradeCheckResponse{
-			CurrentVersion:  appVersion,
+			CurrentVersion:  currentAppVersion(),
 			LatestVersion:   latestVersion,
-			UpdateAvailable: latestVersion != "" && latestVersion != appVersion,
+			UpdateAvailable: latestVersion != "" && latestVersion != currentAppVersion(),
 			ReleaseURL:      release.HTMLURL,
 			AssetsReady:     len(missing) == 0,
 			MissingAssets:   missing,
@@ -364,7 +364,7 @@ func (a *App) currentUpgradeStatus() UpgradeStatus {
 	if a.upgradeStatus.State == "" {
 		a.upgradeStatus = defaultUpgradeStatus()
 	}
-	a.upgradeStatus.CurrentVersion = appVersion
+	a.upgradeStatus.CurrentVersion = currentAppVersion()
 	return a.upgradeStatus
 }
 
@@ -378,7 +378,7 @@ func (a *App) startUpgrade(target upgradeTarget) (UpgradeStatus, bool) {
 
 	status := UpgradeStatus{
 		State:          UpgradeStateRunning,
-		CurrentVersion: appVersion,
+		CurrentVersion: currentAppVersion(),
 		TargetVersion:  target.Version,
 		Message:        "升级任务已开始",
 		StartedAt:      time.Now(),
@@ -396,7 +396,7 @@ func (a *App) startUpgrade(target upgradeTarget) (UpgradeStatus, bool) {
 				a.upgradeMu.Lock()
 				a.upgradeStatus = UpgradeStatus{
 					State:          UpgradeStateFailed,
-					CurrentVersion: appVersion,
+					CurrentVersion: currentAppVersion(),
 					TargetVersion:  target.Version,
 					Error:          fmt.Sprintf("升级任务异常退出: %v", r),
 					Message:        "升级失败",
@@ -407,7 +407,7 @@ func (a *App) startUpgrade(target upgradeTarget) (UpgradeStatus, bool) {
 		}()
 		result := runner(context.Background(), target)
 		if result.CurrentVersion == "" {
-			result.CurrentVersion = appVersion
+			result.CurrentVersion = currentAppVersion()
 		}
 		if result.TargetVersion == "" {
 			result.TargetVersion = target.Version
@@ -457,7 +457,7 @@ func fetchGithubRelease(ctx context.Context, version string) (githubRelease, err
 func runSystemUpgrade(ctx context.Context, target upgradeTarget) UpgradeStatus {
 	status := UpgradeStatus{
 		State:          UpgradeStateRunning,
-		CurrentVersion: appVersion,
+		CurrentVersion: currentAppVersion(),
 		TargetVersion:  target.Version,
 		StartedAt:      time.Now(),
 	}
