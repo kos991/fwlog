@@ -229,7 +229,7 @@ Architecture: $deb_arch
 Depends: systemd
 Provides: nat-query-service
 Replaces: nat-query-service, fwlog-full
-Breaks: nat-query-service
+Breaks: $([[ "$include_clickhouse" == "true" ]] && echo nat-query-service)
 Installed-Size: $installed_size
 Maintainer: fwlog <noreply@example.invalid>
 Description: $package_summary
