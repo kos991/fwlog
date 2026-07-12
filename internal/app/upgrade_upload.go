@@ -112,7 +112,7 @@ func (a *App) startUploadedUpgrade(pkg upgradePackage, tempDir string) (UpgradeS
 		a.upgradeMu.Unlock()
 		return status, false
 	}
-	status := UpgradeStatus{State: UpgradeStateRunning, CurrentVersion: currentAppVersion(), TargetVersion: pkg.Name, Message: "正在安装上传的升级包", StartedAt: time.Now()}
+	status := UpgradeStatus{State: UpgradeStateRunning, CurrentVersion: a.currentAppVersion(), TargetVersion: pkg.Name, Message: "正在安装上传的升级包", StartedAt: time.Now()}
 	a.upgradeStatus = status
 	a.upgradeMu.Unlock()
 	go func() {
@@ -128,7 +128,7 @@ func (a *App) startUploadedUpgrade(pkg upgradePackage, tempDir string) (UpgradeS
 			result.Message = "升级失败"
 		} else {
 			result.State = UpgradeStateSucceeded
-			result.CurrentVersion = currentAppVersion()
+			result.CurrentVersion = a.currentAppVersion()
 			result.Message = "升级安装完成"
 		}
 		a.upgradeStatus = result

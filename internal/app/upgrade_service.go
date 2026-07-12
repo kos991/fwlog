@@ -297,9 +297,9 @@ func (a *App) upgradeCheckHandler() http.Handler {
 		_, missing := releaseUpgradeAssets(release)
 		latestVersion := strings.TrimSpace(release.TagName)
 		response := UpgradeCheckResponse{
-			CurrentVersion:  currentAppVersion(),
+			CurrentVersion:  a.currentAppVersion(),
 			LatestVersion:   latestVersion,
-			UpdateAvailable: latestVersion != "" && latestVersion != currentAppVersion(),
+			UpdateAvailable: latestVersion != "" && latestVersion != a.currentAppVersion(),
 			ReleaseURL:      release.HTMLURL,
 			AssetsReady:     len(missing) == 0,
 			MissingAssets:   missing,
@@ -364,7 +364,7 @@ func (a *App) currentUpgradeStatus() UpgradeStatus {
 	if a.upgradeStatus.State == "" {
 		a.upgradeStatus = defaultUpgradeStatus()
 	}
-	a.upgradeStatus.CurrentVersion = currentAppVersion()
+	a.upgradeStatus.CurrentVersion = a.currentAppVersion()
 	return a.upgradeStatus
 }
 
@@ -378,7 +378,7 @@ func (a *App) startUpgrade(target upgradeTarget) (UpgradeStatus, bool) {
 
 	status := UpgradeStatus{
 		State:          UpgradeStateRunning,
-		CurrentVersion: currentAppVersion(),
+		CurrentVersion: a.currentAppVersion(),
 		TargetVersion:  target.Version,
 		Message:        "升级任务已开始",
 		StartedAt:      time.Now(),
@@ -396,7 +396,7 @@ func (a *App) startUpgrade(target upgradeTarget) (UpgradeStatus, bool) {
 				a.upgradeMu.Lock()
 				a.upgradeStatus = UpgradeStatus{
 					State:          UpgradeStateFailed,
-					CurrentVersion: currentAppVersion(),
+					CurrentVersion: a.currentAppVersion(),
 					TargetVersion:  target.Version,
 					Error:          fmt.Sprintf("升级任务异常退出: %v", r),
 					Message:        "升级失败",
@@ -407,7 +407,7 @@ func (a *App) startUpgrade(target upgradeTarget) (UpgradeStatus, bool) {
 		}()
 		result := runner(context.Background(), target)
 		if result.CurrentVersion == "" {
-			result.CurrentVersion = currentAppVersion()
+			result.CurrentVersion = a.currentAppVersion()
 		}
 		if result.TargetVersion == "" {
 			result.TargetVersion = target.Version

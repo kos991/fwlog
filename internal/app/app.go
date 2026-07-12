@@ -27,6 +27,7 @@ type App struct {
 	upgradeMu     sync.Mutex
 	upgradeStatus UpgradeStatus
 	upgradeRunner upgradeRunnerFunc
+	versionInfo   VersionInfo
 }
 
 type importRunnerFunc func(context.Context, *ClickHouseStore, LogSource, bool) ([]string, []string, error)
@@ -54,6 +55,7 @@ func NewApp(cfg Config) *App {
 		imports:       NewImportCoordinator(cfg.Workers, defaultConcurrentWrites),
 		querySem:      make(chan struct{}, 4),
 		upgradeStatus: defaultUpgradeStatus(),
+		versionInfo:   installedVersionInfo(),
 	}
 }
 
