@@ -77,6 +77,7 @@ jobs:
           set -euo pipefail
           PACKAGING_MODE=full bash packaging/build-server-packages.sh --version 0.0.0 --binary dist/nat-query-service_linux_amd64 --output dist
           PACKAGING_MODE=upgrade bash packaging/build-server-packages.sh --version 0.0.0 --binary dist/nat-query-service_linux_amd64 --output dist
+          PACKAGING_MODE=upgrade bash packaging/build-server-packages.sh --version 0.0.1 --binary dist/nat-query-service_linux_amd64 --output dist
 
       - name: Smoke test offline bundle and upgrade package contents
         shell: bash
@@ -92,6 +93,36 @@ jobs:
           ! dpkg-deb --contents dist/fwlog-upgrade_0.0.0_amd64.deb | grep -q '/opt/nat-query/clickhouse/'
           ! rpm -qpl dist/fwlog-upgrade-v0.0.0.x86_64.rpm | grep -q '/opt/nat-query/clickhouse/'
 
+      - name: Test DEB package upgrade transaction
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD/dist:/packages:ro" ubuntu:24.04 bash -ec '
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update >/dev/null
+            apt-get install -y /packages/fwlog-full_0.0.0_amd64.deb >/dev/null
+            grep -Fx "VERSION=v0.0.0" /opt/nat-query/VERSION
+            runtime_before="$(cat /opt/nat-query/RUNTIME_VERSION)"
+            apt-get install -y /packages/fwlog-upgrade_0.0.1_amd64.deb >/dev/null
+            grep -Fx "VERSION=v0.0.1" /opt/nat-query/VERSION
+            test "$(cat /opt/nat-query/RUNTIME_VERSION)" = "$runtime_before"
+            dpkg-query -W -f="${Status}" fwlog-upgrade | grep -Fx "install ok installed"
+          '
+
+      - name: Test RPM package upgrade transaction
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD/dist:/packages:ro" rockylinux:9 bash -ec '
+            rpm -Uvh /packages/fwlog-full-v0.0.0.x86_64.rpm >/dev/null
+            grep -Fx "VERSION=v0.0.0" /opt/nat-query/VERSION
+            runtime_before="$(cat /opt/nat-query/RUNTIME_VERSION)"
+            rpm -Uvh /packages/fwlog-upgrade-v0.0.1.x86_64.rpm >/dev/null
+            grep -Fx "VERSION=v0.0.1" /opt/nat-query/VERSION
+            test "$(cat /opt/nat-query/RUNTIME_VERSION)" = "$runtime_before"
+            rpm -q fwlog-upgrade
+          '
+
       - name: Upload server package artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -103,4 +134,6 @@ jobs:
             dist/fwlog-full-v0.0.0-amd64.tar.gz
             dist/fwlog-upgrade-v0.0.0.x86_64.rpm
             dist/fwlog-upgrade_0.0.0_amd64.deb
+            dist/fwlog-upgrade-v0.0.1.x86_64.rpm
+            dist/fwlog-upgrade_0.0.1_amd64.deb
           if-no-files-found: error
