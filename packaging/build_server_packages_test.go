@@ -57,6 +57,7 @@ func TestBuiltPackagesContainModeSpecificUnitsAndStrictRestartScripts(t *testing
 			run(t, "dpkg-deb", "-e", deb, debControl)
 			assertUnit(t, filepath.Join(debRoot, "etc", "systemd", "system", "fwlog.service"), tc.unitNeedle, tc.unitReject)
 			assertStrictRestart(t, filepath.Join(debControl, "postinst"))
+			assertDebMaintainerScriptsParse(t, debControl)
 
 			rpmPackage := firstMatch(t, filepath.Join(outputDir, "*.rpm"))
 			rpmScripts := run(t, "rpm", "-qp", "--scripts", rpmPackage)
@@ -232,6 +233,7 @@ func TestPackageInstallScriptsPropagateServiceRestartFailure(t *testing.T) {
 			t.Fatalf("%s suppresses application restart failure", path)
 		}
 	}
+
 	spec, err := os.ReadFile(filepath.Join(repoRoot, "packaging", "rpm", "fwlog.spec"))
 	if err != nil {
 		t.Fatal(err)
@@ -239,6 +241,13 @@ func TestPackageInstallScriptsPropagateServiceRestartFailure(t *testing.T) {
 	specText := string(spec)
 	if !strings.Contains(specText, "/usr/bin/clickhouse-client") || !strings.Contains(specText, "for candidate in") {
 		t.Fatal("RPM upgrade must discover the ClickHouse client installed by the existing deployment")
+	}
+}
+
+func assertDebMaintainerScriptsParse(t *testing.T, controlDir string) {
+	t.Helper()
+	for _, name := range []string{"preinst", "postinst", "prerm", "postrm"} {
+		run(t, "sh", "-n", filepath.Join(controlDir, name))
 	}
 }
 

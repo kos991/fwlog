@@ -72,7 +72,7 @@ if command -v systemctl >/dev/null 2>&1; then
             sleep 1
         done
         if ! "$client" client --query "SELECT 1" >/dev/null 2>&1; then
-            echo "ClickHouse 鍚姩澶辫触锛屼腑姝㈠畨瑁? >&2
+            echo "ClickHouse did not become ready after package installation" >&2
             exit 1
         fi
 %else

@@ -120,7 +120,7 @@ fi
 clickhouse_binary() {
     if [[ -n "${CLICKHOUSE_BINARY:-}" ]]; then
         if [[ ! -f "$CLICKHOUSE_BINARY" ]]; then
-            echo "CLICKHOUSE_BINARY not found: $CLICKHOUSE_BINARY" >&2
+            echo "ClickHouse did not become ready after package installation" >&2
             exit 1
         fi
         echo "$CLICKHOUSE_BINARY"
@@ -143,7 +143,7 @@ clickhouse_binary() {
     local found
     found="$(find "$extract_dir" -type f -name clickhouse -perm /111 | head -n 1 || true)"
     if [[ -z "$found" ]]; then
-        echo "clickhouse executable not found in $archive" >&2
+        echo "ClickHouse did not become ready after package installation" >&2
         exit 1
     fi
     echo "$found"
@@ -288,7 +288,7 @@ if command -v systemctl >/dev/null 2>&1; then
                 sleep 1
             done
             if ! "\$client" client --query "SELECT 1" >/dev/null 2>&1; then
-                echo "ClickHouse 鍚姩澶辫触锛屼腑姝㈠畨瑁? >&2
+                echo "ClickHouse did not become ready after package installation" >&2
                 exit 1
             fi
         else
