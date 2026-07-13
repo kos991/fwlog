@@ -11,7 +11,9 @@
 /docs/superpowers/*
 !/docs/superpowers/plans/
 !/docs/superpowers/plans/*.md
-/internal/app/web/dist/
+/internal/server/web/dist/
+/fwlog.exe
+/web/src/pages/*.backup
 
 # Locally downloaded native dependencies used for packaging
 /third_party/

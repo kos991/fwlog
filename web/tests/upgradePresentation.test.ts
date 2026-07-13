@@ -6,10 +6,10 @@ import { buildUpgradeView } from '../src/upgradePresentation.ts';
 
 test('shows an upgrade action when a newer release has all assets', () => {
   const view = buildUpgradeView({
-    status: { state: 'idle', current_version: 'v1.0.10' },
+    status: { state: 'idle', current_version: 'v2.0.0' },
     check: {
-      current_version: 'v1.0.10',
-      latest_version: 'v1.0.12',
+      current_version: 'v2.0.0',
+      latest_version: 'v2.0.2',
       update_available: true,
       assets_ready: true,
     },
@@ -19,7 +19,7 @@ test('shows an upgrade action when a newer release has all assets', () => {
 
   assert.equal(view.state, 'available');
   assert.equal(view.showUpgradeAction, true);
-  assert.equal(view.latestVersion, 'v1.0.12');
+  assert.equal(view.latestVersion, 'v2.0.2');
   assert.equal(view.statusTone, 'warning');
 });
 
@@ -27,13 +27,13 @@ test('prefers a fresh available release over a previous failed upgrade status', 
   const view = buildUpgradeView({
     status: {
       state: 'failed',
-      current_version: 'v1.0.10',
-      target_version: 'v1.0.11',
+      current_version: 'v2.0.0',
+      target_version: 'v2.0.1',
       error: 'dpkg failed',
     },
     check: {
-      current_version: 'v1.0.10',
-      latest_version: 'v1.0.12',
+      current_version: 'v2.0.0',
+      latest_version: 'v2.0.2',
       update_available: true,
       assets_ready: true,
     },
@@ -43,15 +43,15 @@ test('prefers a fresh available release over a previous failed upgrade status', 
 
   assert.equal(view.state, 'available');
   assert.equal(view.showUpgradeAction, true);
-  assert.equal(view.latestVersion, 'v1.0.12');
+  assert.equal(view.latestVersion, 'v2.0.2');
   assert.equal(view.statusTone, 'warning');
 });
 
 test('requires the full bundle when the installed runtime is incompatible', () => {
   const view = buildUpgradeView({
-    status: { state: 'idle', current_version: 'v1.0.10' },
+    status: { state: 'idle', current_version: 'v2.0.0' },
     check: {
-      current_version: 'v1.0.10',
+      current_version: 'v2.0.0',
       latest_version: 'v2.0.0',
       update_available: true,
       assets_ready: false,
@@ -76,7 +76,7 @@ test('maintenance page uses the resolved upgrade view tone for the status tag', 
 
 test('upgrade panel copy no longer mentions automatic checking', () => {
   const view = buildUpgradeView({
-    status: { state: 'idle', current_version: 'v1.0.13' },
+    status: { state: 'idle', current_version: 'v2.0.3' },
     check: null,
     isChecking: false,
     lastCheckedAt: null,

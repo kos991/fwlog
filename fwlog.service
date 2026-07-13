@@ -1,0 +1,62 @@
+[Unit]
+Description=NAT Query Service - High-Performance Network Log Analysis
+Documentation=https://github.com/kos991/fwlog
+After=network-online.target fwlog-clickhouse.service
+Requires=network-online.target fwlog-clickhouse.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/fwlog
+
+# Environment
+Environment="LOG_DIR=/data/sangfor_fw_log"
+Environment="LOG_TAG=娣变俊鏈?NAT"
+Environment="PORT=8080"
+Environment="CLICKHOUSE_ADDR=127.0.0.1:9000"
+Environment="CLICKHOUSE_DATABASE=default"
+Environment="CUSTOM_IP_MAP=/opt/fwlog/custom_ip_map.csv"
+Environment="GEOIP_DB=/data/index/GeoLite2-City.mmdb"
+Environment="AUTO_SCAN_ENABLED=false"
+Environment="GIN_MODE=release"
+
+# Execution
+ExecStart=/opt/fwlog/fwlog
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Restart policy
+Restart=on-failure
+RestartSec=5s
+StartLimitInterval=60s
+StartLimitBurst=3
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+LimitMEMLOCK=infinity
+
+# Performance tuning
+Nice=-5
+IOSchedulingClass=best-effort
+IOSchedulingPriority=2
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/data /opt/fwlog
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictNamespaces=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=fwlog
+
+[Install]
+WantedBy=multi-user.target

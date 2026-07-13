@@ -179,35 +179,35 @@ stage_rootfs() {
     local ch_bin="$2"
     local geoip_db="$3"
 
-    install -d "$rootfs/opt/nat-query" \
+    install -d "$rootfs/opt/fwlog" \
         "$rootfs/etc/systemd/system" \
         "$rootfs/data/sangfor_fw_log" \
         "$rootfs/data/index" \
         "$rootfs/data/export"
 
-    install -m 0755 "$binary_path" "$rootfs/opt/nat-query/nat-query-service"
-    printf 'VERSION=v%s\n' "$pkg_version" > "$rootfs/opt/nat-query/VERSION"
-    local service_unit="$repo_root/nat-query-service.service"
+    install -m 0755 "$binary_path" "$rootfs/opt/fwlog/fwlog"
+    printf 'VERSION=v%s\n' "$pkg_version" > "$rootfs/opt/fwlog/VERSION"
+    local service_unit="$repo_root/fwlog.service"
     if [[ "$include_clickhouse" != "true" ]]; then
-        service_unit="$repo_root/packaging/systemd/nat-query-service-upgrade.service"
+        service_unit="$repo_root/packaging/systemd/fwlog.service"
     fi
-    install -m 0644 "$service_unit" "$rootfs/etc/systemd/system/nat-query-service.service"
+    install -m 0644 "$service_unit" "$rootfs/etc/systemd/system/fwlog.service"
     install -m 0644 "$geoip_db" "$rootfs/data/index/GeoLite2-City.mmdb"
 
     if [[ "$include_clickhouse" == "true" ]]; then
-        printf 'RUNTIME_VERSION=clickhouse-%s\n' "${CLICKHOUSE_VERSION:-25.8.27.1}" > "$rootfs/opt/nat-query/RUNTIME_VERSION"
-        install -d "$rootfs/opt/nat-query/clickhouse/bin" \
-            "$rootfs/opt/nat-query/clickhouse/etc" \
-            "$rootfs/opt/nat-query/clickhouse/data" \
-            "$rootfs/opt/nat-query/clickhouse/tmp" \
-            "$rootfs/opt/nat-query/clickhouse/user_files" \
-            "$rootfs/opt/nat-query/clickhouse/format_schemas" \
-            "$rootfs/opt/nat-query/clickhouse/log"
+        printf 'RUNTIME_VERSION=clickhouse-%s\n' "${CLICKHOUSE_VERSION:-25.8.27.1}" > "$rootfs/opt/fwlog/RUNTIME_VERSION"
+        install -d "$rootfs/opt/fwlog/clickhouse/bin" \
+            "$rootfs/opt/fwlog/clickhouse/etc" \
+            "$rootfs/opt/fwlog/clickhouse/data" \
+            "$rootfs/opt/fwlog/clickhouse/tmp" \
+            "$rootfs/opt/fwlog/clickhouse/user_files" \
+            "$rootfs/opt/fwlog/clickhouse/format_schemas" \
+            "$rootfs/opt/fwlog/clickhouse/log"
 
-        install -m 0755 "$ch_bin" "$rootfs/opt/nat-query/clickhouse/bin/clickhouse"
+        install -m 0755 "$ch_bin" "$rootfs/opt/fwlog/clickhouse/bin/clickhouse"
         install -m 0644 "$repo_root/packaging/systemd/fwlog-clickhouse.service" "$rootfs/etc/systemd/system/fwlog-clickhouse.service"
-        install -m 0644 "$repo_root/packaging/clickhouse/config.xml" "$rootfs/opt/nat-query/clickhouse/etc/config.xml"
-        install -m 0644 "$repo_root/packaging/clickhouse/users.xml" "$rootfs/opt/nat-query/clickhouse/etc/users.xml"
+        install -m 0644 "$repo_root/packaging/clickhouse/config.xml" "$rootfs/opt/fwlog/clickhouse/etc/config.xml"
+        install -m 0644 "$repo_root/packaging/clickhouse/users.xml" "$rootfs/opt/fwlog/clickhouse/etc/users.xml"
     fi
 }
 
@@ -227,9 +227,9 @@ Section: net
 Priority: optional
 Architecture: $deb_arch
 Depends: systemd
-Provides: nat-query-service
-Replaces: nat-query-service, fwlog-full
-Breaks: $([[ "$include_clickhouse" == "true" ]] && echo nat-query-service)
+Provides: fwlog
+Replaces: fwlog, fwlog-full
+Breaks: $([[ "$include_clickhouse" == "true" ]] && echo fwlog)
 Installed-Size: $installed_size
 Maintainer: fwlog <noreply@example.invalid>
 Description: $package_summary
@@ -240,8 +240,8 @@ EOF
 #!/bin/sh
 set -e
 if [ "$1" = "upgrade" ]; then
-    backup="/data/nat-query/backups/app_settings-before-package.tsv"
-    client="/opt/nat-query/clickhouse/bin/clickhouse"
+    backup="/data/fwlog/backups/app_settings-before-package.tsv"
+    client="/opt/fwlog/clickhouse/bin/clickhouse"
     mkdir -p "$(dirname "$backup")"
     chmod 700 "$(dirname "$backup")" || true
     if [ -x "$client" ]; then
@@ -249,9 +249,9 @@ if [ "$1" = "upgrade" ]; then
             mv "$backup.tmp" "$backup"
             chmod 600 "$backup"
         else
-            cat /tmp/fwlog-preinst-backup.err >> /data/nat-query/backups/backup-failed.log 2>/dev/null || true
+            cat /tmp/fwlog-preinst-backup.err >> /data/fwlog/backups/backup-failed.log 2>/dev/null || true
             rm -f "$backup.tmp"
-            echo "app_settings 备份失败，已中止升级（如需跳过请先停止 ClickHouse 后重试）" >&2
+            echo "app_settings 澶囦唤澶辫触锛屽凡涓鍗囩骇锛堝闇€璺宠繃璇峰厛鍋滄 ClickHouse 鍚庨噸璇曪級" >&2
             exit 1
         fi
     fi
@@ -265,14 +265,14 @@ set -e
 if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload || true
     if [ "$include_clickhouse" = "true" ]; then
-        systemctl enable fwlog-clickhouse.service nat-query-service.service || true
+        systemctl enable fwlog-clickhouse.service fwlog.service || true
     else
-        systemctl enable nat-query-service.service || true
+        systemctl enable fwlog.service || true
     fi
     if [ -d /run/systemd/system ]; then
         if [ "$include_clickhouse" = "true" ]; then
             systemctl restart fwlog-clickhouse.service
-            client="/opt/nat-query/clickhouse/bin/clickhouse"
+            client="/opt/fwlog/clickhouse/bin/clickhouse"
             i=0
             while [ "\$i" -lt 60 ]; do
                 if "\$client" client --query "SELECT 1" >/dev/null 2>&1; then
@@ -282,19 +282,19 @@ if command -v systemctl >/dev/null 2>&1; then
                 sleep 1
             done
             if ! "\$client" client --query "SELECT 1" >/dev/null 2>&1; then
-                echo "ClickHouse 启动失败，中止安装" >&2
+                echo "ClickHouse 鍚姩澶辫触锛屼腑姝㈠畨瑁? >&2
                 exit 1
             fi
         else
-            client="/opt/nat-query/clickhouse/bin/clickhouse"
+            client="/opt/fwlog/clickhouse/bin/clickhouse"
         fi
-        backup="/data/nat-query/backups/app_settings-before-package.tsv"
+        backup="/data/fwlog/backups/app_settings-before-package.tsv"
         if [ -s "\$backup" ] && [ -x "\$client" ]; then
             if ! "\$client" client --query "INSERT INTO app_settings (key, value, updated_at) FORMAT TabSeparated" < "\$backup" >/dev/null 2>&1; then
-                echo "app_settings 恢复失败，备份文件保留在 \$backup" >&2
+                echo "app_settings 鎭㈠澶辫触锛屽浠芥枃浠朵繚鐣欏湪 \$backup" >&2
             fi
         fi
-        systemctl restart nat-query-service.service
+        systemctl restart fwlog.service
     fi
 fi
 exit 0
@@ -304,12 +304,12 @@ EOF
 #!/bin/sh
 set -e
 if [ "\$1" = "remove" ] && command -v systemctl >/dev/null 2>&1; then
-    systemctl stop nat-query-service.service || true
+    systemctl stop fwlog.service || true
     if [ "$include_clickhouse" = "true" ]; then
         systemctl stop fwlog-clickhouse.service || true
-        systemctl disable nat-query-service.service fwlog-clickhouse.service || true
+        systemctl disable fwlog.service fwlog-clickhouse.service || true
     else
-        systemctl disable nat-query-service.service || true
+        systemctl disable fwlog.service || true
     fi
 fi
 exit 0
@@ -336,10 +336,10 @@ build_rpm() {
     fi
 
     local rpm_top="$work_dir/rpmbuild"
-    local source_dir="$work_dir/nat-query-service-root"
+    local source_dir="$work_dir/fwlog-root"
     mkdir -p "$rpm_top/BUILD" "$rpm_top/RPMS" "$rpm_top/SOURCES" "$rpm_top/SPECS" "$rpm_top/SRPMS" "$source_dir"
     cp -a "$rootfs"/. "$source_dir"/
-    tar -C "$work_dir" -czf "$rpm_top/SOURCES/nat-query-service-root.tar.gz" nat-query-service-root
+    tar -C "$work_dir" -czf "$rpm_top/SOURCES/fwlog-root.tar.gz" fwlog-root
     rpmbuild -bb \
         --define "_topdir $rpm_top" \
         --define "fwlog_version $pkg_version" \
@@ -347,7 +347,7 @@ build_rpm() {
         --define "fwlog_package_summary $package_summary" \
         --define "fwlog_package_description $package_description" \
         --define "fwlog_include_clickhouse $([[ "$include_clickhouse" == "true" ]] && echo 1 || echo 0)" \
-        "$repo_root/packaging/rpm/nat-query-service.spec"
+        "$repo_root/packaging/rpm/fwlog.spec"
     cp "$rpm_top/RPMS/$rpm_arch/${package_name}-${pkg_version}-1.$rpm_arch.rpm" \
         "$output_dir/$rpm_output_name"
 }
@@ -394,7 +394,7 @@ else
     echo "unsupported system: rpm or dpkg is required" >&2
     exit 1
 fi
-systemctl is-active --quiet nat-query-service.service
+systemctl is-active --quiet fwlog.service
 EOF
     chmod 0755 "$bundle_dir/install.sh"
     tar -C "$work_dir" -czf "$output_dir/$bundle_name.tar.gz" "$bundle_name"

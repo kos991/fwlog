@@ -3,16 +3,16 @@ Description=FWLog Embedded ClickHouse
 Documentation=https://clickhouse.com/docs
 After=network-online.target
 Wants=network-online.target
-Before=nat-query-service.service
-PartOf=nat-query-service.service
+Before=fwlog.service
+PartOf=fwlog.service
 
 [Service]
 Type=simple
 User=root
 Group=root
-WorkingDirectory=/opt/nat-query/clickhouse
-ExecStartPre=/usr/bin/install -d -m 0755 /opt/nat-query/clickhouse/data /opt/nat-query/clickhouse/tmp /opt/nat-query/clickhouse/user_files /opt/nat-query/clickhouse/format_schemas /opt/nat-query/clickhouse/log
-ExecStart=/opt/nat-query/clickhouse/bin/clickhouse server --config-file=/opt/nat-query/clickhouse/etc/config.xml
+WorkingDirectory=/opt/fwlog/clickhouse
+ExecStartPre=/usr/bin/install -d -m 0755 /opt/fwlog/clickhouse/data /opt/fwlog/clickhouse/tmp /opt/fwlog/clickhouse/user_files /opt/fwlog/clickhouse/format_schemas /opt/fwlog/clickhouse/log
+ExecStart=/opt/fwlog/clickhouse/bin/clickhouse server --config-file=/opt/fwlog/clickhouse/etc/config.xml
 Restart=on-failure
 RestartSec=5s
 StartLimitInterval=60s

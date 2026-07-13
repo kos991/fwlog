@@ -80,7 +80,7 @@ function mockResponse<T>(path: string): T {
       ingest_health: {
         status: 'importing',
         source_id: 'default',
-        log_tag: '深信服 NAT',
+        log_tag: '娣变俊鏈?NAT',
         current_date: '2026-07-01',
         current_file: 'firewall.log-20260701.gz',
         files_total: 12,
@@ -102,14 +102,14 @@ function mockResponse<T>(path: string): T {
           load_percent: 18.4,
           load_average: 0.74,
           cores: 4,
-          description: 'CPU 正常',
+          description: 'CPU 姝ｅ父',
         },
         memory: {
           status: 'ok',
           total_bytes: 17179869184,
           available_bytes: 9282686976,
           used_percent: 46,
-          description: '内存正常',
+          description: '鍐呭瓨姝ｅ父',
         },
         database: {
           status: 'ok',
@@ -119,19 +119,19 @@ function mockResponse<T>(path: string): T {
           active_parts: 128,
           total_rows: 18625430,
           disk_used_bytes: 42860000000,
-          description: 'ClickHouse 正常',
+          description: 'ClickHouse 姝ｅ父',
         },
       },
       ip_distribution: {
         top_source_ips: [{ name: '10.10.2.18', value: 481230 }],
         top_destination_ips: [{ name: '114.114.114.114', value: 221980 }],
         top_nat_ips: [{ name: '172.16.0.12', value: 845301 }],
-        address_type_shares: [{ name: '内网', value: 72 }, { name: '公网', value: 28 }],
-        log_tag_distribution: [{ name: '深信服 NAT', value: 18625430 }],
+        address_type_shares: [{ name: '鍐呯綉', value: 72 }, { name: '鍏綉', value: 28 }],
+        log_tag_distribution: [{ name: '娣变俊鏈?NAT', value: 18625430 }],
       },
       geo_distribution: {
-        top_countries: [{ name: '中国', value: 821330 }],
-        top_regions: [{ name: '广东', value: 312900 }],
+        top_countries: [{ name: '涓浗', value: 821330 }],
+        top_regions: [{ name: '骞夸笢', value: 312900 }],
         unrecognized_ip_rate: 0.08,
         geoip_loaded: true,
         geoip_status: '已加载',
@@ -144,7 +144,7 @@ function mockResponse<T>(path: string): T {
         {
           id: '1',
           timestamp: '2026-07-01 08:10:22',
-          log_tag: '深信服 NAT',
+          log_tag: '娣变俊鏈?NAT',
           src_ip: '10.10.2.18',
           src_port: 53218,
           dst_ip: '114.114.114.114',
@@ -153,8 +153,8 @@ function mockResponse<T>(path: string): T {
           nat_port: 42001,
           protocol: 'UDP',
           action: 'ALLOW',
-          src_ip_label: '办公终端',
-          dst_geo: '中国',
+          src_ip_label: '鍔炲叕缁堢',
+          dst_geo: '涓浗',
           source_file: 'firewall.log-20260701.gz',
           source_offset: 184220,
           source_id: 'default',
@@ -179,7 +179,7 @@ function mockResponse<T>(path: string): T {
             status: 'ready',
           },
         ],
-        skipped_dates: [{ log_date: '2026-07-02', status: 'importing', reason: '仍在入库' }],
+        skipped_dates: [{ log_date: '2026-07-02', status: 'importing', reason: '浠嶅湪鍏ュ簱' }],
       },
     } as T;
   }
@@ -187,7 +187,7 @@ function mockResponse<T>(path: string): T {
     return {
       status: 'importing',
       source_id: 'default',
-      log_tag: '深信服 NAT',
+      log_tag: '娣变俊鏈?NAT',
       current_date: '2026-07-01',
       current_file: 'firewall.log-20260701.gz',
       files_total: 12,
@@ -205,33 +205,33 @@ function mockResponse<T>(path: string): T {
   }
   if (path.startsWith('/api/upgrade/check')) {
     return {
-      current_version: 'v1.1.0',
-      latest_version: 'v1.1.0',
+      current_version: 'v2.0.0',
+      latest_version: 'v2.0.0',
       update_available: false,
-      release_url: 'https://github.com/kos991/fwlog/releases/tag/v1.1.0',
+      release_url: 'https://github.com/kos991/fwlog/releases/tag/v2.0.0',
       assets_ready: true,
       missing_assets: [],
       status: {
         state: 'idle',
-        current_version: 'v1.1.0',
+        current_version: 'v2.0.0',
       },
     } as T;
   }
   if (path.startsWith('/api/upgrade/status') || path.startsWith('/api/upgrade/run')) {
     return {
       state: 'idle',
-      current_version: 'v1.1.0',
-      target_version: 'v1.1.0',
+      current_version: 'v2.0.0',
+      target_version: 'v2.0.0',
       message: '模拟升级状态',
     } as T;
   }
   if (path.startsWith('/api/settings')) {
     return {
       log_dir: '/data/sangfor_fw_log',
-      log_tag: '深信服 NAT',
-      log_sources: [{ source_id: 'sangfor-main', log_tag: '深信服 NAT', log_dir: '/data/sangfor_fw_log', enabled: true }],
-      cidr_aliases: [{ cidr: '10.10.0.0/16', alias: '办公网段', enabled: true }],
-      custom_ip_map_path: '/opt/nat-query/custom_ip_map.csv',
+      log_tag: '娣变俊鏈?NAT',
+      log_sources: [{ source_id: 'sangfor-main', log_tag: '娣变俊鏈?NAT', log_dir: '/data/sangfor_fw_log', enabled: true }],
+      cidr_aliases: [{ cidr: '10.10.0.0/16', alias: '鍔炲叕缃戞', enabled: true }],
+      custom_ip_map_path: '/opt/fwlog/custom_ip_map.csv',
       geoip_db_path: '/data/index/GeoLite2-City.mmdb',
       auto_scan_enabled: 'false',
       auto_scan_interval_sec: '3600',
@@ -253,7 +253,7 @@ export function buildQueryString(params: Record<string, unknown>): string {
 async function readErrorMessage(response: Response): Promise<string> {
   const text = await response.text();
   if (!text) {
-    return `请求失败，状态码 ${response.status}`;
+    return `璇锋眰澶辫触锛岀姸鎬佺爜 ${response.status}`;
   }
   try {
     const payload = JSON.parse(text) as { message?: unknown; error?: unknown };
@@ -264,7 +264,7 @@ async function readErrorMessage(response: Response): Promise<string> {
       return payload.error;
     }
   } catch {
-    // 非 JSON 时保留原始响应，方便排查网关或静态服务错误。
+    // 闈?JSON 鏃朵繚鐣欏師濮嬪搷搴旓紝鏂逛究鎺掓煡缃戝叧鎴栭潤鎬佹湇鍔￠敊璇€?
   }
   return text;
 }

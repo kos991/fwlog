@@ -15,7 +15,7 @@ func TestBuiltPackagesContainModeSpecificUnitsAndStrictRestartScripts(t *testing
 	}
 	for _, tool := range []string{"bash", "cpio", "dpkg-deb", "rpm", "rpm2cpio", "rpmbuild"} {
 		if _, err := exec.LookPath(tool); err != nil {
-			t.Skipf("缺少 %s，真实包检查仅在 Linux 发布环境运行", tool)
+			t.Skipf("缂哄皯 %s锛岀湡瀹炲寘妫€鏌ヤ粎鍦?Linux 鍙戝竷鐜杩愯", tool)
 		}
 	}
 
@@ -24,7 +24,7 @@ func TestBuiltPackagesContainModeSpecificUnitsAndStrictRestartScripts(t *testing
 		t.Fatal(err)
 	}
 	assets := t.TempDir()
-	binaryPath := filepath.Join(assets, "nat-query-service")
+	binaryPath := filepath.Join(assets, "fwlog")
 	clickHousePath := filepath.Join(assets, "clickhouse")
 	geoIPPath := filepath.Join(assets, "GeoLite2-City.mmdb")
 	for _, path := range []string{binaryPath, clickHousePath, geoIPPath} {
@@ -47,7 +47,7 @@ func TestBuiltPackagesContainModeSpecificUnitsAndStrictRestartScripts(t *testing
 				"--version", "9.9.9", "--binary", binaryPath, "--output", outputDir, "--mode", tc.mode)
 			cmd.Env = append(os.Environ(), "CLICKHOUSE_BINARY="+clickHousePath, "GEOIP_DB_PATH="+geoIPPath)
 			if output, err := cmd.CombinedOutput(); err != nil {
-				t.Fatalf("构建 %s 包失败: %v\n%s", tc.mode, err, output)
+				t.Fatalf("鏋勫缓 %s 鍖呭け璐? %v\n%s", tc.mode, err, output)
 			}
 
 			deb := firstMatch(t, filepath.Join(outputDir, "*.deb"))
@@ -55,20 +55,20 @@ func TestBuiltPackagesContainModeSpecificUnitsAndStrictRestartScripts(t *testing
 			run(t, "dpkg-deb", "-x", deb, debRoot)
 			debControl := filepath.Join(t.TempDir(), "control")
 			run(t, "dpkg-deb", "-e", deb, debControl)
-			assertUnit(t, filepath.Join(debRoot, "etc", "systemd", "system", "nat-query-service.service"), tc.unitNeedle, tc.unitReject)
+			assertUnit(t, filepath.Join(debRoot, "etc", "systemd", "system", "fwlog.service"), tc.unitNeedle, tc.unitReject)
 			assertStrictRestart(t, filepath.Join(debControl, "postinst"))
 
 			rpmPackage := firstMatch(t, filepath.Join(outputDir, "*.rpm"))
 			rpmScripts := run(t, "rpm", "-qp", "--scripts", rpmPackage)
-			if strings.Contains(rpmScripts, "systemctl restart nat-query-service.service || true") {
-				t.Fatal("RPM 安装后脚本吞掉了应用服务重启失败")
+			if strings.Contains(rpmScripts, "systemctl restart fwlog.service || true") {
+				t.Fatal("RPM 瀹夎鍚庤剼鏈悶鎺変簡搴旂敤鏈嶅姟閲嶅惎澶辫触")
 			}
 			rpmRoot := filepath.Join(t.TempDir(), "rpm")
 			if err := os.MkdirAll(rpmRoot, 0o755); err != nil {
 				t.Fatal(err)
 			}
 			runInDir(t, rpmRoot, "bash", "-c", fmt.Sprintf("rpm2cpio %s | cpio -idm --quiet", shellQuote(rpmPackage)))
-			assertUnit(t, filepath.Join(rpmRoot, "etc", "systemd", "system", "nat-query-service.service"), tc.unitNeedle, tc.unitReject)
+			assertUnit(t, filepath.Join(rpmRoot, "etc", "systemd", "system", "fwlog.service"), tc.unitNeedle, tc.unitReject)
 		})
 	}
 }
@@ -77,7 +77,7 @@ func firstMatch(t *testing.T, pattern string) string {
 	t.Helper()
 	matches, err := filepath.Glob(pattern)
 	if err != nil || len(matches) != 1 {
-		t.Fatalf("%s 应匹配唯一产物，实际 %v，错误 %v", pattern, matches, err)
+		t.Fatalf("%s 搴斿尮閰嶅敮涓€浜х墿锛屽疄闄?%v锛岄敊璇?%v", pattern, matches, err)
 	}
 	return matches[0]
 }
@@ -93,7 +93,7 @@ func runInDir(t *testing.T, dir, name string, args ...string) string {
 	cmd.Dir = dir
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("%s 执行失败: %v\n%s", name, err, output)
+		t.Fatalf("%s 鎵ц澶辫触: %v\n%s", name, err, output)
 	}
 	return string(output)
 }
@@ -106,7 +106,7 @@ func assertUnit(t *testing.T, path, required, forbidden string) {
 	}
 	unit := string(data)
 	if !strings.Contains(unit, required) || strings.Contains(unit, forbidden) {
-		t.Fatalf("unit 依赖语义不正确，要求 %q，禁止 %q\n%s", required, forbidden, unit)
+		t.Fatalf("unit 渚濊禆璇箟涓嶆纭紝瑕佹眰 %q锛岀姝?%q\n%s", required, forbidden, unit)
 	}
 }
 
@@ -116,7 +116,7 @@ func assertStrictRestart(t *testing.T, path string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(data), "systemctl restart nat-query-service.service || true") {
+	if strings.Contains(string(data), "systemctl restart fwlog.service || true") {
 		t.Fatalf("%s 吞掉了应用服务重启失败", path)
 	}
 }
@@ -136,7 +136,7 @@ func TestPackagedServiceUnitMatchesPackageMode(t *testing.T) {
 		t.Fatal("could not locate stage_rootfs in packaging script")
 	}
 	stageFunction := string(scriptData)[start:end]
-	if strings.Contains(string(scriptData), "systemctl restart nat-query-service.service || true") {
+	if strings.Contains(string(scriptData), "systemctl restart fwlog.service || true") {
 		t.Fatal("package install must fail when the application service cannot restart")
 	}
 	if !strings.Contains(string(scriptData), `cd "\$bundle_dir/packages"`) || !strings.Contains(string(scriptData), `sha256sum -c ../checksums.txt`) {
@@ -164,7 +164,7 @@ func TestPackagedServiceUnitMatchesPackageMode(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tempDir := t.TempDir()
-			binaryPath := filepath.Join(tempDir, "nat-query-service")
+			binaryPath := filepath.Join(tempDir, "fwlog")
 			geoIPPath := filepath.Join(tempDir, "GeoLite2-City.mmdb")
 			clickHousePath := filepath.Join(tempDir, "clickhouse")
 			for _, path := range []string{binaryPath, geoIPPath, clickHousePath} {
@@ -185,7 +185,7 @@ func TestPackagedServiceUnitMatchesPackageMode(t *testing.T) {
 			if output, err := cmd.CombinedOutput(); err != nil {
 				t.Fatalf("stage_rootfs failed: %v\n%s", err, output)
 			}
-			unitPath := filepath.Join(rootfs, "etc", "systemd", "system", "nat-query-service.service")
+			unitPath := filepath.Join(rootfs, "etc", "systemd", "system", "fwlog.service")
 			unitData, err := os.ReadFile(unitPath)
 			if err != nil {
 				t.Fatal(err)
@@ -197,11 +197,11 @@ func TestPackagedServiceUnitMatchesPackageMode(t *testing.T) {
 			if strings.Contains(unit, tc.forbidden) {
 				t.Fatalf("service unit contains forbidden dependency %q\n%s", tc.forbidden, unit)
 			}
-			versionData, err := os.ReadFile(filepath.Join(rootfs, "opt", "nat-query", "VERSION"))
+			versionData, err := os.ReadFile(filepath.Join(rootfs, "opt", "fwlog", "VERSION"))
 			if err != nil || strings.TrimSpace(string(versionData)) != "VERSION=v9.9.9" {
 				t.Fatalf("VERSION file is invalid: %q, error %v", versionData, err)
 			}
-			runtimePath := filepath.Join(rootfs, "opt", "nat-query", "RUNTIME_VERSION")
+			runtimePath := filepath.Join(rootfs, "opt", "fwlog", "RUNTIME_VERSION")
 			if tc.includeClickHouse == "true" {
 				runtimeData, err := os.ReadFile(runtimePath)
 				if err != nil || strings.TrimSpace(string(runtimeData)) != "RUNTIME_VERSION=clickhouse-25.8.27.1" {
@@ -222,17 +222,17 @@ func TestPackageInstallScriptsPropagateServiceRestartFailure(t *testing.T) {
 
 	for _, path := range []string{
 		filepath.Join(repoRoot, "packaging", "build-server-packages.sh"),
-		filepath.Join(repoRoot, "packaging", "rpm", "nat-query-service.spec"),
+		filepath.Join(repoRoot, "packaging", "rpm", "fwlog.spec"),
 	} {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(string(data), "systemctl restart nat-query-service.service || true") {
+		if strings.Contains(string(data), "systemctl restart fwlog.service || true") {
 			t.Fatalf("%s suppresses application restart failure", path)
 		}
 	}
-	spec, err := os.ReadFile(filepath.Join(repoRoot, "packaging", "rpm", "nat-query-service.spec"))
+	spec, err := os.ReadFile(filepath.Join(repoRoot, "packaging", "rpm", "fwlog.spec"))
 	if err != nil {
 		t.Fatal(err)
 	}

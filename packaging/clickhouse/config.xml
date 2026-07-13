@@ -2,8 +2,8 @@
 <clickhouse>
     <logger>
         <level>information</level>
-        <log>/opt/nat-query/clickhouse/log/clickhouse-server.log</log>
-        <errorlog>/opt/nat-query/clickhouse/log/clickhouse-server.err.log</errorlog>
+        <log>/opt/fwlog/clickhouse/log/clickhouse-server.log</log>
+        <errorlog>/opt/fwlog/clickhouse/log/clickhouse-server.err.log</errorlog>
         <size>1000M</size>
         <count>5</count>
     </logger>
@@ -11,10 +11,10 @@
     <listen_host>127.0.0.1</listen_host>
     <http_port>8123</http_port>
     <tcp_port>9000</tcp_port>
-    <path>/opt/nat-query/clickhouse/data/</path>
-    <tmp_path>/opt/nat-query/clickhouse/tmp/</tmp_path>
-    <user_files_path>/opt/nat-query/clickhouse/user_files/</user_files_path>
-    <format_schema_path>/opt/nat-query/clickhouse/format_schemas/</format_schema_path>
+    <path>/opt/fwlog/clickhouse/data/</path>
+    <tmp_path>/opt/fwlog/clickhouse/tmp/</tmp_path>
+    <user_files_path>/opt/fwlog/clickhouse/user_files/</user_files_path>
+    <format_schema_path>/opt/fwlog/clickhouse/format_schemas/</format_schema_path>
     <users_config>users.xml</users_config>
     <default_profile>default</default_profile>
     <default_database>default</default_database>

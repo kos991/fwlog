@@ -1,4 +1,4 @@
-module nat-query-service
+module fwlog
 
 go 1.21
 
