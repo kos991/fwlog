@@ -219,6 +219,12 @@ build_deb() {
     install -d "$debroot/DEBIAN"
     local installed_size
     installed_size="$(du -sk "$debroot" | awk '{print $1}')"
+    local deb_replaces="fwlog, fwlog-full"
+    local deb_breaks="fwlog-full"
+    if [[ "$include_clickhouse" == "true" ]]; then
+        deb_replaces="fwlog, fwlog-upgrade"
+        deb_breaks="fwlog-upgrade"
+    fi
 
     cat > "$debroot/DEBIAN/control" <<EOF
 Package: $package_name
@@ -228,8 +234,8 @@ Priority: optional
 Architecture: $deb_arch
 Depends: systemd
 Provides: fwlog
-Replaces: fwlog, fwlog-full
-Breaks: $([[ "$include_clickhouse" == "true" ]] && echo fwlog)
+Replaces: $deb_replaces
+Breaks: $deb_breaks
 Installed-Size: $installed_size
 Maintainer: fwlog <noreply@example.invalid>
 Description: $package_summary
