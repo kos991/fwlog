@@ -448,6 +448,36 @@ func TestUpdateSettingsStoresStructuredValuesAsJSON(t *testing.T) {
 	}
 }
 
+func TestUpdateSettingsNormalizesRSyslogLogSources(t *testing.T) {
+	app := NewApp(LoadConfig())
+	app.updateSettings(map[string]any{
+		"log_sources": []any{
+			map[string]any{
+				"source_id":   "rsyslog-main",
+				"log_tag":     "核心防火墙",
+				"source_type": "rsyslog",
+				"enabled":     true,
+			},
+		},
+	})
+
+	var sources []LogSource
+	raw := app.getSettings()["log_sources"]
+	if err := json.Unmarshal([]byte(raw), &sources); err != nil {
+		t.Fatalf("log_sources should be valid JSON, got %q: %v", raw, err)
+	}
+	if len(sources) != 1 {
+		t.Fatalf("sources = %#v", sources)
+	}
+	source := sources[0]
+	if source.SourceType != "rsyslog" || source.ListenProtocol != "udp" || source.ListenHost != "0.0.0.0" || source.ListenPort != 5514 {
+		t.Fatalf("rsyslog defaults not applied: %#v", source)
+	}
+	if source.SpoolDir != "/data/fwlog/received/rsyslog-main" || source.LogDir != source.SpoolDir {
+		t.Fatalf("rsyslog spool dir not applied: %#v", source)
+	}
+}
+
 func TestRouterSettingsSaveDoesNotStartImportForEnabledLogSources(t *testing.T) {
 	app := NewApp(LoadConfig())
 	app.mu.Lock()

@@ -1690,7 +1690,7 @@ body {
 
 .source-row {
   display: grid;
-  grid-template-columns: minmax(140px, 0.8fr) minmax(160px, 0.9fr) minmax(360px, 1.8fr) 72px 56px;
+  grid-template-columns: minmax(128px, 0.8fr) minmax(150px, 0.9fr) minmax(126px, 0.7fr) minmax(360px, 1.8fr) 72px 56px;
   gap: 10px;
   align-items: center;
   min-height: 40px;
@@ -1836,6 +1836,12 @@ body {
   border: 1px solid var(--fw-line-soft);
   border-radius: 8px;
   background: var(--fw-surface-soft);
+}
+
+.source-receiver-fields {
+  display: grid;
+  grid-template-columns: 120px minmax(220px, 1fr);
+  gap: 8px;
 }
 
 .maintenance-plan-card--schedule {

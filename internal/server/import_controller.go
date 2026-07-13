@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -105,12 +106,25 @@ func (a *App) legacyLogSource() LogSource {
 
 func legacyLogSourceFromSettings(settings map[string]string, cfg Config) LogSource {
 	return LogSource{
-		SourceID:  settingOrFallback(settings, "source_id", "default"),
-		LogDir:    settingOrFallback(settings, "log_dir", cfg.LogDir),
-		LogTag:    settingOrFallback(settings, "log_tag", cfg.LogTag),
-		Enabled:   true,
-		UpdatedAt: time.Now(),
+		SourceID:   settingOrFallback(settings, "source_id", "default"),
+		LogDir:     settingOrFallback(settings, "log_dir", cfg.LogDir),
+		LogTag:     settingOrFallback(settings, "log_tag", cfg.LogTag),
+		Enabled:    true,
+		SourceType: "file",
+		UpdatedAt:  time.Now(),
 	}
+}
+
+type logSourcePayload struct {
+	SourceID       string `json:"source_id"`
+	LogDir         string `json:"log_dir"`
+	LogTag         string `json:"log_tag"`
+	Enabled        *bool  `json:"enabled"`
+	SourceType     string `json:"source_type"`
+	ListenProtocol string `json:"listen_protocol"`
+	ListenHost     string `json:"listen_host"`
+	ListenPort     int    `json:"listen_port"`
+	SpoolDir       string `json:"spool_dir"`
 }
 
 func parseEnabledLogSources(raw string) ([]LogSource, bool) {
@@ -119,46 +133,112 @@ func parseEnabledLogSources(raw string) ([]LogSource, bool) {
 		return nil, false
 	}
 
-	type logSourcePayload struct {
-		SourceID string `json:"source_id"`
-		LogDir   string `json:"log_dir"`
-		LogTag   string `json:"log_tag"`
-		Enabled  *bool  `json:"enabled"`
-	}
-
 	var payload []logSourcePayload
 	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
 		return nil, false
 	}
 
+	return normalizeLogSourcePayloads(payload, true), true
+}
+
+func normalizeLogSourcesSetting(value any) (string, bool) {
+	var raw []byte
+	switch typed := value.(type) {
+	case string:
+		raw = []byte(strings.TrimSpace(typed))
+	default:
+		encoded, err := json.Marshal(typed)
+		if err != nil {
+			return "", false
+		}
+		raw = encoded
+	}
+	if len(raw) == 0 {
+		return "[]", true
+	}
+
+	var payload []logSourcePayload
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return "", false
+	}
+
+	normalized := normalizeLogSourcePayloads(payload, false)
+	encoded, err := json.Marshal(normalized)
+	if err != nil {
+		return "", false
+	}
+	return string(encoded), true
+}
+
+func normalizeLogSourcePayloads(payload []logSourcePayload, enabledOnly bool) []LogSource {
 	now := time.Now()
 	sources := make([]LogSource, 0, len(payload))
 	for _, item := range payload {
 		sourceID := strings.TrimSpace(item.SourceID)
 		logDir := strings.TrimSpace(item.LogDir)
 		logTag := strings.TrimSpace(item.LogTag)
-		if sourceID == "" && logDir == "" && logTag == "" {
+		sourceType := normalizeLogSourceType(item.SourceType)
+		listenProtocol := normalizeListenProtocol(item.ListenProtocol)
+		listenHost := strings.TrimSpace(item.ListenHost)
+		listenPort := item.ListenPort
+		spoolDir := strings.TrimSpace(item.SpoolDir)
+		if sourceID == "" && logDir == "" && logTag == "" && spoolDir == "" {
 			continue
 		}
 		if sourceID == "" {
 			sourceID = "default"
 		}
+		if sourceType == "rsyslog" {
+			if listenHost == "" {
+				listenHost = "0.0.0.0"
+			}
+			if listenPort <= 0 {
+				listenPort = 5514
+			}
+			if spoolDir == "" {
+				spoolDir = filepath.ToSlash(filepath.Join("/data/fwlog/received", sourceID))
+			}
+			if logDir == "" {
+				logDir = spoolDir
+			}
+		}
 		enabled := true
 		if item.Enabled != nil {
 			enabled = *item.Enabled
 		}
-		if !enabled {
+		if enabledOnly && !enabled {
 			continue
 		}
 		sources = append(sources, LogSource{
-			SourceID:  sourceID,
-			LogDir:    logDir,
-			LogTag:    logTag,
-			Enabled:   true,
-			UpdatedAt: now,
+			SourceID:       sourceID,
+			LogDir:         logDir,
+			LogTag:         logTag,
+			Enabled:        enabled,
+			SourceType:     sourceType,
+			ListenProtocol: listenProtocol,
+			ListenHost:     listenHost,
+			ListenPort:     listenPort,
+			SpoolDir:       spoolDir,
+			UpdatedAt:      now,
 		})
 	}
-	return sources, true
+	return sources
+}
+
+func normalizeLogSourceType(sourceType string) string {
+	sourceType = strings.ToLower(strings.TrimSpace(sourceType))
+	if sourceType == "rsyslog" {
+		return "rsyslog"
+	}
+	return "file"
+}
+
+func normalizeListenProtocol(protocol string) string {
+	protocol = strings.ToLower(strings.TrimSpace(protocol))
+	if protocol == "udp" {
+		return "udp"
+	}
+	return "udp"
 }
 
 const maxImportDuration = 2 * time.Hour

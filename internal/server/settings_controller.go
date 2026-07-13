@@ -86,6 +86,12 @@ func (a *App) updateSettings(payload map[string]any) {
 		if protectedSettingsKeys[key] {
 			continue
 		}
+		if key == "log_sources" {
+			if normalized, ok := normalizeLogSourcesSetting(value); ok {
+				a.settings[key] = normalized
+				continue
+			}
+		}
 		switch typed := value.(type) {
 		case string:
 			a.settings[key] = typed

@@ -33,6 +33,11 @@ type LogSourceSetting = {
   source_id?: string;
   log_tag?: string;
   log_dir?: string;
+  source_type?: 'file' | 'rsyslog' | string;
+  listen_protocol?: 'udp' | string;
+  listen_host?: string;
+  listen_port?: number | string;
+  spool_dir?: string;
   enabled?: boolean;
 };
 
@@ -85,6 +90,39 @@ function parseLogSources(value?: LogSourceSetting[] | string): LogSourceSetting[
   }
 }
 
+function defaultSpoolDir(sourceID?: string) {
+  return `/data/fwlog/received/${sourceID || 'source'}`;
+}
+
+function normalizeLogSourceSetting(source: LogSourceSetting, index: number): LogSourceSetting {
+  const sourceID = source.source_id || `source-${index + 1}`;
+  const sourceType = source.source_type === 'rsyslog' ? 'rsyslog' : 'file';
+  if (sourceType === 'rsyslog') {
+    const spoolDir = source.spool_dir || source.log_dir || defaultSpoolDir(sourceID);
+    return {
+      ...source,
+      source_id: sourceID,
+      source_type: 'rsyslog',
+      listen_protocol: 'udp',
+      listen_host: source.listen_host || '0.0.0.0',
+      listen_port: Number(source.listen_port || 5514),
+      spool_dir: spoolDir,
+      log_dir: source.log_dir || spoolDir,
+      enabled: source.enabled !== false,
+    };
+  }
+  return {
+    ...source,
+    source_id: sourceID,
+    source_type: 'file',
+    enabled: source.enabled !== false,
+  };
+}
+
+function normalizeLogSourcesForForm(sources: LogSourceSetting[]) {
+  return sources.map((source, index) => normalizeLogSourceSetting(source, index));
+}
+
 function firstAutoScanTime(value?: string | Dayjs | null) {
   if (dayjs.isDayjs(value)) {
     return value.format('HH:mm');
@@ -131,14 +169,15 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
       setLoading(true);
       const settings = await apiGet<Settings>('/api/settings');
       const parsedLogSources = parseLogSources(settings.log_sources);
-      const logSources = parsedLogSources.length ? parsedLogSources : [
+      const logSources = normalizeLogSourcesForForm(parsedLogSources.length ? parsedLogSources : [
         {
           source_id: 'default',
           log_tag: settings.log_tag || '深信服 NAT',
           log_dir: settings.log_dir || '/data/sangfor_fw_log',
+          source_type: 'file',
           enabled: true,
         },
-      ];
+      ]);
       const cidrAliases = parseCidrAliases(settings.cidr_aliases);
       setSavedLogSources(logSources);
       form.setFieldsValue({
@@ -205,7 +244,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
     try {
       setLoading(true);
       const values = form.getFieldsValue();
-      const logSources = parseLogSources(values.log_sources);
+      const logSources = normalizeLogSourcesForForm(parseLogSources(values.log_sources));
       const firstSource = logSources[0];
       await apiPost('/api/settings', {
         ...values,
@@ -374,7 +413,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                           </div>
                           <Button
                             icon={<PlusOutlined />}
-                            onClick={() => add({ source_id: `source-${fields.length + 1}`, log_tag: '', log_dir: '', enabled: true })}
+                            onClick={() => add({ source_id: `source-${fields.length + 1}`, log_tag: '', log_dir: '', source_type: 'file', enabled: true })}
                           >
                             添加
                           </Button>
@@ -382,7 +421,8 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                         <div className="source-row source-row-header">
                           <span>设备 ID</span>
                           <span>日志名称</span>
-                          <span>日志目录</span>
+                          <span>类型</span>
+                          <span>文件目录 / 接收设置</span>
                           <span>启用</span>
                           <span>操作</span>
                         </div>
@@ -394,8 +434,41 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                             <Form.Item name={[field.name, 'log_tag']} rules={[{ required: true, message: '必填' }]}>
                               <Input prefix={<TagsOutlined />} placeholder="日志名称" />
                             </Form.Item>
-                            <Form.Item name={[field.name, 'log_dir']} rules={[{ required: true, message: '必填' }]}>
-                              <Input prefix={<FolderOpenOutlined />} placeholder="/data/device_fw_log" />
+                            <Form.Item name={[field.name, 'source_type']} initialValue="file">
+                              <Select
+                                options={[
+                                  { value: 'file', label: '文件目录' },
+                                  { value: 'rsyslog', label: 'RSyslog 接收' },
+                                ]}
+                              />
+                            </Form.Item>
+                            <Form.Item noStyle shouldUpdate>
+                              {({ getFieldValue }) => {
+                                const sourceType = getFieldValue(['log_sources', field.name, 'source_type']) || 'file';
+                                if (sourceType === 'rsyslog') {
+                                  return (
+                                    <div className="source-receiver-fields">
+                                      <Form.Item name={[field.name, 'listen_port']}>
+                                        <Input prefix={<GlobalOutlined />} placeholder="默认 5514" />
+                                      </Form.Item>
+                                      <Form.Item name={[field.name, 'spool_dir']}>
+                                        <Input prefix={<FolderOpenOutlined />} placeholder="/data/fwlog/received/device-id" />
+                                      </Form.Item>
+                                      <Form.Item name={[field.name, 'listen_protocol']} initialValue="udp" hidden>
+                                        <Input />
+                                      </Form.Item>
+                                      <Form.Item name={[field.name, 'listen_host']} initialValue="0.0.0.0" hidden>
+                                        <Input />
+                                      </Form.Item>
+                                    </div>
+                                  );
+                                }
+                                return (
+                                  <Form.Item name={[field.name, 'log_dir']} rules={[{ required: true, message: '必填' }]}>
+                                    <Input prefix={<FolderOpenOutlined />} placeholder="/data/device_fw_log" />
+                                  </Form.Item>
+                                );
+                              }}
                             </Form.Item>
                             <Form.Item name={[field.name, 'enabled']} valuePropName="checked">
                               <Switch />
