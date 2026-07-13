@@ -122,7 +122,7 @@ jobs:
             echo "[deb] checking runtime preservation"
             grep -Fx "RUNTIME_VERSION=clickhouse-${CLICKHOUSE_VERSION}" /opt/fwlog/RUNTIME_VERSION
             echo "[deb] checking package status"
-            dpkg-query -W -f='${Status}' fwlog-upgrade | grep -Fx "install ok installed"
+            dpkg-query -W -f=\${Status} fwlog-upgrade | grep -Fx "install ok installed"
           '
 
       - name: Test RPM package upgrade transaction

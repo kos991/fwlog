@@ -277,6 +277,24 @@ func TestFullAndUpgradeArtifactsKeepRuntimeOwnerInstalled(t *testing.T) {
 	}
 }
 
+func TestCIDebStatusFormatIsNotExpandedByOuterShell(t *testing.T) {
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(repoRoot, ".github", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if strings.Contains(text, `-f='${Status}'`) {
+		t.Fatal("DEB status format is expanded by the outer single-quoted docker script")
+	}
+	if !strings.Contains(text, `-f=\${Status}`) {
+		t.Fatal("DEB status format must escape the dollar sign for the inner shell")
+	}
+}
+
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
