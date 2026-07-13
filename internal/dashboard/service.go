@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -301,12 +302,59 @@ func enrichGeoDistributionMetrics(metrics DashboardMetrics, engine *IPEngine) Da
 		return metrics
 	}
 
-	countries := make(map[string]uint64)
-	regions := make(map[string]uint64)
 	destinations := metrics.DestinationSubnets
 	if len(destinations) == 0 {
 		destinations = metrics.TopDestinationIPs
 	}
+	countries, regions := aggregateGeoDestinations(destinations, engine)
+
+	metrics.TopCountries = topDistributionItems(countries, 10)
+	metrics.TopRegions = topDistributionItems(regions, 10)
+	return metrics
+}
+
+type geoDistributionTotals struct {
+	countries map[string]uint64
+	regions   map[string]uint64
+}
+
+func aggregateGeoDestinations(destinations []DistributionItem, engine *IPEngine) (map[string]uint64, map[string]uint64) {
+	countries := make(map[string]uint64)
+	regions := make(map[string]uint64)
+	if len(destinations) == 0 || engine == nil {
+		return countries, regions
+	}
+
+	workers := min(runtime.GOMAXPROCS(0), 8, len(destinations))
+	chunkSize := (len(destinations) + workers - 1) / workers
+	partials := make(chan geoDistributionTotals, workers)
+	for worker := 0; worker < workers; worker++ {
+		start := worker * chunkSize
+		end := min(start+chunkSize, len(destinations))
+		if start >= end {
+			partials <- geoDistributionTotals{countries: map[string]uint64{}, regions: map[string]uint64{}}
+			continue
+		}
+		go func(items []DistributionItem) {
+			partial := geoDistributionTotals{countries: make(map[string]uint64), regions: make(map[string]uint64)}
+			aggregateGeoDestinationChunk(items, engine, partial.countries, partial.regions)
+			partials <- partial
+		}(destinations[start:end])
+	}
+
+	for worker := 0; worker < workers; worker++ {
+		partial := <-partials
+		for name, value := range partial.countries {
+			countries[name] += value
+		}
+		for name, value := range partial.regions {
+			regions[name] += value
+		}
+	}
+	return countries, regions
+}
+
+func aggregateGeoDestinationChunk(destinations []DistributionItem, engine *IPEngine, countries map[string]uint64, regions map[string]uint64) {
 	for _, item := range destinations {
 		if item.Name == "" || item.Value == 0 {
 			continue
@@ -320,10 +368,6 @@ func enrichGeoDistributionMetrics(metrics DashboardMetrics, engine *IPEngine) Da
 			regions[region] += item.Value
 		}
 	}
-
-	metrics.TopCountries = topDistributionItems(countries, 10)
-	metrics.TopRegions = topDistributionItems(regions, 10)
-	return metrics
 }
 
 func splitGeoLocation(location string) (string, string) {
