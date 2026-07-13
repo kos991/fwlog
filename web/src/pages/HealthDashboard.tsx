@@ -11,9 +11,16 @@ import {
   InboxOutlined,
   SyncOutlined,
 } from '@ant-design/icons';
-import { Progress, Segmented, Tag, message } from 'antd';
+import { Progress, Segmented, Select, Tag, message } from 'antd';
 import { apiGet, type DistributionItem } from '../api';
 import { buildIngestProgressView } from '../ingestPresentation';
+
+type LogTrendPoint = {
+  date: string;
+  source_id: string;
+  log_tag: string;
+  value: number;
+};
 
 type HealthDashboardResponse = {
   data_health: {
@@ -78,7 +85,7 @@ type HealthDashboardResponse = {
       description: string;
     };
   };
-  log_trend?: DistributionItem[];
+  log_trend?: LogTrendPoint[];
   ip_distribution: {
     top_source_ips: DistributionItem[];
     top_destination_ips: DistributionItem[];
@@ -302,8 +309,104 @@ function DashboardFlowArt() {
   );
 }
 
-function TrafficTrendPanel({ values }: { values: number[] }) {
-  const max = Math.max(...values, 1);
+type TrendSourceOption = {
+  label: string;
+  value: string;
+};
+
+type TrendSeries = {
+  labels: string[];
+  values: number[];
+};
+
+const allTrendSourcesValue = '__all__';
+
+function parseDateKey(date: string) {
+  const [year, month, day] = date.split('-').map((part) => Number(part));
+  if (!year || !month || !day) {
+    return null;
+  }
+  return new Date(year, month - 1, day);
+}
+
+function toDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export function formatTrendDateLabel(date: string) {
+  const parsed = parseDateKey(date);
+  if (!parsed) {
+    return date;
+  }
+  return `${`${parsed.getMonth() + 1}`.padStart(2, '0')}-${`${parsed.getDate()}`.padStart(2, '0')}`;
+}
+
+function recentDateKeys(points: LogTrendPoint[], days = 14) {
+  const sortedDates = points
+    .map((point) => parseDateKey(point.date))
+    .filter((date): date is Date => Boolean(date))
+    .sort((left, right) => left.getTime() - right.getTime());
+  const end = sortedDates[sortedDates.length - 1] || new Date();
+  const start = new Date(end);
+  start.setDate(start.getDate() - (days - 1));
+
+  return Array.from({ length: days }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    return toDateKey(date);
+  });
+}
+
+export function buildTrendSeries(points: LogTrendPoint[] | undefined, selectedSource: string): TrendSeries {
+  const sourceScopedPoints = selectedSource === allTrendSourcesValue
+    ? points || []
+    : (points || []).filter((point) => point.source_id === selectedSource);
+  const valuesByDate = new Map<string, number>();
+  for (const point of sourceScopedPoints) {
+    valuesByDate.set(point.date, (valuesByDate.get(point.date) || 0) + point.value);
+  }
+  const labels = recentDateKeys(points || []);
+  return {
+    labels,
+    values: labels.map((label) => valuesByDate.get(label) || 0),
+  };
+}
+
+function buildTrendSourceOptions(points: LogTrendPoint[] | undefined): TrendSourceOption[] {
+  const sourceLabels = new Map<string, string>();
+  for (const point of points || []) {
+    if (!point.source_id) {
+      continue;
+    }
+    sourceLabels.set(point.source_id, point.log_tag ? `${point.log_tag}（${point.source_id}）` : point.source_id);
+  }
+  return [
+    { label: '全部设备', value: allTrendSourcesValue },
+    ...Array.from(sourceLabels.entries())
+      .sort(([left], [right]) => left.localeCompare(right, 'zh-CN'))
+      .map(([value, label]) => ({ label, value })),
+  ];
+}
+
+function TrafficTrendPanel({
+  labels,
+  values,
+  sourceOptions,
+  selectedSource,
+  onSourceChange,
+}: {
+  labels: string[];
+  values: number[];
+  sourceOptions: TrendSourceOption[];
+  selectedSource: string;
+  onSourceChange: (value: string) => void;
+}) {
+  const rawMax = Math.max(...values, 0);
+  const yTicks = buildCountTicks(rawMax);
+  const chartMax = Math.max(yTicks[yTicks.length - 1] ?? 0, 1);
   const width = 1000;
   const height = 320;
   const padding = { top: 22, right: 24, bottom: 34, left: 44 };
@@ -311,12 +414,11 @@ function TrafficTrendPanel({ values }: { values: number[] }) {
   const innerHeight = height - padding.top - padding.bottom;
   const points = values.map((value, index) => {
     const x = padding.left + (index / Math.max(values.length - 1, 1)) * innerWidth;
-    const y = padding.top + innerHeight - (value / max) * innerHeight;
+    const y = padding.top + innerHeight - (value / chartMax) * innerHeight;
     return `${x},${y}`;
   });
   const areaPath = `M${padding.left},${height - padding.bottom} L${points.join(' L')} L${width - padding.right},${height - padding.bottom} Z`;
-  const gridValues = [0, 0.25, 0.5, 0.75, 1];
-  const xLabels = ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00'];
+  const xLabels = labels.map(formatTrendDateLabel);
 
   return (
     <section className="traffic-trend-section">
@@ -325,7 +427,16 @@ function TrafficTrendPanel({ values }: { values: number[] }) {
           <h3>日志趋势</h3>
           <span>按日期统计入库日志量</span>
         </div>
-        <span className="trend-range">最近日期</span>
+        <div className="trend-toolbar">
+          <Select
+            aria-label="趋势设备筛选"
+            size="small"
+            value={selectedSource}
+            options={sourceOptions}
+            onChange={onSourceChange}
+          />
+          <span className="trend-range">最近 14 天</span>
+        </div>
       </div>
       <div className="trend-chart-wrap">
         <div className="trend-legend">
@@ -334,12 +445,12 @@ function TrafficTrendPanel({ values }: { values: number[] }) {
           <strong>{formatCount(values.reduce((total, value) => total + value, 0))}</strong>
         </div>
         <svg className="trend-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="最近日期日志趋势">
-          {gridValues.map((ratio) => {
-            const y = padding.top + innerHeight - ratio * innerHeight;
+          {yTicks.map((tick) => {
+            const y = padding.top + innerHeight - (tick / chartMax) * innerHeight;
             return (
-              <g key={ratio}>
+              <g key={tick}>
                 <line className="trend-grid-line" x1={padding.left} x2={width - padding.right} y1={y} y2={y} />
-                <text className="trend-y-label" x={padding.left - 12} y={y + 4}>{Math.round(max * ratio)}</text>
+                <text className="trend-y-label" x={padding.left - 12} y={y + 4}>{tick}</text>
               </g>
             );
           })}
@@ -355,6 +466,18 @@ function TrafficTrendPanel({ values }: { values: number[] }) {
       </div>
     </section>
   );
+}
+
+export function buildCountTicks(maxValue: number): number[] {
+  if (!Number.isFinite(maxValue) || maxValue <= 0) {
+    return [0];
+  }
+  if (maxValue <= 4) {
+    return Array.from({ length: Math.ceil(maxValue) + 1 }, (_, index) => index);
+  }
+  const step = Math.max(1, Math.ceil(maxValue / 4));
+  const chartMax = Math.ceil(maxValue / step) * step;
+  return Array.from({ length: Math.floor(chartMax / step) + 1 }, (_, index) => index * step);
 }
 
 function CompactRankingPanel(props: {
@@ -431,6 +554,7 @@ export function HealthDashboard(_props: HealthDashboardProps) {
   const [, setLoading] = React.useState(false);
   const [data, setData] = React.useState<HealthDashboardResponse | null>(null);
   const [rankingKey, setRankingKey] = React.useState<RankingKey>('source');
+  const [selectedTrendSource, setSelectedTrendSource] = React.useState(allTrendSourcesValue);
 
   const loadSummary = React.useCallback(async () => {
     try {
@@ -482,10 +606,15 @@ export function HealthDashboard(_props: HealthDashboardProps) {
   const scanPolicyText = ingest?.auto_scan_policy || (ingest?.auto_scan_enabled ? '配置待完善' : '未启用');
   const autoScanValue = ingest?.auto_scan_enabled ? scanPolicyText : '未启用';
   const autoScanMeta = ingest?.auto_scan_enabled ? `下次 ${nextScanText}` : '不会自动触发';
-  const trendValues = React.useMemo(() => {
-    const values = data?.log_trend?.map((item) => item.value) || [];
-    return values.length > 0 ? values : Array.from({ length: 24 }, () => 0);
-  }, [data?.log_trend]);
+  const trendSourceOptions = React.useMemo(() => buildTrendSourceOptions(data?.log_trend), [data?.log_trend]);
+  React.useEffect(() => {
+    if (!trendSourceOptions.some((option) => option.value === selectedTrendSource)) {
+      setSelectedTrendSource(allTrendSourcesValue);
+    }
+  }, [selectedTrendSource, trendSourceOptions]);
+  const trendSeries = React.useMemo(() => {
+    return buildTrendSeries(data?.log_trend, selectedTrendSource);
+  }, [data?.log_trend, selectedTrendSource]);
   const rankingRows = React.useMemo(() => {
     const sourceMap: Record<RankingKey, DistributionItem[] | undefined> = {
       source: data?.ip_distribution?.top_source_ips,
@@ -574,7 +703,13 @@ export function HealthDashboard(_props: HealthDashboardProps) {
       </section>
 
       <section className="ops-section analysis-section">
-        <TrafficTrendPanel values={trendValues} />
+        <TrafficTrendPanel
+          labels={trendSeries.labels}
+          values={trendSeries.values}
+          sourceOptions={trendSourceOptions}
+          selectedSource={selectedTrendSource}
+          onSourceChange={setSelectedTrendSource}
+        />
         <CompactRankingPanel active={rankingKey} onChange={setRankingKey} rows={rankingRows} />
       </section>
     </div>
