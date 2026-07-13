@@ -287,11 +287,11 @@ func TestCIDebStatusFormatIsNotExpandedByOuterShell(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	if strings.Contains(text, `-f='${Status}'`) {
-		t.Fatal("DEB status format is expanded by the outer single-quoted docker script")
+	if strings.Contains(text, `dpkg-query -W -f=`) {
+		t.Fatal("DEB status check must not pass a format expression through two shell layers")
 	}
-	if !strings.Contains(text, `-f=\${Status}`) {
-		t.Fatal("DEB status format must escape the dollar sign for the inner shell")
+	if !strings.Contains(text, `dpkg -s fwlog-upgrade | grep -Fx "Status: install ok installed"`) {
+		t.Fatal("DEB status check must use the package status field without shell expansion")
 	}
 }
 
