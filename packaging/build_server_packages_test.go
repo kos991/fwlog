@@ -149,18 +149,21 @@ func TestPackagedServiceUnitMatchesPackageMode(t *testing.T) {
 		includeClickHouse string
 		required          string
 		forbidden         string
+		hasRuntime        bool
 	}{
 		{
 			name:              "full",
 			includeClickHouse: "true",
 			required:          "Requires=network-online.target fwlog-clickhouse.service",
 			forbidden:         "clickhouse-server.service",
+			hasRuntime:        true,
 		},
 		{
 			name:              "upgrade",
 			includeClickHouse: "false",
 			required:          "After=network-online.target fwlog-clickhouse.service clickhouse-server.service",
 			forbidden:         "Requires=network-online.target fwlog-clickhouse.service",
+			hasRuntime:        false,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -204,8 +207,12 @@ func TestPackagedServiceUnitMatchesPackageMode(t *testing.T) {
 			}
 			runtimePath := filepath.Join(rootfs, "opt", "fwlog", "RUNTIME_VERSION")
 			runtimeData, err := os.ReadFile(runtimePath)
-			if err != nil || strings.TrimSpace(string(runtimeData)) != "RUNTIME_VERSION=clickhouse-25.8.27.1" {
-				t.Fatalf("RUNTIME_VERSION file is invalid: %q, error %v", runtimeData, err)
+			if tc.hasRuntime {
+				if err != nil || strings.TrimSpace(string(runtimeData)) != "RUNTIME_VERSION=clickhouse-25.8.27.1" {
+					t.Fatalf("RUNTIME_VERSION file is invalid: %q, error %v", runtimeData, err)
+				}
+			} else if !os.IsNotExist(err) {
+				t.Fatalf("upgrade rootfs must not contain RUNTIME_VERSION: %q, error %v", runtimeData, err)
 			}
 		})
 	}
@@ -227,6 +234,9 @@ func TestPackageInstallScriptsPropagateServiceRestartFailure(t *testing.T) {
 		}
 		if strings.Contains(string(data), "systemctl restart fwlog.service || true") {
 			t.Fatalf("%s suppresses application restart failure", path)
+		}
+		if strings.Contains(string(data), "runtime_backup") {
+			t.Fatalf("%s preserves runtime metadata with maintainer script backup instead of package ownership", path)
 		}
 	}
 
@@ -261,6 +271,9 @@ func TestFullAndUpgradeArtifactsKeepRuntimeOwnerInstalled(t *testing.T) {
 	}
 	if !strings.Contains(text, `deb_breaks=""`) || !strings.Contains(text, `deb_breaks="fwlog-upgrade"`) || !strings.Contains(text, `if [[ -n "$deb_breaks" ]]`) {
 		t.Fatal("full DEB may replace upgrade, while thin upgrade must keep the full runtime owner installed")
+	}
+	if strings.Contains(text, "runtime_backup") {
+		t.Fatal("thin upgrade must preserve runtime metadata by package ownership, not by maintainer script backup")
 	}
 }
 

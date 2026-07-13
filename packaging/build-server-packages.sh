@@ -187,7 +187,6 @@ stage_rootfs() {
 
     install -m 0755 "$binary_path" "$rootfs/opt/fwlog/fwlog"
     printf 'VERSION=v%s\n' "$pkg_version" > "$rootfs/opt/fwlog/VERSION"
-    printf 'RUNTIME_VERSION=clickhouse-%s\n' "${CLICKHOUSE_VERSION:-25.8.27.1}" > "$rootfs/opt/fwlog/RUNTIME_VERSION"
     local service_unit="$repo_root/fwlog.service"
     if [[ "$include_clickhouse" != "true" ]]; then
         service_unit="$repo_root/packaging/systemd/fwlog.service"
@@ -196,6 +195,7 @@ stage_rootfs() {
     install -m 0644 "$geoip_db" "$rootfs/data/index/GeoLite2-City.mmdb"
 
     if [[ "$include_clickhouse" == "true" ]]; then
+        printf 'RUNTIME_VERSION=clickhouse-%s\n' "${CLICKHOUSE_VERSION:-25.8.27.1}" > "$rootfs/opt/fwlog/RUNTIME_VERSION"
         install -d "$rootfs/opt/fwlog/clickhouse/bin" \
             "$rootfs/opt/fwlog/clickhouse/etc" \
             "$rootfs/opt/fwlog/clickhouse/data" \
@@ -249,15 +249,9 @@ EOF
 set -e
 if [ "$1" = "install" ] || [ "$1" = "upgrade" ]; then
     backup="/data/fwlog/backups/app_settings-before-package.tsv"
-    runtime_backup="/data/fwlog/backups/runtime-version-before-package.txt"
     client="/opt/fwlog/clickhouse/bin/clickhouse"
     mkdir -p "$(dirname "$backup")"
     chmod 700 "$(dirname "$backup")" || true
-    if [ -f /opt/fwlog/RUNTIME_VERSION ]; then
-        cp /opt/fwlog/RUNTIME_VERSION "$runtime_backup.tmp"
-        mv "$runtime_backup.tmp" "$runtime_backup"
-        chmod 600 "$runtime_backup"
-    fi
     if [ -x "$client" ]; then
         if "$client" client --query "SELECT key, value, now() FROM app_settings FINAL FORMAT TabSeparated" > "$backup.tmp" 2>/tmp/fwlog-preinst-backup.err; then
             mv "$backup.tmp" "$backup"
@@ -303,20 +297,12 @@ if command -v systemctl >/dev/null 2>&1; then
             client="/opt/fwlog/clickhouse/bin/clickhouse"
         fi
         backup="/data/fwlog/backups/app_settings-before-package.tsv"
-        runtime_backup="/data/fwlog/backups/runtime-version-before-package.txt"
         if [ -s "\$backup" ] && [ -x "\$client" ]; then
             if ! "\$client" client --query "INSERT INTO app_settings (key, value, updated_at) FORMAT TabSeparated" < "\$backup" >/dev/null 2>&1; then
                 echo "app_settings 鎭㈠澶辫触锛屽浠芥枃浠朵繚鐣欏湪 \$backup" >&2
             fi
         fi
-        if [ "$include_clickhouse" != "true" ] && [ -s "\$runtime_backup" ]; then
-            install -D -m 0644 "\$runtime_backup" /opt/fwlog/RUNTIME_VERSION
-        fi
         systemctl restart fwlog.service
-    fi
-    runtime_backup="/data/fwlog/backups/runtime-version-before-package.txt"
-    if [ "$include_clickhouse" != "true" ] && [ -s "\$runtime_backup" ]; then
-        install -D -m 0644 "\$runtime_backup" /opt/fwlog/RUNTIME_VERSION
     fi
 fi
 exit 0

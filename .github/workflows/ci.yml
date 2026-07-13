@@ -89,29 +89,33 @@ jobs:
           tar -xzf "$bundle" -C "$temp_dir"
           (cd "$temp_dir/fwlog-full-v0.0.0-amd64/packages" && sha256sum -c ../checksums.txt)
           bash -n "$temp_dir/fwlog-full-v0.0.0-amd64/install.sh"
+          dpkg-deb --contents dist/fwlog-full_0.0.0_amd64.deb | grep -q '/opt/fwlog/RUNTIME_VERSION'
           dpkg-deb --contents dist/fwlog-upgrade_0.0.0_amd64.deb | grep -q '/opt/fwlog/VERSION'
+          ! dpkg-deb --contents dist/fwlog-upgrade_0.0.0_amd64.deb | grep -q '/opt/fwlog/RUNTIME_VERSION'
           ! dpkg-deb --contents dist/fwlog-upgrade_0.0.0_amd64.deb | grep -q '/opt/fwlog/clickhouse/'
+          rpm -qpl dist/fwlog-full-v0.0.0.x86_64.rpm | grep -q '/opt/fwlog/RUNTIME_VERSION'
+          ! rpm -qpl dist/fwlog-upgrade-v0.0.0.x86_64.rpm | grep -q '/opt/fwlog/RUNTIME_VERSION'
           ! rpm -qpl dist/fwlog-upgrade-v0.0.0.x86_64.rpm | grep -q '/opt/fwlog/clickhouse/'
 
       - name: Test DEB package upgrade transaction
         shell: bash
         run: |
           set -euo pipefail
-          docker run --rm -v "$PWD/dist:/packages:ro" ubuntu:24.04 bash -ec '
+          docker run --rm -e CLICKHOUSE_VERSION="$CLICKHOUSE_VERSION" -v "$PWD/dist:/packages:ro" ubuntu:24.04 bash -ec '
             export DEBIAN_FRONTEND=noninteractive
             echo "[deb] installing full package"
             apt-get update
             apt-get install -y /packages/fwlog-full_0.0.0_amd64.deb
             echo "[deb] checking full version"
             grep -Fx "VERSION=v0.0.0" /opt/fwlog/VERSION
-            runtime_before="$(cat /opt/fwlog/RUNTIME_VERSION)"
+            grep -Fx "RUNTIME_VERSION=clickhouse-${CLICKHOUSE_VERSION}" /opt/fwlog/RUNTIME_VERSION
             rm -f /opt/fwlog/clickhouse/bin/clickhouse
             echo "[deb] installing upgrade package"
             apt-get install -y /packages/fwlog-upgrade_0.0.1_amd64.deb
             echo "[deb] checking upgraded version"
             grep -Fx "VERSION=v0.0.1" /opt/fwlog/VERSION
             echo "[deb] checking runtime preservation"
-            test "$(cat /opt/fwlog/RUNTIME_VERSION)" = "$runtime_before"
+            grep -Fx "RUNTIME_VERSION=clickhouse-${CLICKHOUSE_VERSION}" /opt/fwlog/RUNTIME_VERSION
             echo "[deb] checking package status"
             dpkg-query -W -f='${Status}' fwlog-upgrade | grep -Fx "install ok installed"
           '
@@ -120,14 +124,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker run --rm -v "$PWD/dist:/packages:ro" rockylinux:9 bash -ec '
+          docker run --rm -e CLICKHOUSE_VERSION="$CLICKHOUSE_VERSION" -v "$PWD/dist:/packages:ro" rockylinux:9 bash -ec '
             rpm -Uvh /packages/fwlog-full-v0.0.0.x86_64.rpm >/dev/null
             grep -Fx "VERSION=v0.0.0" /opt/fwlog/VERSION
-            runtime_before="$(cat /opt/fwlog/RUNTIME_VERSION)"
+            grep -Fx "RUNTIME_VERSION=clickhouse-${CLICKHOUSE_VERSION}" /opt/fwlog/RUNTIME_VERSION
             rm -f /opt/fwlog/clickhouse/bin/clickhouse
             rpm -Uvh --replacefiles /packages/fwlog-upgrade-v0.0.1.x86_64.rpm >/dev/null
             grep -Fx "VERSION=v0.0.1" /opt/fwlog/VERSION
-            test "$(cat /opt/fwlog/RUNTIME_VERSION)" = "$runtime_before"
+            grep -Fx "RUNTIME_VERSION=clickhouse-${CLICKHOUSE_VERSION}" /opt/fwlog/RUNTIME_VERSION
             rpm -q fwlog-upgrade
           '
 

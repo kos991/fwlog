@@ -31,7 +31,6 @@ cp -a . %{buildroot}/
 %pre
 if [ "$1" -ge 1 ]; then
     backup="/data/fwlog/backups/app_settings-before-package.tsv"
-    runtime_backup="/data/fwlog/backups/runtime-version-before-package.txt"
     client=""
 %if %{include_clickhouse}
     client="/opt/fwlog/clickhouse/bin/clickhouse"
@@ -42,11 +41,6 @@ if [ "$1" -ge 1 ]; then
 %endif
     mkdir -p "$(dirname "$backup")"
     chmod 700 "$(dirname "$backup")" || true
-    if [ -f /opt/fwlog/RUNTIME_VERSION ]; then
-        cp /opt/fwlog/RUNTIME_VERSION "$runtime_backup.tmp"
-        mv "$runtime_backup.tmp" "$runtime_backup"
-        chmod 600 "$runtime_backup"
-    fi
     if [ -x "$client" ]; then
         if "$client" client --query "SELECT key, value, now() FROM app_settings FINAL FORMAT TabSeparated" > "$backup.tmp" 2>/tmp/fwlog-pre-backup.err; then
             mv "$backup.tmp" "$backup"
@@ -88,20 +82,12 @@ if command -v systemctl >/dev/null 2>&1; then
         done
 %endif
         backup="/data/fwlog/backups/app_settings-before-package.tsv"
-        runtime_backup="/data/fwlog/backups/runtime-version-before-package.txt"
         if [ -s "$backup" ] && [ -x "$client" ]; then
             if ! "$client" client --query "INSERT INTO app_settings (key, value, updated_at) FORMAT TabSeparated" < "$backup" >/dev/null 2>&1; then
                 echo "app_settings 鎭㈠澶辫触锛屽浠芥枃浠朵繚鐣欏湪 $backup" >&2
             fi
         fi
-        if [ 0%{?fwlog_include_clickhouse} -eq 0 ] && [ -s "$runtime_backup" ]; then
-            install -D -m 0644 "$runtime_backup" /opt/fwlog/RUNTIME_VERSION
-        fi
         systemctl restart fwlog.service
-    fi
-    runtime_backup="/data/fwlog/backups/runtime-version-before-package.txt"
-    if [ 0%{?fwlog_include_clickhouse} -eq 0 ] && [ -s "$runtime_backup" ]; then
-        install -D -m 0644 "$runtime_backup" /opt/fwlog/RUNTIME_VERSION
     fi
 fi
 
@@ -125,8 +111,8 @@ fi
 %dir /opt/fwlog
 /opt/fwlog/fwlog
 /opt/fwlog/VERSION
-/opt/fwlog/RUNTIME_VERSION
 %if %{include_clickhouse}
+/opt/fwlog/RUNTIME_VERSION
 %dir /opt/fwlog/clickhouse
 %dir /opt/fwlog/clickhouse/bin
 /opt/fwlog/clickhouse/bin/clickhouse
