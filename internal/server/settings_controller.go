@@ -29,14 +29,22 @@ func settingsHandler(app *App) http.Handler {
 					return
 				}
 			}
-			app.updateSettings(payload)
-			if err := app.saveSettings(r.Context(), payload); err != nil {
+			updates, err := app.normalizeSettingsPayload(payload)
+			if err != nil {
+				writeJSONStatus(w, http.StatusBadRequest, map[string]any{
+					"error":   "invalid_settings",
+					"message": err.Error(),
+				})
+				return
+			}
+			if err := app.saveNormalizedSettings(r.Context(), updates); err != nil {
 				writeJSONStatus(w, http.StatusInternalServerError, map[string]any{
 					"error":   "settings_save_failed",
 					"message": err.Error(),
 				})
 				return
 			}
+			app.applyNormalizedSettings(updates)
 			app.reloadIPDataFromSettings()
 			app.applyReceiverFromSettings()
 			writeJSON(w, app.getSettings())
@@ -93,38 +101,66 @@ var protectedSettingsKeys = map[string]bool{
 }
 
 func (a *App) updateSettings(payload map[string]any) {
-	if len(payload) == 0 {
+	updates, err := a.normalizeSettingsPayload(payload)
+	if err != nil {
+		return
+	}
+	a.applyNormalizedSettings(updates)
+}
+
+func (a *App) normalizeSettingsPayload(payload map[string]any) (map[string]string, error) {
+	updates := make(map[string]string, len(payload))
+	for key, value := range payload {
+		if protectedSettingsKeys[key] {
+			continue
+		}
+		if key == "log_sources" {
+			normalized, ok := normalizeLogSourcesSetting(value)
+			if !ok {
+				return nil, errors.New("日志源配置格式无效")
+			}
+			var sources []LogSource
+			if err := json.Unmarshal([]byte(normalized), &sources); err != nil {
+				return nil, fmt.Errorf("解析日志源配置: %w", err)
+			}
+			if err := validateLogSources(sources); err != nil {
+				return nil, err
+			}
+			updates[key] = normalized
+			continue
+		}
+		updates[key] = stringifySettingValue(value)
+	}
+	return updates, nil
+}
+
+func stringifySettingValue(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case bool:
+		return fmt.Sprintf("%t", typed)
+	case float64:
+		return fmt.Sprintf("%.0f", typed)
+	default:
+		encoded, err := json.Marshal(typed)
+		if err != nil {
+			return fmt.Sprint(typed)
+		}
+		return string(encoded)
+	}
+}
+
+func (a *App) applyNormalizedSettings(updates map[string]string) {
+	if len(updates) == 0 {
 		return
 	}
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	for key, value := range payload {
-		if protectedSettingsKeys[key] {
-			continue
-		}
-		if key == "log_sources" {
-			if normalized, ok := normalizeLogSourcesSetting(value); ok {
-				a.settings[key] = normalized
-				continue
-			}
-		}
-		switch typed := value.(type) {
-		case string:
-			a.settings[key] = typed
-		case bool:
-			a.settings[key] = fmt.Sprintf("%t", typed)
-		case float64:
-			a.settings[key] = fmt.Sprintf("%.0f", typed)
-		default:
-			encoded, err := json.Marshal(typed)
-			if err != nil {
-				a.settings[key] = fmt.Sprint(typed)
-				continue
-			}
-			a.settings[key] = string(encoded)
-		}
+	for key, value := range updates {
+		a.settings[key] = value
 	}
 }
 
@@ -149,13 +185,6 @@ func (a *App) saveSettings(ctx context.Context, payload map[string]any) error {
 	if len(payload) == 0 {
 		return nil
 	}
-	store := a.currentStore()
-	if store == nil {
-		return errors.New("ClickHouse 尚未连接，无法持久化设置")
-	}
-	if !store.Ready() {
-		return nil
-	}
 	settings := make(map[string]string, len(payload))
 	a.mu.RLock()
 	for key := range payload {
@@ -165,6 +194,23 @@ func (a *App) saveSettings(ctx context.Context, payload map[string]any) error {
 		settings[key] = a.settings[key]
 	}
 	a.mu.RUnlock()
+	return a.saveNormalizedSettings(ctx, settings)
+}
+
+func (a *App) saveNormalizedSettings(ctx context.Context, settings map[string]string) error {
+	if len(settings) == 0 {
+		return nil
+	}
+	if a.settingsSaver != nil {
+		return a.settingsSaver(ctx, settings)
+	}
+	store := a.currentStore()
+	if store == nil {
+		return errors.New("ClickHouse 尚未连接，无法持久化设置")
+	}
+	if !store.Ready() {
+		return nil
+	}
 	return store.SaveSettings(ctx, settings)
 }
 

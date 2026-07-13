@@ -34,16 +34,19 @@ func (s *IngestStatus) Scan(value any) error {
 }
 
 type LogSource struct {
-	SourceID       string    `json:"source_id"`
-	LogDir         string    `json:"log_dir"`
-	LogTag         string    `json:"log_tag"`
-	Enabled        bool      `json:"enabled"`
-	SourceType     string    `json:"source_type,omitempty"`
-	ListenProtocol string    `json:"listen_protocol,omitempty"`
-	ListenHost     string    `json:"listen_host,omitempty"`
-	ListenPort     int       `json:"listen_port,omitempty"`
-	SpoolDir       string    `json:"spool_dir,omitempty"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	SourceID             string    `json:"source_id"`
+	LogDir               string    `json:"log_dir"`
+	LogTag               string    `json:"log_tag"`
+	Enabled              bool      `json:"enabled"`
+	SourceType           string    `json:"source_type,omitempty"`
+	ListenProtocol       string    `json:"listen_protocol,omitempty"`
+	ListenHost           string    `json:"listen_host,omitempty"`
+	ListenPort           int       `json:"listen_port,omitempty"`
+	SpoolDir             string    `json:"spool_dir,omitempty"`
+	ClientIP             string    `json:"client_ip,omitempty"`
+	ArchiveDir           string    `json:"archive_dir,omitempty"`
+	ArchiveRetentionDays int       `json:"archive_retention_days,omitempty"`
+	UpdatedAt            time.Time `json:"updated_at"`
 }
 
 type DateIngestState struct {

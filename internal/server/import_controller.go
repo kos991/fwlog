@@ -176,15 +176,18 @@ func legacyLogSourceFromSettings(settings map[string]string, cfg Config) LogSour
 }
 
 type logSourcePayload struct {
-	SourceID       string `json:"source_id"`
-	LogDir         string `json:"log_dir"`
-	LogTag         string `json:"log_tag"`
-	Enabled        *bool  `json:"enabled"`
-	SourceType     string `json:"source_type"`
-	ListenProtocol string `json:"listen_protocol"`
-	ListenHost     string `json:"listen_host"`
-	ListenPort     int    `json:"listen_port"`
-	SpoolDir       string `json:"spool_dir"`
+	SourceID             string `json:"source_id"`
+	LogDir               string `json:"log_dir"`
+	LogTag               string `json:"log_tag"`
+	Enabled              *bool  `json:"enabled"`
+	SourceType           string `json:"source_type"`
+	ListenProtocol       string `json:"listen_protocol"`
+	ListenHost           string `json:"listen_host"`
+	ListenPort           int    `json:"listen_port"`
+	SpoolDir             string `json:"spool_dir"`
+	ClientIP             string `json:"client_ip"`
+	ArchiveDir           string `json:"archive_dir"`
+	ArchiveRetentionDays int    `json:"archive_retention_days"`
 }
 
 func parseEnabledLogSources(raw string) ([]LogSource, bool) {
@@ -242,6 +245,8 @@ func normalizeLogSourcePayloads(payload []logSourcePayload, enabledOnly bool) []
 		listenHost := strings.TrimSpace(item.ListenHost)
 		listenPort := item.ListenPort
 		spoolDir := strings.TrimSpace(item.SpoolDir)
+		clientIP := strings.TrimSpace(item.ClientIP)
+		archiveDir := strings.TrimSpace(item.ArchiveDir)
 		if sourceID == "" && logDir == "" && logTag == "" && spoolDir == "" {
 			continue
 		}
@@ -258,8 +263,9 @@ func normalizeLogSourcePayloads(payload []logSourcePayload, enabledOnly bool) []
 			if spoolDir == "" {
 				spoolDir = filepath.ToSlash(filepath.Join("/data/fwlog/received", sourceID))
 			}
-			if logDir == "" {
-				logDir = spoolDir
+			logDir = spoolDir
+			if archiveDir != "" {
+				logDir = archiveDir
 			}
 		}
 		enabled := true
@@ -270,16 +276,19 @@ func normalizeLogSourcePayloads(payload []logSourcePayload, enabledOnly bool) []
 			continue
 		}
 		sources = append(sources, LogSource{
-			SourceID:       sourceID,
-			LogDir:         logDir,
-			LogTag:         logTag,
-			Enabled:        enabled,
-			SourceType:     sourceType,
-			ListenProtocol: listenProtocol,
-			ListenHost:     listenHost,
-			ListenPort:     listenPort,
-			SpoolDir:       spoolDir,
-			UpdatedAt:      now,
+			SourceID:             sourceID,
+			LogDir:               logDir,
+			LogTag:               logTag,
+			Enabled:              enabled,
+			SourceType:           sourceType,
+			ListenProtocol:       listenProtocol,
+			ListenHost:           listenHost,
+			ListenPort:           listenPort,
+			SpoolDir:             spoolDir,
+			ClientIP:             clientIP,
+			ArchiveDir:           archiveDir,
+			ArchiveRetentionDays: item.ArchiveRetentionDays,
+			UpdatedAt:            now,
 		})
 	}
 	return sources

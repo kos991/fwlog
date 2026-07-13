@@ -33,6 +33,7 @@ type App struct {
 	upgradeRunner upgradeRunnerFunc
 	versionInfo   VersionInfo
 	logger        *slog.Logger
+	settingsSaver func(context.Context, map[string]string) error
 }
 
 type importRunnerFunc func(context.Context, *ClickHouseStore, LogSource, bool) ([]string, []string, error)
