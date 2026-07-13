@@ -84,18 +84,23 @@ jobs:
         run: |
           set -euo pipefail
           bundle="dist/fwlog-full-v0.0.0-amd64.tar.gz"
-          tar -tzf "$bundle" | grep -Fx 'fwlog-full-v0.0.0-amd64/install.sh'
+          bundle_listing="$(tar -tzf "$bundle")"
+          grep -Fx 'fwlog-full-v0.0.0-amd64/install.sh' <<<"$bundle_listing"
           temp_dir="$(mktemp -d)"
           tar -xzf "$bundle" -C "$temp_dir"
           (cd "$temp_dir/fwlog-full-v0.0.0-amd64/packages" && sha256sum -c ../checksums.txt)
           bash -n "$temp_dir/fwlog-full-v0.0.0-amd64/install.sh"
-          dpkg-deb --contents dist/fwlog-full_0.0.0_amd64.deb | grep -q '/opt/fwlog/RUNTIME_VERSION'
-          dpkg-deb --contents dist/fwlog-upgrade_0.0.0_amd64.deb | grep -q '/opt/fwlog/VERSION'
-          ! dpkg-deb --contents dist/fwlog-upgrade_0.0.0_amd64.deb | grep -q '/opt/fwlog/RUNTIME_VERSION'
-          ! dpkg-deb --contents dist/fwlog-upgrade_0.0.0_amd64.deb | grep -q '/opt/fwlog/clickhouse/'
-          rpm -qpl dist/fwlog-full-v0.0.0.x86_64.rpm | grep -q '/opt/fwlog/RUNTIME_VERSION'
-          ! rpm -qpl dist/fwlog-upgrade-v0.0.0.x86_64.rpm | grep -q '/opt/fwlog/RUNTIME_VERSION'
-          ! rpm -qpl dist/fwlog-upgrade-v0.0.0.x86_64.rpm | grep -q '/opt/fwlog/clickhouse/'
+          full_deb_contents="$(dpkg-deb --contents dist/fwlog-full_0.0.0_amd64.deb)"
+          upgrade_deb_contents="$(dpkg-deb --contents dist/fwlog-upgrade_0.0.0_amd64.deb)"
+          full_rpm_contents="$(rpm -qpl dist/fwlog-full-v0.0.0.x86_64.rpm)"
+          upgrade_rpm_contents="$(rpm -qpl dist/fwlog-upgrade-v0.0.0.x86_64.rpm)"
+          grep -F '/opt/fwlog/RUNTIME_VERSION' <<<"$full_deb_contents"
+          grep -F '/opt/fwlog/VERSION' <<<"$upgrade_deb_contents"
+          ! grep -F '/opt/fwlog/RUNTIME_VERSION' <<<"$upgrade_deb_contents"
+          ! grep -F '/opt/fwlog/clickhouse/' <<<"$upgrade_deb_contents"
+          grep -F '/opt/fwlog/RUNTIME_VERSION' <<<"$full_rpm_contents"
+          ! grep -F '/opt/fwlog/RUNTIME_VERSION' <<<"$upgrade_rpm_contents"
+          ! grep -F '/opt/fwlog/clickhouse/' <<<"$upgrade_rpm_contents"
 
       - name: Test DEB package upgrade transaction
         shell: bash
