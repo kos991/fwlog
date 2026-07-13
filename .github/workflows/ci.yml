@@ -130,6 +130,7 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm -e CLICKHOUSE_VERSION="$CLICKHOUSE_VERSION" -v "$PWD/dist:/packages:ro" rockylinux:9 bash -ec '
+            dnf install -y systemd >/dev/null
             rpm -Uvh /packages/fwlog-full-v0.0.0.x86_64.rpm >/dev/null
             grep -Fx "VERSION=v0.0.0" /opt/fwlog/VERSION
             grep -Fx "RUNTIME_VERSION=clickhouse-${CLICKHOUSE_VERSION}" /opt/fwlog/RUNTIME_VERSION

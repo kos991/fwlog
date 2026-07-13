@@ -295,6 +295,26 @@ func TestCIDebStatusFormatIsNotExpandedByOuterShell(t *testing.T) {
 	}
 }
 
+func TestCIRPMTransactionInstallsDeclaredSystemdDependency(t *testing.T) {
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(repoRoot, ".github", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	install := "dnf install -y systemd"
+	transaction := "rpm -Uvh /packages/fwlog-full-v0.0.0.x86_64.rpm"
+	if !strings.Contains(text, install) {
+		t.Fatal("RPM transaction container must install the package's systemd dependency")
+	}
+	if strings.Index(text, install) > strings.Index(text, transaction) {
+		t.Fatal("RPM transaction container must install systemd before the full package")
+	}
+}
+
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
