@@ -295,8 +295,8 @@ func normalizeLogSourceType(sourceType string) string {
 
 func normalizeListenProtocol(protocol string) string {
 	protocol = strings.ToLower(strings.TrimSpace(protocol))
-	if protocol == "udp" {
-		return "udp"
+	if protocol == "tcp" {
+		return "tcp"
 	}
 	return "udp"
 }

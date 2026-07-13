@@ -48,6 +48,45 @@ func TestManagerReceivesUDPSyslogToSpoolFile(t *testing.T) {
 	waitForFileContains(t, path, message)
 }
 
+func TestManagerReceivesTCPSyslogToSpoolFile(t *testing.T) {
+	port := freeTCPPort(t)
+	spoolDir := t.TempDir()
+	manager := NewManager()
+	t.Cleanup(manager.Close)
+
+	manager.ApplySources([]model.LogSource{{
+		SourceID:       "rsyslog-tcp",
+		LogTag:         "核心防火墙",
+		Enabled:        true,
+		SourceType:     "rsyslog",
+		ListenProtocol: "tcp",
+		ListenHost:     "127.0.0.1",
+		ListenPort:     port,
+		SpoolDir:       spoolDir,
+	}})
+
+	status := manager.Status()["rsyslog-tcp"]
+	if !status.Running || status.Error != "" || status.Protocol != "tcp" {
+		t.Fatalf("tcp receiver should be running: %#v", status)
+	}
+
+	conn, err := net.Dial("tcp", status.Address)
+	if err != nil {
+		t.Fatalf("dial tcp receiver: %v", err)
+	}
+	message := "<134>2026-07-14T10:00:00Z fw01 NAT TCP 日志测试"
+	if _, err := conn.Write([]byte(message + "\n")); err != nil {
+		conn.Close()
+		t.Fatalf("write tcp syslog: %v", err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatalf("close tcp connection: %v", err)
+	}
+
+	path := filepath.Join(spoolDir, time.Now().Format("2006-01-02")+".log")
+	waitForFileContains(t, path, message)
+}
+
 func TestManagerReportsPortConflictWithoutPanic(t *testing.T) {
 	port := freeUDPPort(t)
 	occupied, err := net.ListenPacket("udp", net.JoinHostPort("127.0.0.1", intToString(port)))
@@ -82,6 +121,16 @@ func freeUDPPort(t *testing.T) int {
 	}
 	defer conn.Close()
 	return conn.LocalAddr().(*net.UDPAddr).Port
+}
+
+func freeTCPPort(t *testing.T) int {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("allocate tcp port: %v", err)
+	}
+	defer listener.Close()
+	return listener.Addr().(*net.TCPAddr).Port
 }
 
 func waitForFileContains(t *testing.T, path string, want string) {

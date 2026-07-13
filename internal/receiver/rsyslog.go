@@ -1,6 +1,7 @@
 package receiver
 
 import (
+	"bufio"
 	"fmt"
 	"net"
 	"os"
@@ -15,12 +16,13 @@ import (
 
 type Manager struct {
 	mu        sync.Mutex
-	listeners map[string]*udpListener
+	listeners map[string]receiverListener
 	statuses  map[string]Status
 }
 
 type Status struct {
 	SourceID string `json:"source_id"`
+	Protocol string `json:"protocol"`
 	Address  string `json:"address"`
 	Port     int    `json:"port"`
 	SpoolDir string `json:"spool_dir"`
@@ -38,9 +40,21 @@ type udpListener struct {
 	done   chan struct{}
 }
 
+type receiverListener interface {
+	Close() error
+}
+
+type tcpListener struct {
+	source   model.LogSource
+	listener net.Listener
+	mu       sync.Mutex
+	conns    map[net.Conn]struct{}
+	closed   bool
+}
+
 func NewManager() *Manager {
 	return &Manager{
-		listeners: make(map[string]*udpListener),
+		listeners: make(map[string]receiverListener),
 		statuses:  make(map[string]Status),
 	}
 }
@@ -50,7 +64,7 @@ func (m *Manager) ApplySources(sources []model.LogSource) {
 	defer m.mu.Unlock()
 
 	for sourceID, listener := range m.listeners {
-		_ = listener.conn.Close()
+		_ = listener.Close()
 		delete(m.listeners, sourceID)
 	}
 	m.statuses = make(map[string]Status)
@@ -61,6 +75,7 @@ func (m *Manager) ApplySources(sources []model.LogSource) {
 		}
 		status := Status{
 			SourceID: source.SourceID,
+			Protocol: strings.ToLower(strings.TrimSpace(source.ListenProtocol)),
 			Address:  net.JoinHostPort(source.ListenHost, intToString(source.ListenPort)),
 			Port:     source.ListenPort,
 			SpoolDir: source.SpoolDir,
@@ -70,6 +85,21 @@ func (m *Manager) ApplySources(sources []model.LogSource) {
 			m.statuses[source.SourceID] = status
 			continue
 		}
+		if status.Protocol == "tcp" {
+			conn, err := net.Listen("tcp", status.Address)
+			if err != nil {
+				status.Error = err.Error()
+				m.statuses[source.SourceID] = status
+				continue
+			}
+			status.Running = true
+			listener := &tcpListener{source: source, listener: conn, conns: make(map[net.Conn]struct{})}
+			m.listeners[source.SourceID] = listener
+			m.statuses[source.SourceID] = status
+			go listener.serve()
+			continue
+		}
+
 		conn, err := net.ListenPacket("udp", status.Address)
 		if err != nil {
 			status.Error = err.Error()
@@ -100,9 +130,13 @@ func (m *Manager) Close() {
 	defer m.mu.Unlock()
 
 	for sourceID, listener := range m.listeners {
-		_ = listener.conn.Close()
+		_ = listener.Close()
 		delete(m.listeners, sourceID)
 	}
+}
+
+func (l *udpListener) Close() error {
+	return l.conn.Close()
 }
 
 func (l *udpListener) serve() {
@@ -120,6 +154,64 @@ func (l *udpListener) serve() {
 	}
 }
 
+func (l *tcpListener) serve() {
+	for {
+		conn, err := l.listener.Accept()
+		if err != nil {
+			return
+		}
+		if !l.track(conn) {
+			_ = conn.Close()
+			return
+		}
+		go l.serveConn(conn)
+	}
+}
+
+func (l *tcpListener) serveConn(conn net.Conn) {
+	defer func() {
+		l.untrack(conn)
+		_ = conn.Close()
+	}()
+
+	scanner := bufio.NewScanner(conn)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		message := strings.TrimRight(scanner.Text(), "\r\n")
+		if message != "" {
+			_ = appendMessage(l.source.SpoolDir, message)
+		}
+	}
+}
+
+func (l *tcpListener) track(conn net.Conn) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.closed {
+		return false
+	}
+	l.conns[conn] = struct{}{}
+	return true
+}
+
+func (l *tcpListener) untrack(conn net.Conn) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.conns, conn)
+}
+
+func (l *tcpListener) Close() error {
+	l.mu.Lock()
+	l.closed = true
+	err := l.listener.Close()
+	for conn := range l.conns {
+		_ = conn.Close()
+		delete(l.conns, conn)
+	}
+	l.mu.Unlock()
+	return err
+}
+
 func appendMessage(spoolDir string, message string) error {
 	if err := os.MkdirAll(spoolDir, 0o755); err != nil {
 		return err
@@ -135,9 +227,10 @@ func appendMessage(spoolDir string, message string) error {
 }
 
 func shouldReceive(source model.LogSource) bool {
+	protocol := strings.ToLower(strings.TrimSpace(source.ListenProtocol))
 	return source.Enabled &&
 		strings.EqualFold(strings.TrimSpace(source.SourceType), "rsyslog") &&
-		strings.EqualFold(strings.TrimSpace(source.ListenProtocol), "udp") &&
+		(protocol == "udp" || protocol == "tcp") &&
 		strings.TrimSpace(source.ListenHost) != "" &&
 		source.ListenPort > 0 &&
 		strings.TrimSpace(source.SpoolDir) != ""

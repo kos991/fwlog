@@ -554,6 +554,12 @@ func TestRouterSettingsAppliesRSyslogReceiver(t *testing.T) {
 	}
 }
 
+func TestNormalizeListenProtocolPreservesTCP(t *testing.T) {
+	if got := normalizeListenProtocol(" TCP "); got != "tcp" {
+		t.Fatalf("normalizeListenProtocol(TCP) = %q, want tcp", got)
+	}
+}
+
 func TestRouterSyncUsesAllEnabledLogSources(t *testing.T) {
 	app := NewApp(LoadConfig())
 	app.mu.Lock()

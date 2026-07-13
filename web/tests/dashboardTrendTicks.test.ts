@@ -37,3 +37,15 @@ test('dashboard trend exposes all devices and per-device filter options', () => 
   assert.match(source, /trendSourceOptions/);
   assert.match(source, /source_id: selectedTrendSource === allTrendSourcesValue \? undefined : selectedTrendSource/);
 });
+
+test('dashboard trend anchors the date window to today and labels the selected device on the curve', () => {
+  assert.match(source, /export function recentDateKeys\(days = 14, now = new Date\(\)\)/);
+  assert.doesNotMatch(source, /sortedDates\[sortedDates\.length - 1\] \|\| new Date\(\)/);
+  assert.match(source, /className="trend-source-marker"/);
+  assert.match(source, /selectedSourceLabel/);
+});
+
+test('dashboard labels geo ranking as destination geography', () => {
+  assert.match(source, /\{ label: '目标地区', value: 'country' \}/);
+  assert.match(source, /按目标 IP 归属地统计/);
+});

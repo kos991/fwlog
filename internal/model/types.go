@@ -138,6 +138,7 @@ type DashboardMetrics struct {
 	YesterdayRows           uint64
 	TopSourceIPs            []DistributionItem
 	TopDestinationIPs       []DistributionItem
+	DestinationSubnets      []DistributionItem
 	TopNATIPs               []DistributionItem
 	AddressTypeShares       []DistributionItem
 	LogTagDistribution      []DistributionItem

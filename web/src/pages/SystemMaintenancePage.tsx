@@ -18,7 +18,7 @@ import {
   UploadOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
-import { Button, DatePicker, Form, Input, Popconfirm, Select, Space, Switch, Tabs, Tag, TimePicker, Typography, Upload, message } from 'antd';
+import { Button, DatePicker, Form, Input, InputNumber, Popconfirm, Select, Space, Switch, Tabs, Tag, TimePicker, Typography, Upload, message } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { apiGet, apiPost, apiUpload, type UpgradeCheckResponse, type UpgradeStatus } from '../api';
 import { buildUpgradeView } from '../upgradePresentation';
@@ -34,7 +34,7 @@ type LogSourceSetting = {
   log_tag?: string;
   log_dir?: string;
   source_type?: 'file' | 'rsyslog' | string;
-  listen_protocol?: 'udp' | string;
+  listen_protocol?: 'udp' | 'tcp' | string;
   listen_host?: string;
   listen_port?: number | string;
   spool_dir?: string;
@@ -106,7 +106,7 @@ function normalizeLogSourceSetting(source: LogSourceSetting, index: number): Log
       ...source,
       source_id: sourceID,
       source_type: 'rsyslog',
-      listen_protocol: 'udp',
+      listen_protocol: source.listen_protocol?.toLowerCase() === 'tcp' ? 'tcp' : 'udp',
       listen_host: source.listen_host || '0.0.0.0',
       listen_port: Number(source.listen_port || 5514),
       spool_dir: spoolDir,
@@ -471,79 +471,100 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                       <div className="source-list-editor">
                         <div className="source-list-head">
                           <div>
-                            <strong>日志目录</strong>
+                            <strong>日志源配置</strong>
                           </div>
-                          <Button
-                            icon={<PlusOutlined />}
-                            onClick={() => add({ source_id: `source-${fields.length + 1}`, log_tag: '', log_dir: '', source_type: 'file', enabled: true })}
-                          >
-                            添加
-                          </Button>
-                        </div>
-                        <div className="source-row source-row-header">
-                          <span>设备 ID</span>
-                          <span>日志名称</span>
-                          <span>类型</span>
-                          <span>文件目录 / 接收设置</span>
-                          <span>启用</span>
-                          <span>操作</span>
+                          <Space wrap>
+                            <Button
+                              icon={<PlusOutlined />}
+                              onClick={() => add({ source_id: `source-${fields.length + 1}`, log_tag: '', log_dir: '', source_type: 'file', enabled: true })}
+                            >
+                              添加文件目录源
+                            </Button>
+                            <Button
+                              icon={<PlusOutlined />}
+                              onClick={() => add({
+                                source_id: `rsyslog-${fields.length + 1}`,
+                                log_tag: '',
+                                source_type: 'rsyslog',
+                                listen_protocol: 'udp',
+                                listen_host: '0.0.0.0',
+                                listen_port: 5514,
+                                spool_dir: defaultSpoolDir(`rsyslog-${fields.length + 1}`),
+                                enabled: true,
+                              })}
+                            >
+                              添加 RSyslog 接收源
+                            </Button>
+                          </Space>
                         </div>
                         {fields.map((field) => (
-                          <div className="source-row" key={field.key}>
-                            <Form.Item name={[field.name, 'source_id']} rules={[{ required: true, message: '必填' }]}>
-                              <Input prefix={<DatabaseOutlined />} placeholder="device-id" />
-                            </Form.Item>
-                            <Form.Item name={[field.name, 'log_tag']} rules={[{ required: true, message: '必填' }]}>
-                              <Input prefix={<TagsOutlined />} placeholder="日志名称" />
-                            </Form.Item>
-                            <Form.Item name={[field.name, 'source_type']} initialValue="file">
-                              <Select
-                                options={[
-                                  { value: 'file', label: '文件目录' },
-                                  { value: 'rsyslog', label: 'RSyslog 接收' },
-                                ]}
-                              />
-                            </Form.Item>
-                            <Form.Item noStyle shouldUpdate>
-                              {({ getFieldValue }) => {
-                                const sourceType = getFieldValue(['log_sources', field.name, 'source_type']) || 'file';
-                                if (sourceType === 'rsyslog') {
-                                  return (
-                                    <div className="source-receiver-fields">
-                                      <Form.Item name={[field.name, 'listen_port']}>
-                                        <Input prefix={<GlobalOutlined />} placeholder="默认 5514" />
+                          <Form.Item noStyle shouldUpdate key={field.key}>
+                            {({ getFieldValue }) => {
+                              const sourceType = getFieldValue(['log_sources', field.name, 'source_type']) || 'file';
+                              const sourceTitle = sourceType === 'rsyslog' ? 'RSyslog 接收源' : '文件目录源';
+                              return (
+                                <div className={`source-item-card source-item-card--${sourceType}`}>
+                                  <div className="source-item-head">
+                                    <Tag color={sourceType === 'rsyslog' ? 'processing' : 'default'}>{sourceTitle}</Tag>
+                                    <Space>
+                                      <Form.Item name={[field.name, 'enabled']} valuePropName="checked" noStyle>
+                                        <Switch checkedChildren="启用" unCheckedChildren="停用" />
                                       </Form.Item>
-                                      <Form.Item name={[field.name, 'spool_dir']}>
-                                        <Input prefix={<FolderOpenOutlined />} placeholder="/data/fwlog/received/device-id" />
+                                      <Popconfirm
+                                        title="删除这个日志源？"
+                                        okText="删除"
+                                        cancelText="取消"
+                                        onConfirm={() => remove(field.name)}
+                                      >
+                                        <Button danger icon={<DeleteOutlined />} aria-label="删除日志源" />
+                                      </Popconfirm>
+                                    </Space>
+                                  </div>
+                                  <div className="source-fields-grid">
+                                    <Form.Item name={[field.name, 'source_id']} label="设备 ID" rules={[{ required: true, message: '请输入设备 ID' }]}>
+                                      <Input prefix={<DatabaseOutlined />} placeholder="device-id" />
+                                    </Form.Item>
+                                    <Form.Item name={[field.name, 'log_tag']} label="日志名称" rules={[{ required: true, message: '请输入日志名称' }]}>
+                                      <Input prefix={<TagsOutlined />} placeholder="日志名称" />
+                                    </Form.Item>
+                                    <Form.Item name={[field.name, 'source_type']} label="日志源类型" initialValue="file">
+                                      <Select
+                                        options={[
+                                          { value: 'file', label: '文件目录源' },
+                                          { value: 'rsyslog', label: 'RSyslog 接收源' },
+                                        ]}
+                                      />
+                                    </Form.Item>
+                                    {sourceType === 'rsyslog' ? (
+                                      <>
+                                        <Form.Item name={[field.name, 'listen_protocol']} label="接收协议" initialValue="udp">
+                                          <Select
+                                            options={[
+                                              { value: 'udp', label: 'UDP' },
+                                              { value: 'tcp', label: 'TCP' },
+                                            ]}
+                                          />
+                                        </Form.Item>
+                                        <Form.Item name={[field.name, 'listen_port']} label="监听端口" initialValue={5514} rules={[{ required: true, message: '请输入监听端口' }]}>
+                                          <InputNumber min={1} max={65535} prefix={<GlobalOutlined />} placeholder="默认 5514" style={{ width: '100%' }} />
+                                        </Form.Item>
+                                        <Form.Item className="source-field-wide" name={[field.name, 'spool_dir']} label="落盘目录" rules={[{ required: true, message: '请输入落盘目录' }]}>
+                                          <Input prefix={<FolderOpenOutlined />} placeholder="/data/fwlog/received/device-id" />
+                                        </Form.Item>
+                                        <Form.Item name={[field.name, 'listen_host']} initialValue="0.0.0.0" hidden>
+                                          <Input />
+                                        </Form.Item>
+                                      </>
+                                    ) : (
+                                      <Form.Item className="source-field-wide" name={[field.name, 'log_dir']} label="文件目录" rules={[{ required: true, message: '请输入文件目录' }]}>
+                                        <Input prefix={<FolderOpenOutlined />} placeholder="/data/device_fw_log" />
                                       </Form.Item>
-                                      <Form.Item name={[field.name, 'listen_protocol']} initialValue="udp" hidden>
-                                        <Input />
-                                      </Form.Item>
-                                      <Form.Item name={[field.name, 'listen_host']} initialValue="0.0.0.0" hidden>
-                                        <Input />
-                                      </Form.Item>
-                                    </div>
-                                  );
-                                }
-                                return (
-                                  <Form.Item name={[field.name, 'log_dir']} rules={[{ required: true, message: '必填' }]}>
-                                    <Input prefix={<FolderOpenOutlined />} placeholder="/data/device_fw_log" />
-                                  </Form.Item>
-                                );
-                              }}
-                            </Form.Item>
-                            <Form.Item name={[field.name, 'enabled']} valuePropName="checked">
-                              <Switch />
-                            </Form.Item>
-                            <Popconfirm
-                              title="删除这个设备目录？"
-                              okText="删除"
-                              cancelText="取消"
-                              onConfirm={() => remove(field.name)}
-                            >
-                              <Button danger icon={<DeleteOutlined />} />
-                            </Popconfirm>
-                          </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            }}
+                          </Form.Item>
                         ))}
                       </div>
                     )}

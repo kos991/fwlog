@@ -110,6 +110,29 @@ func TestDistributionSQLRejectsUnsupportedColumn(t *testing.T) {
 	}
 }
 
+func TestDestinationSubnetDistributionSQLCoversAllTraffic(t *testing.T) {
+	since := time.Date(2026, 7, 1, 18, 0, 0, 0, time.Local)
+	sql, args := destinationSubnetDistributionSQL(since, "fw-a")
+
+	for _, want := range []string{
+		"log_date >= ?",
+		"source_id = ?",
+		"intDiv(toUInt32(dst_ip), 256)",
+		"IPv4NumToString",
+		"GROUP BY subnet",
+	} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("destination subnet SQL missing %q: %s", want, sql)
+		}
+	}
+	if strings.Contains(sql, "LIMIT 10") {
+		t.Fatalf("destination subnet SQL must cover all traffic: %s", sql)
+	}
+	if len(args) != 2 || args[1] != "fw-a" {
+		t.Fatalf("destination subnet args = %#v", args)
+	}
+}
+
 func TestQueryNATLogsPageSQLUsesFastPathWithoutTimeSort(t *testing.T) {
 	sql, args := queryNATLogsPageSQL("SELECT * FROM nat_logs WHERE log_date = ?", []any{"2026-06-10"}, QueryPageOptions{Page: 2, PageSize: 50}, QuerySortFast)
 

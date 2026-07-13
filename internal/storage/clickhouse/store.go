@@ -313,6 +313,10 @@ func (s *ClickHouseStore) DashboardMetrics(ctx context.Context, distributionSinc
 	if err != nil {
 		return DashboardMetrics{}, err
 	}
+	metrics.DestinationSubnets, err = s.destinationSubnetDistribution(ctx, distributionSince, distributionSourceID)
+	if err != nil {
+		return DashboardMetrics{}, err
+	}
 	metrics.LogTagDistribution, err = s.distribution(ctx, "log_tag", distributionSince, distributionSourceID)
 	if err != nil {
 		return DashboardMetrics{}, err
@@ -434,6 +438,38 @@ func (s *ClickHouseStore) distribution(ctx context.Context, column string, since
 	return items, rows.Err()
 }
 
+func (s *ClickHouseStore) destinationSubnetDistribution(ctx context.Context, since time.Time, sourceID string) ([]DistributionItem, error) {
+	sql, args := destinationSubnetDistributionSQL(since, sourceID)
+	rows, err := s.conn.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]DistributionItem, 0, 1024)
+	for rows.Next() {
+		var item DistributionItem
+		if err := rows.Scan(&item.Name, &item.Value); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func destinationSubnetDistributionSQL(since time.Time, sourceID string) (string, []any) {
+	where, args := distributionWhere(since, sourceID)
+	sql := `SELECT IPv4NumToString(toUInt32(subnet * 256)) AS name, value
+FROM
+(
+    SELECT intDiv(toUInt32(dst_ip), 256) AS subnet, count() AS value
+    FROM nat_logs` + where + `
+    GROUP BY subnet
+)
+ORDER BY value DESC`
+	return sql, args
+}
+
 func distributionSQL(column string, since time.Time, sourceID string) (string, []any, error) {
 	switch column {
 	case "src_ip", "dst_ip", "nat_ip", "log_tag":
@@ -441,6 +477,12 @@ func distributionSQL(column string, since time.Time, sourceID string) (string, [
 		return "", nil, fmt.Errorf("unsupported distribution column %q", column)
 	}
 
+	where, args := distributionWhere(since, sourceID)
+	sql := fmt.Sprintf("SELECT toString(%s) AS name, count() AS value FROM nat_logs%s GROUP BY %s ORDER BY value DESC LIMIT 10", column, where, column)
+	return sql, args, nil
+}
+
+func distributionWhere(since time.Time, sourceID string) (string, []any) {
 	args := make([]any, 0, 2)
 	conditions := make([]string, 0, 2)
 	if !since.IsZero() {
@@ -456,8 +498,7 @@ func distributionSQL(column string, since time.Time, sourceID string) (string, [
 	if len(conditions) > 0 {
 		where = " WHERE " + strings.Join(conditions, " AND ")
 	}
-	sql := fmt.Sprintf("SELECT toString(%s) AS name, count() AS value FROM nat_logs%s GROUP BY %s ORDER BY value DESC LIMIT 10", column, where, column)
-	return sql, args, nil
+	return where, args
 }
 
 func ipString(ip net.IP) string {

@@ -303,7 +303,11 @@ func enrichGeoDistributionMetrics(metrics DashboardMetrics, engine *IPEngine) Da
 
 	countries := make(map[string]uint64)
 	regions := make(map[string]uint64)
-	for _, item := range metrics.TopDestinationIPs {
+	destinations := metrics.DestinationSubnets
+	if len(destinations) == 0 {
+		destinations = metrics.TopDestinationIPs
+	}
+	for _, item := range destinations {
 		if item.Name == "" || item.Value == 0 {
 			continue
 		}

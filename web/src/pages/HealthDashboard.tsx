@@ -348,16 +348,13 @@ export function formatTrendDateLabel(date: string) {
   return `${`${parsed.getMonth() + 1}`.padStart(2, '0')}-${`${parsed.getDate()}`.padStart(2, '0')}`;
 }
 
-function recentDateKeys(points: LogTrendPoint[], days = 14) {
-  const sortedDates = points
-    .map((point) => parseDateKey(point.date))
-    .filter((date): date is Date => Boolean(date))
-    .sort((left, right) => left.getTime() - right.getTime());
-  const end = sortedDates[sortedDates.length - 1] || new Date();
+export function recentDateKeys(days = 14, now = new Date()) {
+  const safeDays = Math.max(1, Math.floor(days));
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const start = new Date(end);
-  start.setDate(start.getDate() - (days - 1));
+  start.setDate(start.getDate() - (safeDays - 1));
 
-  return Array.from({ length: days }, (_, index) => {
+  return Array.from({ length: safeDays }, (_, index) => {
     const date = new Date(start);
     date.setDate(start.getDate() + index);
     return toDateKey(date);
@@ -372,7 +369,7 @@ export function buildTrendSeries(points: LogTrendPoint[] | undefined, selectedSo
   for (const point of sourceScopedPoints) {
     valuesByDate.set(point.date, (valuesByDate.get(point.date) || 0) + point.value);
   }
-  const labels = recentDateKeys(points || []);
+  const labels = recentDateKeys();
   return {
     labels,
     values: labels.map((label) => valuesByDate.get(label) || 0),
@@ -416,13 +413,17 @@ function TrafficTrendPanel({
   const padding = { top: 22, right: 24, bottom: 34, left: 72 };
   const innerWidth = width - padding.left - padding.right;
   const innerHeight = height - padding.top - padding.bottom;
-  const points = values.map((value, index) => {
+  const chartPoints = values.map((value, index) => {
     const x = padding.left + (index / Math.max(values.length - 1, 1)) * innerWidth;
     const y = padding.top + innerHeight - (value / chartMax) * innerHeight;
-    return `${x},${y}`;
+    return { x, y, value };
   });
+  const points = chartPoints.map((point) => `${point.x},${point.y}`);
   const areaPath = `M${padding.left},${height - padding.bottom} L${points.join(' L')} L${width - padding.right},${height - padding.bottom} Z`;
   const xLabels = labels.map(formatTrendDateLabel);
+  const selectedSourceLabel = sourceOptions.find((option) => option.value === selectedSource)?.label || selectedSource;
+  const markerPoint = [...chartPoints].reverse().find((point) => point.value > 0) || chartPoints[chartPoints.length - 1];
+  const markerOnRight = Boolean(markerPoint && markerPoint.x > width * 0.68);
 
   return (
     <section className="traffic-trend-section">
@@ -466,6 +467,19 @@ function TrafficTrendPanel({
           })}
           <path className="trend-area" d={areaPath} />
           <polyline className="trend-line" points={points.join(' ')} />
+          {markerPoint ? (
+            <g className="trend-source-marker">
+              <circle cx={markerPoint.x} cy={markerPoint.y} r="4" />
+              <text
+                x={markerPoint.x + (markerOnRight ? -10 : 10)}
+                y={markerPoint.y < 42 ? markerPoint.y + 20 : markerPoint.y - 12}
+                textAnchor={markerOnRight ? 'end' : 'start'}
+              >
+                {selectedSourceLabel}
+              </text>
+              <title>{selectedSourceLabel}</title>
+            </g>
+          ) : null}
         </svg>
       </div>
     </section>
@@ -495,7 +509,7 @@ function CompactRankingPanel(props: {
       <div className="section-head rank-head">
         <div>
           <h3>流量排行</h3>
-          <span>当前维度 Top 8</span>
+          <span>{props.active === 'country' ? '按目标 IP 归属地统计' : '当前维度 Top 8'}</span>
         </div>
         <Segmented
           value={props.active}
@@ -503,7 +517,7 @@ function CompactRankingPanel(props: {
           options={[
             { label: '源', value: 'source' },
             { label: '目标', value: 'destination' },
-            { label: '地区', value: 'country' },
+            { label: '目标地区', value: 'country' },
           ]}
         />
       </div>

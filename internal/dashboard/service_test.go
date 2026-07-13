@@ -193,15 +193,18 @@ func TestEnrichGeoDistributionMetricsAggregatesDestinationCountries(t *testing.T
 	metrics := enrichGeoDistributionMetrics(DashboardMetrics{
 		TopDestinationIPs: []DistributionItem{
 			{Name: "8.8.8.8", Value: 10},
-			{Name: "1.1.1.1", Value: 7},
-			{Name: "114.114.114.114", Value: 5},
+		},
+		DestinationSubnets: []DistributionItem{
+			{Name: "8.8.8.8", Value: 100},
+			{Name: "1.1.1.1", Value: 70},
+			{Name: "114.114.114.114", Value: 50},
 		},
 	}, engine)
 
 	if len(metrics.TopCountries) < 2 {
 		t.Fatalf("countries should be populated from destination IPs: %#v", metrics.TopCountries)
 	}
-	if metrics.TopCountries[0].Name != "美国" || metrics.TopCountries[0].Value != 17 {
+	if metrics.TopCountries[0].Name != "美国" || metrics.TopCountries[0].Value != 170 {
 		t.Fatalf("top country should aggregate same country: %#v", metrics.TopCountries)
 	}
 	if len(metrics.TopRegions) == 0 || metrics.TopRegions[0].Name == "" {

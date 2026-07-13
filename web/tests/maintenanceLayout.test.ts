@@ -82,3 +82,17 @@ test('maintenance cards share compact fields and summary copy', () => {
   assert.match(styles, /\.maintenance-upgrade-grid\s*\{/);
   assert.match(styles, /\.maintenance-plan-grid\s*\{[^}]*grid-template-columns:[^;]+repeat\(4,/s);
 });
+
+test('log source editor distinguishes directory and rsyslog receivers with selectable transport', () => {
+  const page = fs.readFileSync(pagePath, 'utf8');
+  const styles = fs.readFileSync(stylesPath, 'utf8');
+
+  for (const required of ['添加文件目录源', '添加 RSyslog 接收源', '文件目录源', 'RSyslog 接收源', '接收协议', '监听端口', '落盘目录'] ) {
+    assert.match(page, new RegExp(required), `日志源编辑器缺少文案：${required}`);
+  }
+  assert.match(page, /\{ value: 'udp', label: 'UDP' \}/);
+  assert.match(page, /\{ value: 'tcp', label: 'TCP' \}/);
+  assert.doesNotMatch(page, /name=\{\[field\.name, 'listen_protocol'\]\} initialValue="udp" hidden/);
+  assert.match(styles, /\.source-item-card\s*\{/);
+  assert.match(styles, /\.source-fields-grid\s*\{/);
+});

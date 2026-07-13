@@ -1189,6 +1189,23 @@ body {
   vector-effect: non-scaling-stroke;
 }
 
+.trend-source-marker circle {
+  fill: #fff;
+  stroke: #2563eb;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.trend-source-marker text {
+  fill: #1d4ed8;
+  font-size: 12px;
+  font-weight: 650;
+  paint-order: stroke;
+  stroke: #fff;
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
 .traffic-rank-section {
   min-width: 0;
 }
@@ -1663,7 +1680,7 @@ body {
 
 .source-list-editor {
   display: grid;
-  gap: 6px;
+  gap: 12px;
   align-content: start;
 }
 
@@ -1679,6 +1696,40 @@ body {
   margin-bottom: 3px;
   color: var(--fw-text);
   font-size: 15px;
+}
+
+.source-item-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px 0 4px;
+  border-top: 1px solid var(--fw-line-soft);
+}
+
+.source-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.source-fields-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0 12px;
+  min-width: 0;
+}
+
+.source-fields-grid .ant-form-item {
+  min-width: 0;
+  margin-bottom: 8px;
+}
+
+.source-fields-grid .ant-input-number {
+  width: 100%;
+}
+
+.source-field-wide {
+  grid-column: span 2;
 }
 
 .source-row {
@@ -2150,6 +2201,20 @@ body {
   .maintenance-run-grid,
   .maintenance-upgrade-grid {
     grid-template-columns: 1fr;
+  }
+
+  .source-fields-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .source-field-wide {
+    grid-column: auto;
+  }
+
+  .source-list-head,
+  .source-item-head {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .maintenance-ops-card {
