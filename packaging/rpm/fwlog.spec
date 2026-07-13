@@ -125,8 +125,8 @@ fi
 %dir /opt/fwlog
 /opt/fwlog/fwlog
 /opt/fwlog/VERSION
-%if %{include_clickhouse}
 /opt/fwlog/RUNTIME_VERSION
+%if %{include_clickhouse}
 %dir /opt/fwlog/clickhouse
 %dir /opt/fwlog/clickhouse/bin
 /opt/fwlog/clickhouse/bin/clickhouse
