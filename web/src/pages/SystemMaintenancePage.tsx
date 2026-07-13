@@ -66,34 +66,6 @@ type Settings = {
 
 type IngestAction = 'sync' | 'rebuild';
 type IngestDateMode = 'all' | 'single' | 'range';
-type IngestSourceScope = 'all' | 'current';
-
-const INGEST_BUTTON_LABELS: Record<IngestAction, Record<IngestSourceScope, Record<IngestDateMode, string>>> = {
-  sync: {
-    all: {
-      all: '入库全部日志源的所有历史日志',
-      single: '入库全部日志源的所选日期',
-      range: '入库全部日志源的所选日期范围',
-    },
-    current: {
-      all: '入库当前日志源的所有历史日志',
-      single: '入库当前日志源的所选日期',
-      range: '入库当前日志源的所选日期范围',
-    },
-  },
-  rebuild: {
-    all: {
-      all: '全量重建全部日志源的所有历史日志',
-      single: '全量重建全部日志源的所选日期',
-      range: '全量重建全部日志源的所选日期范围',
-    },
-    current: {
-      all: '全量重建当前日志源的所有历史日志',
-      single: '全量重建当前日志源的所选日期',
-      range: '全量重建当前日志源的所选日期范围',
-    },
-  },
-};
 
 function tabLabel(icon: React.ReactNode, text: string) {
   return <span className="tab-label">{icon}{text}</span>;
@@ -196,6 +168,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   const geoipPath = Form.useWatch('geoip_db_path', form);
   const customIpPath = Form.useWatch('custom_ip_map_path', form);
   const autoScanEnabled = Form.useWatch('auto_scan_enabled', form);
+  const autoScanTimes = Form.useWatch('auto_scan_times', form);
 
   const load = React.useCallback(async () => {
     try {
@@ -272,6 +245,9 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   });
   const canCheckUpgrade = upgradeStatus?.state !== 'running' && !upgradeLoading;
   const canRunUpgrade = upgradeView.showUpgradeAction && upgradeStatus?.state !== 'running' && !upgradeLoading;
+  const autoScanDisplay = firstAutoScanTime(autoScanTimes);
+  const autoScanSummary = `自动扫描：${autoScanEnabled ? '已开启' : '已关闭'}；每天 ${autoScanDisplay} 扫描全部启用日志源，按增量入库处理。`;
+  const upgradeSummary = `更新维护：当前版本 ${upgradeView.currentVersion}；${upgradeCheckError || upgradeView.message}`;
 
   const save = async () => {
     try {
@@ -308,7 +284,6 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
     [savedLogSources],
   );
   const selectedLogSource = enabledLogSources.find((source) => (source.source_id || 'default') === importSourceID);
-  const sourceScope: IngestSourceScope = importSourceID ? 'current' : 'all';
   const selectedSourceLabel = importSourceID
     ? selectedLogSource?.log_tag || selectedLogSource?.source_id || importSourceID
     : '全部启用日志源';
@@ -320,8 +295,9 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
       : dateRange?.[0] && dateRange?.[1]
         ? `${dateRange[0].format('YYYY-MM-DD')} 至 ${dateRange[1].format('YYYY-MM-DD')}`
         : '未选择日期范围';
-  const buttonLabel = INGEST_BUTTON_LABELS[ingestAction][sourceScope][dateMode];
+  const buttonLabel = ingestAction === 'sync' ? '执行入库' : '执行全量重建';
   const actionSummary = `本次操作：日志源 = ${selectedSourceLabel}；日期 = ${dateScopeLabel}；动作 = ${actionLabel}。`;
+  const rebuildConfirmDescription = `本次将对「${selectedSourceLabel}」的「${dateScopeLabel}」执行全量重建。该操作会重新处理目标范围内的数据，耗时可能较长。`;
   const ingestActionDisabled = dateMode === 'single'
     ? !singleDate
     : dateMode === 'range'
@@ -665,21 +641,36 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                         <span className="maintenance-card-kicker"><ClockCircleOutlined /> 自动扫描</span>
                         <strong>扫描计划</strong>
                       </div>
-                      <div className="maintenance-switch-line">
-                        <Form.Item name="auto_scan_enabled" valuePropName="checked" noStyle>
-                          <Switch />
-                        </Form.Item>
-                        <Tag color={autoScanEnabled ? 'processing' : 'default'}>{autoScanEnabled ? '已开启' : '已关闭'}</Tag>
-                      </div>
                     </div>
 
                     <div className="maintenance-plan-grid">
+                      <div className="maintenance-field">
+                        <label>状态</label>
+                        <div className="maintenance-inline-control">
+                          <Form.Item name="auto_scan_enabled" valuePropName="checked" noStyle>
+                            <Switch />
+                          </Form.Item>
+                          <Tag color={autoScanEnabled ? 'processing' : 'default'}>{autoScanEnabled ? '已开启' : '已关闭'}</Tag>
+                        </div>
+                      </div>
                       <div className="maintenance-field">
                         <label>扫描时间</label>
                         <Form.Item name="auto_scan_times" noStyle>
                           <TimePicker format="HH:mm" allowClear={false} />
                         </Form.Item>
                       </div>
+                      <div className="maintenance-field">
+                        <label>日志源范围</label>
+                        <Text className="maintenance-value">全部启用日志源</Text>
+                      </div>
+                      <div className="maintenance-field">
+                        <label>入库方式</label>
+                        <Text className="maintenance-value">按增量入库</Text>
+                      </div>
+                    </div>
+
+                    <div className="maintenance-card-summary">
+                      <Text>{autoScanSummary}</Text>
                     </div>
                   </div>
 
@@ -747,7 +738,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                         {ingestAction === 'rebuild' ? (
                           <Popconfirm
                             title={`确认全量重建${importSourceID ? '当前日志源' : '全部日志源'}？`}
-                            description={`本次将${buttonLabel}。该操作会重新处理目标范围内的数据，耗时可能较长。`}
+                            description={rebuildConfirmDescription}
                             okText="确认全量重建"
                             cancelText="取消"
                             onConfirm={() => void triggerIngestAction()}
@@ -764,7 +755,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                       </div>
                     </div>
 
-                    <div className="maintenance-action-summary">
+                    <div className="maintenance-card-summary maintenance-action-summary">
                       <Text>{actionSummary}</Text>
                     </div>
                   </div>
@@ -786,47 +777,28 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                       </Text>
                     )}
 
-                    <div className="maintenance-upgrade-panel">
-                      <div className="maintenance-upgrade-summary">
-                        <div className="maintenance-upgrade-info">
-                          <span>当前版本</span>
-                          <strong>{upgradeView.currentVersion}</strong>
-                        </div>
-                        <div className="maintenance-upgrade-info">
-                          <span>更新状态</span>
-                          <strong>{upgradeView.stateText}</strong>
-                        </div>
+                    <div className="maintenance-upgrade-grid">
+                      <div className="maintenance-field">
+                        <label>当前版本</label>
+                        <Text className="maintenance-value">{upgradeView.currentVersion}</Text>
                       </div>
-
-                      <div className="maintenance-upgrade-actions">
+                      <div className="maintenance-field">
+                        <label>更新状态</label>
+                        <Text className="maintenance-value">{upgradeView.stateText}</Text>
+                      </div>
+                      <div className="maintenance-field">
+                        <label>在线检查</label>
                         <Button
                           icon={<ReloadOutlined />}
                           onClick={() => void checkUpgrade()}
                           loading={upgradeLoading}
                           disabled={!canCheckUpgrade}
                         >
-                          {upgradeView.primaryText}
+                          检查更新
                         </Button>
-                        {upgradeView.showUpgradeAction ? (
-                          <Popconfirm
-                            title="确认升级并重启服务？"
-                            description={upgradeView.latestVersion}
-                            okText="确认升级"
-                            cancelText="取消"
-                            onConfirm={() => void runUpgrade()}
-                          >
-                            <Button
-                              type="primary"
-                              icon={<CloudDownloadOutlined />}
-                              loading={upgradeLoading || upgradeStatus?.state === 'running'}
-                              disabled={!canRunUpgrade}
-                            >
-                              {upgradeView.upgradeButtonText}
-                            </Button>
-                          </Popconfirm>
-                        ) : null}
                       </div>
-                      <div className="maintenance-upgrade-actions">
+                      <div className="maintenance-field">
+                        <label>离线升级包</label>
                         <Upload
                           accept=".rpm,.deb"
                           maxCount={1}
@@ -844,26 +816,46 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                             return true;
                           }}
                         >
-                          <Button icon={<UploadOutlined />}>选择离线升级包</Button>
+                          <Button icon={<UploadOutlined />}>选择升级包</Button>
                         </Upload>
+                      </div>
+                      <div className="maintenance-field">
+                        <label>安装操作</label>
                         <Button type="primary" disabled={!upgradeFile} loading={upgradeLoading} onClick={() => void uploadUpgrade()}>
                           上传并安装
                         </Button>
                       </div>
                     </div>
 
-                    <div className="maintenance-upgrade-note">
+                    <div className="maintenance-card-summary">
                       <Text type={upgradeCheckError || upgradeView.state === 'failed' || upgradeView.state === 'asset_missing' ? 'danger' : upgradeView.state === 'available' ? 'warning' : upgradeView.state === 'latest' || upgradeView.state === 'succeeded' ? 'success' : 'secondary'}>
-                        {upgradeCheckError || upgradeView.message}
+                        {upgradeSummary}
                       </Text>
                       <Text type="secondary">{upgradeView.lastCheckedText} · {upgradeView.sourceText}</Text>
+                      {upgradeView.showUpgradeAction ? (
+                        <Popconfirm
+                          title="确认升级并重启服务？"
+                          description={upgradeView.latestVersion}
+                          okText="确认升级"
+                          cancelText="取消"
+                          onConfirm={() => void runUpgrade()}
+                        >
+                          <Button
+                            type="primary"
+                            icon={<CloudDownloadOutlined />}
+                            loading={upgradeLoading || upgradeStatus?.state === 'running'}
+                            disabled={!canRunUpgrade}
+                          >
+                            {upgradeView.upgradeButtonText}
+                          </Button>
+                        </Popconfirm>
+                      ) : null}
                       {upgradeView.state === 'succeeded' && (
                         <Text type="warning" style={{ display: 'block', marginTop: 4 }}>
                           升级完成，请 <a onClick={() => window.location.reload()}>点击刷新</a> 加载新版本。
                         </Text>
                       )}
                     </div>
-
                   </div>
                 </section>
               ),
@@ -878,14 +870,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                       <Form.Item name="current_password" label="当前密码" rules={[{ required: true, message: '请输入当前密码' }]}>
                         <Input.Password prefix={<KeyOutlined />} />
                       </Form.Item>
-                      <Form.Item
-                        name="new_password"
-                        label="新密码"
-                        rules={[
-                          { required: true, message: '请输入新密码' },
-                          { min: 6, message: '密码至少需要 6 个字符' },
-                        ]}
-                      >
+                      <Form.Item name="new_password" label="新密码" rules={[{ required: true, message: '请输入新密码' }, { min: 6, message: '密码至少需要 6 个字符' }]}>
                         <Input.Password prefix={<SafetyCertificateOutlined />} />
                       </Form.Item>
                       <Form.Item
@@ -896,9 +881,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                           { required: true, message: '请再次输入新密码' },
                           ({ getFieldValue }) => ({
                             validator(_, value) {
-                              if (!value || getFieldValue('new_password') === value) {
-                                return Promise.resolve();
-                              }
+                              if (!value || getFieldValue('new_password') === value) return Promise.resolve();
                               return Promise.reject(new Error('两次输入的新密码不一致'));
                             },
                           }),

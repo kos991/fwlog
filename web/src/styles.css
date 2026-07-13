@@ -1891,7 +1891,7 @@ body {
 
 .maintenance-plan-grid {
   display: grid;
-  grid-template-columns: minmax(180px, 260px);
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
   gap: 12px;
   align-items: end;
 }
@@ -1923,23 +1923,48 @@ body {
   width: 100%;
 }
 
-.maintenance-field .ant-typography {
+.maintenance-field .ant-typography,
+.maintenance-value {
   min-height: 32px;
   display: inline-flex;
   align-items: center;
   margin: 0;
 }
 
+.maintenance-inline-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+}
+
+.maintenance-card-summary,
 .maintenance-action-summary {
+  display: grid;
+  gap: 6px;
   padding: 12px 14px;
   border: 1px solid var(--fw-line-soft);
   border-radius: 8px;
   background: #f8fafc;
 }
 
+.maintenance-card-summary .ant-typography,
 .maintenance-action-summary .ant-typography {
   margin: 0;
   color: #475569;
+}
+
+.maintenance-upgrade-grid {
+  display: grid;
+  grid-template-columns: minmax(170px, 1fr) minmax(150px, 0.8fr) minmax(140px, 0.75fr) minmax(150px, 0.9fr) minmax(140px, 0.75fr);
+  gap: 12px;
+  align-items: end;
+}
+
+.maintenance-upgrade-grid .ant-upload,
+.maintenance-upgrade-grid .ant-upload-wrapper,
+.maintenance-upgrade-grid .ant-btn {
+  width: 100%;
 }
 
 .maintenance-upgrade-note {
@@ -2129,7 +2154,8 @@ body {
   .setting-grid,
   .maintenance-ops-card,
   .maintenance-plan-grid,
-  .maintenance-run-grid {
+  .maintenance-run-grid,
+  .maintenance-upgrade-grid {
     grid-template-columns: 1fr;
   }
 
