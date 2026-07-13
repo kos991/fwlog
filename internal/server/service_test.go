@@ -243,15 +243,15 @@ func TestServerPackagesReplaceLegacyNatQueryPackage(t *testing.T) {
 	for _, want := range []string{
 		"Provides: fwlog",
 		"Replaces: $deb_replaces",
-		`if [[ -n "$deb_breaks" ]]`,
 		`deb_replaces="fwlog, fwlog-full"`,
-		`deb_breaks=""`,
 		`deb_replaces="fwlog, fwlog-upgrade"`,
-		`deb_breaks="fwlog-upgrade"`,
 	} {
 		if !strings.Contains(buildScript, want) {
 			t.Fatalf("DEB control generation missing legacy package replacement rule %q", want)
 		}
+	}
+	if strings.Contains(buildScript, "Breaks:") || strings.Contains(buildScript, "deb_breaks") {
+		t.Fatal("DEB full and upgrade packages must coexist so the runtime owner remains installed")
 	}
 }
 
