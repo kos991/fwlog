@@ -43,6 +43,8 @@ type QueryResponse = {
 };
 
 type DateState = {
+  source_id?: string;
+  log_tag?: string;
   log_date?: string;
   status?: string;
   progress_pct?: number;
@@ -59,6 +61,13 @@ type CidrAliasSetting = {
 
 type SettingsResponse = {
   cidr_aliases?: CidrAliasSetting[] | string;
+  log_sources?: LogSourceSetting[] | string;
+};
+
+type LogSourceSetting = {
+  source_id?: string;
+  log_tag?: string;
+  enabled?: boolean;
 };
 
 type ProgressResponse = DateState & {
@@ -72,6 +81,7 @@ type LogSearchPageProps = {
 
 type SearchFormValues = {
   range?: [Dayjs, Dayjs];
+  source_id?: string;
   ip?: string;
   src_ip?: string;
   dst_ip?: string;
@@ -86,7 +96,6 @@ type SearchFormValues = {
 
 type CalendarState = {
   kind: 'ready' | 'importing' | 'failed' | 'pending' | 'skipped';
-  label: string;
   title: string;
 };
 
@@ -137,6 +146,23 @@ function parseCidrAliases(value?: CidrAliasSetting[] | string): CidrAliasSetting
   } catch {
     return [];
   }
+}
+
+function parseLogSources(value?: LogSourceSetting[] | string): LogSourceSetting[] {
+  if (Array.isArray(value)) return value;
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value) as LogSourceSetting[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function sourceDisplayName(source?: Pick<LogSourceSetting, 'source_id' | 'log_tag'>) {
+  if (!source) return '-';
+  if (source.log_tag && source.source_id) return `${source.log_tag}（${source.source_id}）`;
+  return source.log_tag || source.source_id || '-';
 }
 
 function ipv4ToNumber(ip?: string) {
@@ -238,9 +264,11 @@ export function LogSearchPage(_props: LogSearchPageProps) {
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
   const [dateStates, setDateStates] = React.useState<DateState[]>([]);
   const [cidrAliases, setCidrAliases] = React.useState<CidrAliasSetting[]>([]);
+  const [logSourceOptions, setLogSourceOptions] = React.useState<Array<{ label: string; value: string }>>([]);
   const [queryValues, setQueryValues] = React.useState<SearchFormValues | null>(null);
   const [queryPageSize, setQueryPageSize] = React.useState(defaultQueryPageSize);
   const [cursorStack, setCursorStack] = React.useState<string[]>(['']);
+  const selectedSourceID = Form.useWatch('source_id', form);
 
   const runSearch = React.useCallback(async (
     values: SearchFormValues,
@@ -256,6 +284,7 @@ export function LogSearchPage(_props: LogSearchPageProps) {
         start: range?.[0]?.format('YYYY-MM-DD HH:mm:ss'),
         end: range?.[1]?.format('YYYY-MM-DD HH:mm:ss'),
         ip: values.ip,
+        source_id: values.source_id,
         src_ip: values.src_ip,
         dst_ip: values.dst_ip,
         nat_ip: values.nat_ip,
@@ -313,8 +342,22 @@ export function LogSearchPage(_props: LogSearchPageProps) {
         const settings = await apiGet<SettingsResponse>('/api/settings');
         if (!active) return;
         const states = progress.dates || [];
+        const configuredSources = parseLogSources(settings.log_sources).filter((source) => source.enabled !== false);
+        const sourceMap = new Map<string, LogSourceSetting>();
+        configuredSources.forEach((source) => {
+          if (source.source_id) sourceMap.set(source.source_id, source);
+        });
+        states.forEach((state) => {
+          if (state.source_id && !sourceMap.has(state.source_id)) {
+            sourceMap.set(state.source_id, { source_id: state.source_id, log_tag: state.log_tag });
+          }
+        });
         setDateStates(states);
         setCidrAliases(parseCidrAliases(settings.cidr_aliases));
+        setLogSourceOptions(Array.from(sourceMap.values())
+          .sort((left, right) => (left.source_id || '').localeCompare(right.source_id || '', 'zh-CN'))
+          .map((source) => ({ value: source.source_id || '', label: sourceDisplayName(source) }))
+          .filter((option) => option.value));
       } catch (error) {
         if (!active) return;
         message.error(error instanceof Error ? error.message : '加载入库状态失败');
@@ -330,6 +373,10 @@ export function LogSearchPage(_props: LogSearchPageProps) {
 
   const columns: ProColumns<SearchRecord>[] = [
     { title: '时间', dataIndex: 'timestamp', width: 180, render: (_, row) => mono(row.timestamp) },
+    {
+      title: '设备 ID', dataIndex: 'source_id', width: 150,
+      render: (_, row) => <Tag color="blue">{row.source_id || '-'}</Tag>,
+    },
     {
       title: '日志名称', dataIndex: 'log_tag', width: 150,
       filteredValue: queryValues?.log_tag ? [queryValues.log_tag] : null,
@@ -383,46 +430,51 @@ export function LogSearchPage(_props: LogSearchPageProps) {
   const pagerTotal = currentTotal;
   const visibleDateState = React.useMemo(() => {
     const dates = new Map<string, CalendarState>();
+    const priority: Record<CalendarState['kind'], number> = {
+      failed: 5,
+      importing: 4,
+      pending: 3,
+      skipped: 2,
+      ready: 1,
+    };
 
     dateStates.forEach((item) => {
+      if (selectedSourceID && item.source_id !== selectedSourceID) return;
       const date = item.log_date?.slice(0, 10);
       if (!date) return;
+      const sourceText = sourceDisplayName(item);
+      let next: CalendarState;
       if (item.status === 'ready') {
-        dates.set(date, {
+        next = {
           kind: 'ready',
-          label: '可查',
-          title: `已入库，${formatCount(item.rows_imported)} 行`,
-        });
-        return;
-      }
-      if (item.status === 'importing') {
+          title: `${sourceText}：已入库，${formatCount(item.rows_imported)} 行`,
+        };
+      } else if (item.status === 'importing') {
         const pct = Math.round(item.progress_pct ?? 0);
-        dates.set(date, {
+        next = {
           kind: 'importing',
-          label: `${pct}%`,
-          title: `入库中，${pct}%${item.current_file ? `，${item.current_file}` : ''}`,
-        });
-        return;
-      }
-      if (item.status === 'failed') {
-        dates.set(date, {
+          title: `${sourceText}：入库中，${pct}%${item.current_file ? `，${item.current_file}` : ''}`,
+        };
+      } else if (item.status === 'failed') {
+        next = {
           kind: 'failed',
-          label: '失败',
-          title: item.error || '入库失败',
-        });
-        return;
+          title: `${sourceText}：${item.error || '入库失败'}`,
+        };
+      } else {
+        next = {
+          kind: 'pending',
+          title: `${sourceText}：${statusText(item.status)}`,
+        };
       }
-      dates.set(date, {
-        kind: 'pending',
-        label: '待入',
-        title: statusText(item.status),
-      });
+      const previous = dates.get(date);
+      if (!previous || priority[next.kind] > priority[previous.kind]) {
+        dates.set(date, next);
+      }
     });
 
     visibility?.queried_ranges?.forEach((range) => {
       dates.set(range.log_date.slice(0, 10), {
         kind: 'ready',
-        label: '可查',
         title: '已入库，可查询',
       });
     });
@@ -431,12 +483,11 @@ export function LogSearchPage(_props: LogSearchPageProps) {
       if (dates.has(date)) return;
       dates.set(date, {
         kind: 'skipped',
-        label: '未入',
         title: `${statusText(item.status)}，${item.reason}`,
       });
     });
     return dates;
-  }, [dateStates, visibility]);
+  }, [dateStates, selectedSourceID, visibility]);
 
   const renderDateCell = React.useCallback((current: Dayjs | string | number, info: { originNode: React.ReactNode; type: string }) => {
     if (info.type !== 'date' || !dayjs.isDayjs(current)) return info.originNode;
@@ -445,7 +496,7 @@ export function LogSearchPage(_props: LogSearchPageProps) {
     return (
       <div className={`visible-date-cell visible-date-cell-${state.kind}`} title={state.title}>
         {info.originNode}
-        <span className="visible-date-label">{state.label}</span>
+        <span className="visible-date-marker" />
       </div>
     );
   }, [visibleDateState]);
@@ -478,6 +529,13 @@ export function LogSearchPage(_props: LogSearchPageProps) {
                   </div>
                 )}
                 style={{ width: '100%' }}
+              />
+            </Form.Item>
+            <Form.Item name="source_id" label="日志源">
+              <Select
+                allowClear
+                placeholder="全部日志源"
+                options={logSourceOptions}
               />
             </Form.Item>
             <Form.Item name="ip" label="IP"><Input /></Form.Item>

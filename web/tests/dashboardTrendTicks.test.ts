@@ -7,6 +7,9 @@ const source = fs.readFileSync(path.resolve('src/pages/HealthDashboard.tsx'), 'u
 
 test('dashboard trend chart uses unique integer count ticks', () => {
   assert.match(source, /function buildCountTicks\(maxValue: number\): number\[\]/);
+  assert.match(source, /function formatTrendAxisValue\(value: number\)/);
+  assert.match(source, /const padding = \{ top: 22, right: 24, bottom: 34, left: 72 \};/);
+  assert.match(source, /formatTrendAxisValue\(tick\)/);
   assert.match(source, /if \(!Number\.isFinite\(maxValue\) \|\| maxValue <= 0\)/);
   assert.match(source, /return \[0\];/);
   assert.doesNotMatch(source, /Math\.round\(max \* ratio\)/);
@@ -32,4 +35,5 @@ test('dashboard trend exposes all devices and per-device filter options', () => 
   assert.match(source, /全部设备/);
   assert.match(source, /selectedTrendSource/);
   assert.match(source, /trendSourceOptions/);
+  assert.match(source, /source_id: selectedTrendSource === allTrendSourcesValue \? undefined : selectedTrendSource/);
 });

@@ -12,7 +12,7 @@ import {
   SyncOutlined,
 } from '@ant-design/icons';
 import { Progress, Segmented, Select, Tag, message } from 'antd';
-import { apiGet, type DistributionItem } from '../api';
+import { apiGet, buildQueryString, type DistributionItem } from '../api';
 import { buildIngestProgressView } from '../ingestPresentation';
 
 type LogTrendPoint = {
@@ -124,6 +124,10 @@ function statusText(status?: string) {
 
 function formatCount(value?: number) {
   return new Intl.NumberFormat('zh-CN').format(value ?? 0);
+}
+
+function formatTrendAxisValue(value: number) {
+  return formatCount(value);
 }
 
 function formatBytes(bytes?: number) {
@@ -409,7 +413,7 @@ function TrafficTrendPanel({
   const chartMax = Math.max(yTicks[yTicks.length - 1] ?? 0, 1);
   const width = 1000;
   const height = 320;
-  const padding = { top: 22, right: 24, bottom: 34, left: 44 };
+  const padding = { top: 22, right: 24, bottom: 34, left: 72 };
   const innerWidth = width - padding.left - padding.right;
   const innerHeight = height - padding.top - padding.bottom;
   const points = values.map((value, index) => {
@@ -450,7 +454,7 @@ function TrafficTrendPanel({
             return (
               <g key={tick}>
                 <line className="trend-grid-line" x1={padding.left} x2={width - padding.right} y1={y} y2={y} />
-                <text className="trend-y-label" x={padding.left - 12} y={y + 4}>{tick}</text>
+                <text className="trend-y-label" x={padding.left - 12} y={y + 4}>{formatTrendAxisValue(tick)}</text>
               </g>
             );
           })}
@@ -573,13 +577,18 @@ export function HealthDashboard(_props: HealthDashboardProps) {
   const loadRankings = React.useCallback(async () => {
     try {
       const payload = await apiGet<HealthDashboardResponse>(
-        '/api/health-dashboard?range=all&metrics_range=30d&include_distributions=true',
+        `/api/health-dashboard${buildQueryString({
+          range: 'all',
+          metrics_range: '30d',
+          include_distributions: true,
+          source_id: selectedTrendSource === allTrendSourcesValue ? undefined : selectedTrendSource,
+        })}`,
       );
       setData(payload);
     } catch (error) {
       message.error(error instanceof Error ? error.message : '加载流量排行失败');
     }
-  }, []);
+  }, [selectedTrendSource]);
 
   React.useEffect(() => {
     void loadSummary();

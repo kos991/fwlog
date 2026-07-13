@@ -31,7 +31,7 @@ func (s appDashboardService) HealthDashboard(r *http.Request) (HealthDashboardRe
 		return HealthDashboardResponse{}, err
 	}
 
-	metrics, err := store.DashboardMetrics(ctx, dashboardMetricsSince(r), parseBoolQuery(r, "include_distributions", true))
+	metrics, err := store.DashboardMetrics(ctx, dashboardMetricsSince(r), parseBoolQuery(r, "include_distributions", true), strings.TrimSpace(r.URL.Query().Get("source_id")))
 	if err != nil {
 		return HealthDashboardResponse{}, err
 	}

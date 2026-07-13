@@ -213,6 +213,7 @@ func TestBuildQuerySQLBuildsVisibleDatePredicatesAndParameterizedFilters(t *test
 		},
 	}
 	req := QueryRequest{
+		SourceID: "fw-a",
 		IP:       "10.0.0.1",
 		Port:     8443,
 		Protocol: "TCP",
@@ -231,6 +232,7 @@ func TestBuildQuerySQLBuildsVisibleDatePredicatesAndParameterizedFilters(t *test
 	for _, want := range []string{
 		"(src_ip = ? OR dst_ip = ? OR nat_ip = ?)",
 		"(src_port = ? OR dst_port = ? OR nat_port = ?)",
+		"source_id = ?",
 		"protocol IN (?, ?)",
 		"action = ?",
 		"log_tag = ?",
@@ -247,6 +249,7 @@ func TestBuildQuerySQLBuildsVisibleDatePredicatesAndParameterizedFilters(t *test
 		dateOnly(2026, 6, 28),
 		start,
 		end,
+		"fw-a",
 		"10.0.0.1",
 		"10.0.0.1",
 		"10.0.0.1",

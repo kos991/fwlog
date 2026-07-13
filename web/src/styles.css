@@ -1471,7 +1471,7 @@ body {
 
 .primary-filter-grid {
   display: grid;
-  grid-template-columns: minmax(420px, 1.4fr) minmax(220px, 0.8fr) auto;
+  grid-template-columns: minmax(420px, 1.35fr) minmax(190px, 0.65fr) minmax(220px, 0.8fr) auto;
   align-items: end;
   gap: 12px;
 }
@@ -1545,13 +1545,12 @@ body {
   display: inline-grid;
   place-items: center;
   width: 100%;
-  min-height: 34px;
+  min-height: 30px;
 }
 
 .visible-date-cell .ant-picker-cell-inner {
   width: 28px;
   border-radius: 6px;
-  transform: translateY(-4px);
 }
 
 .visible-date-cell-ready .ant-picker-cell-inner,
@@ -1576,38 +1575,32 @@ body {
   color: #cf1322;
 }
 
-.visible-date-label {
+.visible-date-marker {
   position: absolute;
-  left: 50%;
-  bottom: 0;
-  padding: 0 3px;
-  border-radius: 4px;
-  font-size: 10px;
-  line-height: 14px;
-  white-space: nowrap;
-  transform: translateX(-50%);
+  right: 3px;
+  bottom: 3px;
+  width: 6px;
+  height: 6px;
+  border: 1px solid #ffffff;
+  border-radius: 999px;
 }
 
-.visible-date-cell-ready .visible-date-label,
-.visible-date-cell-queried .visible-date-label {
-  background: #e5f8dc;
-  color: #237804;
+.visible-date-cell-ready .visible-date-marker,
+.visible-date-cell-queried .visible-date-marker {
+  background: #52c41a;
 }
 
-.visible-date-cell-importing .visible-date-label {
-  background: #dbeafe;
-  color: #1d4ed8;
+.visible-date-cell-importing .visible-date-marker {
+  background: #2563eb;
 }
 
-.visible-date-cell-pending .visible-date-label,
-.visible-date-cell-skipped .visible-date-label {
-  background: #fff1d6;
-  color: #ad6800;
+.visible-date-cell-pending .visible-date-marker,
+.visible-date-cell-skipped .visible-date-marker {
+  background: #f59e0b;
 }
 
-.visible-date-cell-failed .visible-date-label {
-  background: #ffe1df;
-  color: #cf1322;
+.visible-date-cell-failed .visible-date-marker {
+  background: #ef4444;
 }
 
 .date-picker-legend {

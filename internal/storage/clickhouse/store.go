@@ -272,8 +272,12 @@ func usesCursorPagination(options QueryPageOptions) bool {
 	return options.Cursor != nil || normalizeQueryPage(options.Page) <= 1
 }
 
-func (s *ClickHouseStore) DashboardMetrics(ctx context.Context, distributionSince time.Time, includeDistributions bool) (DashboardMetrics, error) {
+func (s *ClickHouseStore) DashboardMetrics(ctx context.Context, distributionSince time.Time, includeDistributions bool, sourceID ...string) (DashboardMetrics, error) {
 	var metrics DashboardMetrics
+	distributionSourceID := ""
+	if len(sourceID) > 0 {
+		distributionSourceID = strings.TrimSpace(sourceID[0])
+	}
 
 	var err error
 	metrics.ClickHouseDiskUsedBytes, err = s.clickHouseDiskUsedBytes(ctx)
@@ -301,15 +305,15 @@ func (s *ClickHouseStore) DashboardMetrics(ctx context.Context, distributionSinc
 		return metrics, nil
 	}
 
-	metrics.TopSourceIPs, err = s.distribution(ctx, "src_ip", distributionSince)
+	metrics.TopSourceIPs, err = s.distribution(ctx, "src_ip", distributionSince, distributionSourceID)
 	if err != nil {
 		return DashboardMetrics{}, err
 	}
-	metrics.TopDestinationIPs, err = s.distribution(ctx, "dst_ip", distributionSince)
+	metrics.TopDestinationIPs, err = s.distribution(ctx, "dst_ip", distributionSince, distributionSourceID)
 	if err != nil {
 		return DashboardMetrics{}, err
 	}
-	metrics.LogTagDistribution, err = s.distribution(ctx, "log_tag", distributionSince)
+	metrics.LogTagDistribution, err = s.distribution(ctx, "log_tag", distributionSince, distributionSourceID)
 	if err != nil {
 		return DashboardMetrics{}, err
 	}
@@ -407,8 +411,8 @@ func (s *ClickHouseStore) dailyLogTrend(ctx context.Context, now time.Time) ([]L
 	return trend, nil
 }
 
-func (s *ClickHouseStore) distribution(ctx context.Context, column string, since time.Time) ([]DistributionItem, error) {
-	sql, args, err := distributionSQL(column, since)
+func (s *ClickHouseStore) distribution(ctx context.Context, column string, since time.Time, sourceID string) ([]DistributionItem, error) {
+	sql, args, err := distributionSQL(column, since, sourceID)
 	if err != nil {
 		return nil, err
 	}
@@ -430,20 +434,28 @@ func (s *ClickHouseStore) distribution(ctx context.Context, column string, since
 	return items, rows.Err()
 }
 
-func distributionSQL(column string, since time.Time) (string, []any, error) {
+func distributionSQL(column string, since time.Time, sourceID string) (string, []any, error) {
 	switch column {
 	case "src_ip", "dst_ip", "nat_ip", "log_tag":
 	default:
 		return "", nil, fmt.Errorf("unsupported distribution column %q", column)
 	}
 
-	args := make([]any, 0, 1)
-	where := ""
+	args := make([]any, 0, 2)
+	conditions := make([]string, 0, 2)
 	if !since.IsZero() {
-		where = " WHERE log_date >= ?"
+		conditions = append(conditions, "log_date >= ?")
 		args = append(args, startOfDay(since))
 	}
+	if sourceID = strings.TrimSpace(sourceID); sourceID != "" {
+		conditions = append(conditions, "source_id = ?")
+		args = append(args, sourceID)
+	}
 
+	where := ""
+	if len(conditions) > 0 {
+		where = " WHERE " + strings.Join(conditions, " AND ")
+	}
 	sql := fmt.Sprintf("SELECT toString(%s) AS name, count() AS value FROM nat_logs%s GROUP BY %s ORDER BY value DESC LIMIT 10", column, where, column)
 	return sql, args, nil
 }

@@ -78,7 +78,7 @@ func TestClickHouseDiskUsageSQLReadsActiveParts(t *testing.T) {
 
 func TestDistributionSQLFiltersByLogDate(t *testing.T) {
 	since := time.Date(2026, 6, 4, 15, 30, 0, 0, time.Local)
-	sql, args, err := distributionSQL("src_ip", since)
+	sql, args, err := distributionSQL("src_ip", since, "fw-a")
 	if err != nil {
 		t.Fatalf("distributionSQL returned error: %v", err)
 	}
@@ -86,20 +86,26 @@ func TestDistributionSQLFiltersByLogDate(t *testing.T) {
 	if !strings.Contains(sql, "WHERE log_date >= ?") {
 		t.Fatalf("distribution SQL should filter by log_date: %s", sql)
 	}
+	if !strings.Contains(sql, "source_id = ?") {
+		t.Fatalf("distribution SQL should filter by source_id: %s", sql)
+	}
 	if !strings.Contains(sql, "GROUP BY src_ip") || !strings.Contains(sql, "LIMIT 10") {
 		t.Fatalf("distribution SQL missing ranking clauses: %s", sql)
 	}
-	if len(args) != 1 {
-		t.Fatalf("args = %#v, want one since arg", args)
+	if len(args) != 2 {
+		t.Fatalf("args = %#v, want since and source args", args)
 	}
 	got, ok := args[0].(time.Time)
 	if !ok || !got.Equal(startOfDay(since)) {
 		t.Fatalf("since arg = %#v, want start of day %v", args[0], startOfDay(since))
 	}
+	if args[1] != "fw-a" {
+		t.Fatalf("source arg = %#v, want fw-a", args[1])
+	}
 }
 
 func TestDistributionSQLRejectsUnsupportedColumn(t *testing.T) {
-	if _, _, err := distributionSQL("source_file", time.Time{}); err == nil {
+	if _, _, err := distributionSQL("source_file", time.Time{}, ""); err == nil {
 		t.Fatalf("unsupported distribution column should return error")
 	}
 }

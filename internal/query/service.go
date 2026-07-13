@@ -34,6 +34,7 @@ const (
 type QueryRequest struct {
 	Start    time.Time
 	End      time.Time
+	SourceID string
 	IP       string
 	SrcIP    string
 	DstIP    string
@@ -76,6 +77,7 @@ func (e *QueryError) Error() string {
 
 func (r QueryRequest) HasFilters() bool {
 	return r.IP != "" ||
+		r.SourceID != "" ||
 		r.SrcIP != "" ||
 		r.DstIP != "" ||
 		r.NATIP != "" ||
@@ -307,6 +309,10 @@ func BuildQuerySQL(req QueryRequest, visibility QueryVisibility) (string, []any,
 	}
 	sql.WriteString(")")
 
+	if req.SourceID != "" {
+		sql.WriteString(" AND source_id = ?")
+		args = append(args, req.SourceID)
+	}
 	if req.IP != "" {
 		sql.WriteString(" AND (src_ip = ? OR dst_ip = ? OR nat_ip = ?)")
 		args = append(args, req.IP, req.IP, req.IP)

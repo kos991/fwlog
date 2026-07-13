@@ -246,6 +246,7 @@ func parseQueryRequest(r *http.Request) (QueryRequest, int, int, error) {
 	req := QueryRequest{
 		Start:    start,
 		End:      end,
+		SourceID: strings.TrimSpace(values.Get("source_id")),
 		IP:       strings.TrimSpace(values.Get("ip")),
 		SrcIP:    strings.TrimSpace(values.Get("src_ip")),
 		DstIP:    strings.TrimSpace(values.Get("dst_ip")),
