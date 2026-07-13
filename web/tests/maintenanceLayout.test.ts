@@ -6,7 +6,7 @@ import test from 'node:test';
 const pagePath = path.resolve('src/pages/SystemMaintenancePage.tsx');
 const stylesPath = path.resolve('src/styles.css');
 
-test('maintenance page pins schedule, manual actions, and upgrade cards into explicit grid areas', () => {
+test('maintenance page stacks schedule, manual actions, and upgrade cards vertically', () => {
   const page = fs.readFileSync(pagePath, 'utf8');
   const styles = fs.readFileSync(stylesPath, 'utf8');
 
@@ -14,10 +14,25 @@ test('maintenance page pins schedule, manual actions, and upgrade cards into exp
   assert.match(page, /maintenance-run-card maintenance-run-card--manual/);
   assert.match(page, /maintenance-run-card maintenance-run-card--upgrade/);
 
-  assert.match(styles, /grid-template-areas:\s*"schedule manual"\s*"upgrade manual"/);
+  assert.match(styles, /grid-template-areas:\s*"schedule"\s*"manual"\s*"upgrade"/);
+  assert.doesNotMatch(styles, /grid-template-areas:\s*"schedule manual"/);
   assert.match(styles, /\.maintenance-plan-card--schedule\s*\{[^}]*grid-area:\s*schedule;/s);
   assert.match(styles, /\.maintenance-run-card--manual\s*\{[^}]*grid-area:\s*manual;/s);
   assert.match(styles, /\.maintenance-run-card--upgrade\s*\{[^}]*grid-area:\s*upgrade;/s);
+});
+
+test('maintenance page uses unified Chinese copy only', () => {
+  const page = fs.readFileSync(pagePath, 'utf8');
+
+  assert.doesNotMatch(page, />Source</);
+  assert.doesNotMatch(page, /All enabled sources/);
+  assert.doesNotMatch(page, />Manual</);
+  assert.doesNotMatch(page, /Auto upgrade/);
+  assert.doesNotMatch(page, /自动升级/);
+
+  for (const required of ['日志源', '全部启用日志源', '手动入库', '执行入库', '版本升级', '手动升级', '选择离线升级包', '上传并安装']) {
+    assert.match(page, new RegExp(required), `维护页缺少统一文案：${required}`);
+  }
 });
 
 test('auto scan time picker is owned by form field instead of a string controlled value', () => {

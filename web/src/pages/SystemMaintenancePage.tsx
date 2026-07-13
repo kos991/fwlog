@@ -534,12 +534,12 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
 
                     <div className="maintenance-run-grid">
                       <div className="maintenance-field">
-                        <label>Source</label>
+                        <label>日志源</label>
                         <Select
                           value={importSourceID}
                           onChange={setImportSourceID}
                           options={[
-                            { value: '', label: 'All enabled sources' },
+                            { value: '', label: '全部启用日志源' },
                             ...savedLogSources
                               .filter((source) => source.enabled !== false)
                               .map((source) => ({
@@ -552,7 +552,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                       <div className="maintenance-field">
                         <label>手动入库</label>
                         <Button type="primary" icon={<SyncOutlined />} onClick={() => void trigger('/api/sync', '已开始入库', true)} loading={loading}>
-                          执行
+                          执行入库
                         </Button>
                       </div>
 
@@ -589,7 +589,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                   <div className="maintenance-run-card maintenance-run-card--upgrade">
                     <div className="maintenance-card-head">
                       <div>
-                        <span className="maintenance-card-kicker"><CloudDownloadOutlined /> 自动升级</span>
+                        <span className="maintenance-card-kicker"><CloudDownloadOutlined /> 手动升级</span>
                         <strong>版本升级</strong>
                       </div>
                       <Tag color={upgradeView.statusTone}>

@@ -1099,11 +1099,21 @@ body {
   border-bottom: 1px solid #e5edf7;
 }
 
-.trend-head span {
+.trend-head > div:first-child > span {
   display: block;
   margin-top: 3px;
   color: #7a8699;
   font-size: 12px;
+}
+
+.trend-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.trend-toolbar .ant-select {
+  min-width: 184px;
 }
 
 .trend-range {
@@ -1655,12 +1665,13 @@ body {
 
 .maintenance-card {
   max-width: none;
-  padding: 20px;
+  padding: 16px 18px;
 }
 
 .source-list-editor {
   display: grid;
-  gap: 8px;
+  gap: 6px;
+  align-content: start;
 }
 
 .source-list-head {
@@ -1682,8 +1693,8 @@ body {
   grid-template-columns: minmax(140px, 0.8fr) minmax(160px, 0.9fr) minmax(360px, 1.8fr) 72px 56px;
   gap: 10px;
   align-items: center;
-  min-height: 44px;
-  padding: 8px 10px;
+  min-height: 40px;
+  padding: 6px 10px;
   border: 0;
   border-bottom: 1px solid var(--fw-line-soft);
   border-radius: 0;
@@ -1705,7 +1716,8 @@ body {
 }
 
 .source-row-header {
-  padding-block: 8px;
+  min-height: 36px;
+  padding-block: 6px;
   border-bottom: 1px solid #e5edf7;
   background: var(--fw-surface-soft);
   color: #6b7280;
@@ -1804,10 +1816,11 @@ body {
 
 .maintenance-ops-card {
   display: grid;
-  grid-template-columns: minmax(480px, 1fr) minmax(360px, 0.56fr);
+  grid-template-columns: minmax(0, 1fr);
   grid-template-areas:
-    "schedule manual"
-    "upgrade manual";
+    "schedule"
+    "manual"
+    "upgrade";
   gap: 14px;
   padding: 16px;
   align-items: start;
