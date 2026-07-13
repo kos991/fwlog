@@ -5,10 +5,13 @@ import test from 'node:test';
 
 const source = fs.readFileSync(path.resolve('src/pages/SystemMaintenancePage.tsx'), 'utf8');
 
-test('source selection is limited to saved import and rebuild operations', () => {
+test('source selection applies to sync and rebuild ingest operations', () => {
   assert.match(source, /const \[savedLogSources, setSavedLogSources\]/);
-  assert.match(source, /sourceScoped && importSourceID/);
-  assert.match(source, /trigger\('\/api\/sync',[^\n]+true\)/);
+  assert.match(source, /function buildIngestPath/);
+  assert.match(source, /sourceID/);
+  assert.match(source, /date_from/);
+  assert.match(source, /date_to/);
+  assert.match(source, /apiPost\(buildIngestPath\(\)\)/);
   assert.match(source, /trigger\('\/api\/ip-data\/reload',[^\n]+\)/);
 });
 

@@ -64,6 +64,37 @@ type Settings = {
   confirm_new_password?: string;
 };
 
+type IngestAction = 'sync' | 'rebuild';
+type IngestDateMode = 'all' | 'single' | 'range';
+type IngestSourceScope = 'all' | 'current';
+
+const INGEST_BUTTON_LABELS: Record<IngestAction, Record<IngestSourceScope, Record<IngestDateMode, string>>> = {
+  sync: {
+    all: {
+      all: '入库全部日志源的所有历史日志',
+      single: '入库全部日志源的所选日期',
+      range: '入库全部日志源的所选日期范围',
+    },
+    current: {
+      all: '入库当前日志源的所有历史日志',
+      single: '入库当前日志源的所选日期',
+      range: '入库当前日志源的所选日期范围',
+    },
+  },
+  rebuild: {
+    all: {
+      all: '全量重建全部日志源的所有历史日志',
+      single: '全量重建全部日志源的所选日期',
+      range: '全量重建全部日志源的所选日期范围',
+    },
+    current: {
+      all: '全量重建当前日志源的所有历史日志',
+      single: '全量重建当前日志源的所选日期',
+      range: '全量重建当前日志源的所选日期范围',
+    },
+  },
+};
+
 function tabLabel(icon: React.ReactNode, text: string) {
   return <span className="tab-label">{icon}{text}</span>;
 }
@@ -154,8 +185,10 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   const [upgradeCheck, setUpgradeCheck] = React.useState<UpgradeCheckResponse | null>(null);
   const [upgradeCheckError, setUpgradeCheckError] = React.useState('');
   const [upgradeLastCheckedAt, setUpgradeLastCheckedAt] = React.useState<Date | null>(null);
-  const [rebuildDate, setRebuildDate] = React.useState<Dayjs | null>(dayjs());
-  const [fullRebuild, setFullRebuild] = React.useState(false);
+  const [ingestAction, setIngestAction] = React.useState<IngestAction>('sync');
+  const [dateMode, setDateMode] = React.useState<IngestDateMode>('all');
+  const [singleDate, setSingleDate] = React.useState<Dayjs | null>(dayjs());
+  const [dateRange, setDateRange] = React.useState<[Dayjs | null, Dayjs | null] | null>(null);
   const [importSourceID, setImportSourceID] = React.useState('');
   const [savedLogSources, setSavedLogSources] = React.useState<LogSourceSetting[]>([]);
   const [upgradeRestarting, setUpgradeRestarting] = React.useState(false);
@@ -270,15 +303,68 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
     }
   };
 
-  const trigger = async (path: string, ok: string, includeSource = false) => {
+  const enabledLogSources = React.useMemo(
+    () => savedLogSources.filter((source) => source.enabled !== false),
+    [savedLogSources],
+  );
+  const selectedLogSource = enabledLogSources.find((source) => (source.source_id || 'default') === importSourceID);
+  const sourceScope: IngestSourceScope = importSourceID ? 'current' : 'all';
+  const selectedSourceLabel = importSourceID
+    ? selectedLogSource?.log_tag || selectedLogSource?.source_id || importSourceID
+    : '全部启用日志源';
+  const actionLabel = ingestAction === 'sync' ? '手动入库' : '全量重建';
+  const dateScopeLabel = dateMode === 'all'
+    ? '所有历史日期'
+    : dateMode === 'single'
+      ? singleDate?.format('YYYY-MM-DD') || '未选择日期'
+      : dateRange?.[0] && dateRange?.[1]
+        ? `${dateRange[0].format('YYYY-MM-DD')} 至 ${dateRange[1].format('YYYY-MM-DD')}`
+        : '未选择日期范围';
+  const buttonLabel = INGEST_BUTTON_LABELS[ingestAction][sourceScope][dateMode];
+  const actionSummary = `本次操作：日志源 = ${selectedSourceLabel}；日期 = ${dateScopeLabel}；动作 = ${actionLabel}。`;
+  const ingestActionDisabled = dateMode === 'single'
+    ? !singleDate
+    : dateMode === 'range'
+      ? !dateRange?.[0] || !dateRange?.[1] || dateRange[0].isAfter(dateRange[1], 'day')
+      : false;
+
+  function buildIngestPath() {
+    const basePath = ingestAction === 'sync' ? '/api/sync' : '/api/rebuild';
+    const params = new URLSearchParams();
+    const sourceID = importSourceID.trim();
+    if (sourceID) {
+      params.set('source_id', sourceID);
+    }
+    if (dateMode === 'single' && singleDate) {
+      params.set('date', singleDate.format('YYYY-MM-DD'));
+    }
+    if (dateMode === 'range' && dateRange?.[0] && dateRange?.[1]) {
+      params.set('date_from', dateRange[0].format('YYYY-MM-DD'));
+      params.set('date_to', dateRange[1].format('YYYY-MM-DD'));
+    }
+    const query = params.toString();
+    return query ? `${basePath}?${query}` : basePath;
+  }
+
+  const triggerIngestAction = async () => {
+    if (dateMode === 'single' && !singleDate) {
+      message.error('请先选择日期');
+      return;
+    }
+    if (dateMode === 'range') {
+      if (!dateRange?.[0] || !dateRange?.[1]) {
+        message.error('请先选择日期范围');
+        return;
+      }
+      if (dateRange[0].isAfter(dateRange[1], 'day')) {
+        message.error('开始日期不能晚于结束日期');
+        return;
+      }
+    }
     try {
       setLoading(true);
-      const sourceScoped = includeSource || path.startsWith('/api/rebuild');
-      const target = sourceScoped && importSourceID
-        ? `${path}${path.includes('?') ? '&' : '?'}source_id=${encodeURIComponent(importSourceID)}`
-        : path;
-      await apiPost(target);
-      message.success(ok);
+      await apiPost(buildIngestPath());
+      message.success(ingestAction === 'sync' ? '已开始入库' : '已触发全量重建');
     } catch (error) {
       message.error(error instanceof Error ? error.message : '操作失败');
     } finally {
@@ -286,16 +372,16 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
     }
   };
 
-  const triggerRebuild = async () => {
-    if (fullRebuild) {
-      await trigger('/api/rebuild', '已触发全量重建');
-      return;
+  const trigger = async (path: string, ok: string) => {
+    try {
+      setLoading(true);
+      await apiPost(path);
+      message.success(ok);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '操作失败');
+    } finally {
+      setLoading(false);
     }
-    if (!rebuildDate) {
-      message.error('请先选择重建日期');
-      return;
-    }
-    await trigger(`/api/rebuild?date=${rebuildDate.format('YYYY-MM-DD')}`, '已触发指定日期重建', true);
   };
 
   const checkUpgrade = async () => {
@@ -613,49 +699,73 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                           onChange={setImportSourceID}
                           options={[
                             { value: '', label: '全部启用日志源' },
-                            ...savedLogSources
-                              .filter((source) => source.enabled !== false)
-                              .map((source) => ({
-                                value: source.source_id || 'default',
-                                label: source.log_tag || source.source_id || 'default',
-                              })),
+                            ...enabledLogSources.map((source) => ({
+                              value: source.source_id || 'default',
+                              label: source.log_tag || source.source_id || 'default',
+                            })),
                           ]}
                         />
                       </div>
                       <div className="maintenance-field">
-                        <label>手动入库</label>
-                        <Button type="primary" icon={<SyncOutlined />} onClick={() => void trigger('/api/sync', '已开始入库', true)} loading={loading}>
-                          执行入库
-                        </Button>
+                        <label>日期范围</label>
+                        <Select
+                          value={dateMode}
+                          onChange={(value: IngestDateMode) => setDateMode(value)}
+                          options={[
+                            { value: 'all', label: '所有历史日期' },
+                            { value: 'single', label: '单日' },
+                            { value: 'range', label: '日期范围' },
+                          ]}
+                        />
                       </div>
 
                       <div className="maintenance-field">
-                        <label>重建日期</label>
-                        <DatePicker value={rebuildDate} onChange={setRebuildDate} disabled={fullRebuild} />
+                        <label>日期参数</label>
+                        {dateMode === 'single' ? (
+                          <DatePicker value={singleDate} onChange={setSingleDate} />
+                        ) : dateMode === 'range' ? (
+                          <DatePicker.RangePicker value={dateRange} onChange={(value) => setDateRange(value)} />
+                        ) : (
+                          <Text type="secondary">系统会扫描所选日志源下已有历史日志</Text>
+                        )}
+                      </div>
+
+                      <div className="maintenance-field">
+                        <label>操作类型</label>
+                        <Select
+                          value={ingestAction}
+                          onChange={(value: IngestAction) => setIngestAction(value)}
+                          options={[
+                            { value: 'sync', label: '手动入库' },
+                            { value: 'rebuild', label: '全量重建' },
+                          ]}
+                        />
                       </div>
 
                       <div className="maintenance-field maintenance-danger-field">
-                        <label>重建入库</label>
-                        <Popconfirm
-                          title={fullRebuild ? '确认全量重建？' : '确认重建该日期？'}
-                          description={fullRebuild ? '将重建所有历史日志，耗时较长。' : rebuildDate ? rebuildDate.format('YYYY-MM-DD') : '未选择日期'}
-                          okText={fullRebuild ? '确认全量重建' : '确认重建'}
-                          cancelText="取消"
-                          onConfirm={() => void triggerRebuild()}
-                        >
-                          <Button danger icon={<WarningOutlined />} loading={loading} disabled={!fullRebuild && !rebuildDate}>
-                            {fullRebuild ? '全量重建' : '重建'}
+                        <label>执行操作</label>
+                        {ingestAction === 'rebuild' ? (
+                          <Popconfirm
+                            title={`确认全量重建${importSourceID ? '当前日志源' : '全部日志源'}？`}
+                            description={`本次将${buttonLabel}。该操作会重新处理目标范围内的数据，耗时可能较长。`}
+                            okText="确认全量重建"
+                            cancelText="取消"
+                            onConfirm={() => void triggerIngestAction()}
+                          >
+                            <Button danger icon={<WarningOutlined />} loading={loading} disabled={ingestActionDisabled}>
+                              {buttonLabel}
+                            </Button>
+                          </Popconfirm>
+                        ) : (
+                          <Button type="primary" icon={<SyncOutlined />} onClick={() => void triggerIngestAction()} loading={loading} disabled={ingestActionDisabled}>
+                            {buttonLabel}
                           </Button>
-                        </Popconfirm>
+                        )}
                       </div>
                     </div>
 
-                    <div className="maintenance-rebuild-mode">
-                      <div>
-                        <strong>全量重建</strong>
-                        <Text type="secondary">开启后会重建所有历史日志，不再使用上方日期。</Text>
-                      </div>
-                      <Switch checked={fullRebuild} onChange={setFullRebuild} />
+                    <div className="maintenance-action-summary">
+                      <Text>{actionSummary}</Text>
                     </div>
                   </div>
 

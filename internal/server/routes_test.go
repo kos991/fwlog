@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -726,8 +727,23 @@ func TestParseImportTargetDateAcceptsDateQuery(t *testing.T) {
 	}
 
 	want := time.Date(2026, 6, 13, 0, 0, 0, 0, time.Local)
-	if !got.Equal(want) {
-		t.Fatalf("target date = %v, want %v", got, want)
+	if !got.Start.Equal(want) || !got.End.Equal(want) {
+		t.Fatalf("target date = %#v, want %v", got, want)
+	}
+}
+
+func TestParseImportTargetDateAcceptsDateRangeQuery(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/rebuild?date_from=2026-06-13&date_to=2026-06-15", nil)
+
+	got, err := parseImportTargetDate(req)
+	if err != nil {
+		t.Fatalf("parseImportTargetDate returned error: %v", err)
+	}
+
+	wantStart := time.Date(2026, 6, 13, 0, 0, 0, 0, time.Local)
+	wantEnd := time.Date(2026, 6, 15, 0, 0, 0, 0, time.Local)
+	if !got.Start.Equal(wantStart) || !got.End.Equal(wantEnd) {
+		t.Fatalf("target range = %#v, want %v - %v", got, wantStart, wantEnd)
 	}
 }
 
@@ -736,6 +752,39 @@ func TestParseImportTargetDateRejectsInvalidDateQuery(t *testing.T) {
 
 	if _, err := parseImportTargetDate(req); err == nil {
 		t.Fatal("invalid target date should return an error")
+	}
+}
+
+func TestParseImportTargetDateRejectsInvertedDateRangeQuery(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/rebuild?date_from=2026-06-15&date_to=2026-06-13", nil)
+
+	if _, err := parseImportTargetDate(req); err == nil {
+		t.Fatal("inverted target date range should return an error")
+	}
+}
+
+func TestParseImportTargetDateRejectsMixedDateAndRangeQuery(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/rebuild?date=2026-06-13&date_from=2026-06-13&date_to=2026-06-15", nil)
+
+	if _, err := parseImportTargetDate(req); err == nil {
+		t.Fatal("mixed date and date range should return an error")
+	}
+}
+
+func TestTargetDateRangeDatesReturnsInclusiveDays(t *testing.T) {
+	target := importTargetDateRange{
+		Start: time.Date(2026, 6, 13, 0, 0, 0, 0, time.Local),
+		End:   time.Date(2026, 6, 15, 0, 0, 0, 0, time.Local),
+	}
+
+	var got []string
+	for _, date := range target.Dates() {
+		got = append(got, formatDate(date))
+	}
+
+	want := []string{"2026-06-13", "2026-06-14", "2026-06-15"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("dates = %#v, want %#v", got, want)
 	}
 }
 

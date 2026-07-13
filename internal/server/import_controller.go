@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"path/filepath"
 	"sort"
@@ -20,7 +21,7 @@ func (a *App) importHandler(rebuild bool) http.Handler {
 		}
 		targetDate, err := parseImportTargetDate(r)
 		if err != nil {
-			writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "invalid_date", "message": "date must use YYYY-MM-DD format"})
+			writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "invalid_date", "message": "date/date_from/date_to must use YYYY-MM-DD format"})
 			return
 		}
 		sources, found := selectImportSources(a.currentLogSources(), r.URL.Query().Get("source_id"))
@@ -31,7 +32,8 @@ func (a *App) importHandler(rebuild bool) http.Handler {
 
 		a.logger.Info("import request received",
 			"rebuild", rebuild,
-			"target_date", targetDate.Format("2006-01-02"),
+			"target_date_from", formatOptionalDate(targetDate.Start),
+			"target_date_to", formatOptionalDate(targetDate.End),
 			"sources_count", len(sources),
 		)
 
@@ -49,12 +51,70 @@ func (a *App) importHandler(rebuild bool) http.Handler {
 	})
 }
 
-func parseImportTargetDate(r *http.Request) (time.Time, error) {
-	value := strings.TrimSpace(r.URL.Query().Get("date"))
-	if value == "" {
-		return time.Time{}, nil
+type importTargetDateRange struct {
+	Start time.Time
+	End   time.Time
+}
+
+func (r importTargetDateRange) IsZero() bool {
+	return r.Start.IsZero() && r.End.IsZero()
+}
+
+func (r importTargetDateRange) Dates() []time.Time {
+	if r.IsZero() {
+		return nil
 	}
-	return time.ParseInLocation("2006-01-02", value, time.Local)
+	dates := make([]time.Time, 0)
+	for date := startOfDay(r.Start); !date.After(startOfDay(r.End)); date = date.AddDate(0, 0, 1) {
+		dates = append(dates, date)
+	}
+	return dates
+}
+
+func singleImportTargetDate(date time.Time) importTargetDateRange {
+	if date.IsZero() {
+		return importTargetDateRange{}
+	}
+	date = startOfDay(date)
+	return importTargetDateRange{Start: date, End: date}
+}
+
+func parseImportTargetDate(r *http.Request) (importTargetDateRange, error) {
+	values := r.URL.Query()
+	dateValue := strings.TrimSpace(values.Get("date"))
+	fromValue := strings.TrimSpace(values.Get("date_from"))
+	toValue := strings.TrimSpace(values.Get("date_to"))
+
+	if dateValue != "" && (fromValue != "" || toValue != "") {
+		return importTargetDateRange{}, errors.New("date cannot be combined with date_from/date_to")
+	}
+	if dateValue != "" {
+		date, err := time.ParseInLocation("2006-01-02", dateValue, time.Local)
+		if err != nil {
+			return importTargetDateRange{}, err
+		}
+		return singleImportTargetDate(date), nil
+	}
+	if fromValue == "" && toValue == "" {
+		return importTargetDateRange{}, nil
+	}
+	if fromValue == "" || toValue == "" {
+		return importTargetDateRange{}, errors.New("date_from and date_to must be provided together")
+	}
+	start, err := time.ParseInLocation("2006-01-02", fromValue, time.Local)
+	if err != nil {
+		return importTargetDateRange{}, err
+	}
+	end, err := time.ParseInLocation("2006-01-02", toValue, time.Local)
+	if err != nil {
+		return importTargetDateRange{}, err
+	}
+	start = startOfDay(start)
+	end = startOfDay(end)
+	if start.After(end) {
+		return importTargetDateRange{}, errors.New("date_from cannot be after date_to")
+	}
+	return importTargetDateRange{Start: start, End: end}, nil
 }
 
 func selectImportSources(sources []LogSource, sourceID string) ([]LogSource, bool) {
@@ -244,10 +304,10 @@ func normalizeListenProtocol(protocol string) string {
 const maxImportDuration = 2 * time.Hour
 
 func (a *App) startBackgroundImport(rebuild bool, targetDate time.Time) bool {
-	return len(a.startBackgroundImportSources(rebuild, targetDate, a.currentLogSources()).Accepted) > 0
+	return len(a.startBackgroundImportSources(rebuild, singleImportTargetDate(targetDate), a.currentLogSources()).Accepted) > 0
 }
 
-func (a *App) startBackgroundImportSources(rebuild bool, targetDate time.Time, sources []LogSource) ImportStartResult {
+func (a *App) startBackgroundImportSources(rebuild bool, targetDate importTargetDateRange, sources []LogSource) ImportStartResult {
 	store := a.currentStore()
 	if store == nil || len(sources) == 0 {
 		return ImportStartResult{}
@@ -299,7 +359,7 @@ func (a *App) startBackgroundImportSources(rebuild bool, targetDate time.Time, s
 	})
 }
 
-func importSourceDates(ctx context.Context, store *ClickHouseStore, source LogSource, rebuild bool, targetDate time.Time, runner importRunnerFunc, gate batchWriteGate) ([]string, []string, error) {
+func importSourceDates(ctx context.Context, store *ClickHouseStore, source LogSource, rebuild bool, targetDate importTargetDateRange, runner importRunnerFunc, gate batchWriteGate) ([]string, []string, error) {
 	if targetDate.IsZero() {
 		if runner == nil {
 			return importArchivedDatesWithGate(ctx, store, source, rebuild, gate)
@@ -307,6 +367,20 @@ func importSourceDates(ctx context.Context, store *ClickHouseStore, source LogSo
 		return runner(ctx, store, source, rebuild)
 	}
 
+	imported := make([]string, 0)
+	skipped := make([]string, 0)
+	for _, date := range targetDate.Dates() {
+		dateImported, dateSkipped, err := importSourceDate(ctx, store, source, rebuild, date, gate)
+		if err != nil {
+			return imported, skipped, err
+		}
+		imported = append(imported, dateImported...)
+		skipped = append(skipped, dateSkipped...)
+	}
+	return imported, skipped, nil
+}
+
+func importSourceDate(ctx context.Context, store *ClickHouseStore, source LogSource, rebuild bool, targetDate time.Time, gate batchWriteGate) ([]string, []string, error) {
 	date := startOfDay(targetDate)
 	if !rebuild {
 		state, found, err := store.LatestDateState(ctx, source.SourceID, date)
@@ -323,6 +397,13 @@ func importSourceDates(ctx context.Context, store *ClickHouseStore, source LogSo
 		return nil, nil, err
 	}
 	return []string{formatDate(date)}, nil, nil
+}
+
+func formatOptionalDate(date time.Time) string {
+	if date.IsZero() {
+		return ""
+	}
+	return date.Format("2006-01-02")
 }
 
 func importArchivedDates(ctx context.Context, store *ClickHouseStore, source LogSource, rebuild bool) ([]string, []string, error) {
