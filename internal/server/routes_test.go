@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -515,6 +516,43 @@ func TestRouterSettingsSaveDoesNotStartImportForEnabledLogSources(t *testing.T) 
 	}
 }
 
+func TestRouterSettingsAppliesRSyslogReceiver(t *testing.T) {
+	app := NewApp(LoadConfig())
+	app.mu.Lock()
+	app.store = &ClickHouseStore{}
+	app.mu.Unlock()
+	router := app.Router()
+	cookie := loginForTest(t, router)
+
+	port := freeServerUDPPort(t)
+	spoolDir := filepath.ToSlash(filepath.Join(t.TempDir(), "rsyslog-main"))
+	body := fmt.Sprintf(`{"log_sources":[{"source_id":"rsyslog-main","log_tag":"核心防火墙","source_type":"rsyslog","listen_protocol":"udp","listen_host":"127.0.0.1","listen_port":%d,"spool_dir":%q,"enabled":true}]}`, port, spoolDir)
+	req := httptest.NewRequest(http.MethodPost, "/api/settings", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("settings status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	statusReq := httptest.NewRequest(http.MethodGet, "/api/receiver/status", nil)
+	statusReq.AddCookie(cookie)
+	statusRes := httptest.NewRecorder()
+	router.ServeHTTP(statusRes, statusReq)
+	if statusRes.Code != http.StatusOK {
+		t.Fatalf("receiver status = %d, body = %s", statusRes.Code, statusRes.Body.String())
+	}
+	var payload map[string]map[string]any
+	if err := json.Unmarshal(statusRes.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode receiver status: %v", err)
+	}
+	status := payload["rsyslog-main"]
+	if status["running"] != true || status["error"] != "" {
+		t.Fatalf("receiver should be running after settings save: %#v", status)
+	}
+}
+
 func TestRouterSyncUsesAllEnabledLogSources(t *testing.T) {
 	app := NewApp(LoadConfig())
 	app.mu.Lock()
@@ -557,6 +595,16 @@ func TestRouterSyncUsesAllEnabledLogSources(t *testing.T) {
 	if strings.Join(got, ",") != "fw-a,fw-b" {
 		t.Fatalf("imported sources = %#v", got)
 	}
+}
+
+func freeServerUDPPort(t *testing.T) int {
+	t.Helper()
+	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("allocate udp port: %v", err)
+	}
+	defer conn.Close()
+	return conn.LocalAddr().(*net.UDPAddr).Port
 }
 
 func TestRouterSyncReturnsInProgressWhenBackgroundImportIsRunning(t *testing.T) {

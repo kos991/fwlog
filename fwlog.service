@@ -12,7 +12,7 @@ WorkingDirectory=/opt/fwlog
 
 # Environment
 Environment="LOG_DIR=/data/sangfor_fw_log"
-Environment="LOG_TAG=娣变俊鏈?NAT"
+Environment="LOG_TAG=深信服 NAT"
 Environment="PORT=8080"
 Environment="CLICKHOUSE_ADDR=127.0.0.1:9000"
 Environment="CLICKHOUSE_DATABASE=default"
@@ -20,6 +20,8 @@ Environment="CUSTOM_IP_MAP=/opt/fwlog/custom_ip_map.csv"
 Environment="GEOIP_DB=/data/index/GeoLite2-City.mmdb"
 Environment="AUTO_SCAN_ENABLED=false"
 Environment="GIN_MODE=release"
+
+# RSyslog 接收器由应用内日志源配置启用；默认 UDP 5514，可在维护页自定义端口。
 
 # Execution
 ExecStart=/opt/fwlog/fwlog

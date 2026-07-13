@@ -22,6 +22,7 @@ func (a *App) Router() http.Handler {
 	mux.Handle("/api/password", methodHandler(http.MethodPost, a.requireAuth(passwordHandler)))
 	mux.Handle("/api/ip-data/reload", methodHandler(http.MethodPost, a.requireAuth(ipReloadHandler)))
 	mux.Handle("/api/settings", a.requireAuth(settingsHandler(a)))
+	mux.Handle("/api/receiver/status", methodHandler(http.MethodGet, a.requireAuth(a.receiverStatusHandler())))
 	mux.Handle("/api/session", methodHandler(http.MethodGet, a.sessionHandler()))
 	mux.Handle("/api/login", methodHandler(http.MethodPost, a.loginHandler()))
 	mux.Handle("/api/logout", methodHandler(http.MethodPost, a.requireAuth(a.logoutHandler())))
@@ -76,6 +77,7 @@ func (a *App) Run(ctx context.Context) error {
 	}
 
 	a.startAutoScanScheduler(ctx)
+	a.applyReceiverFromSettings()
 
 	addr := fmt.Sprintf(":%d", a.cfg.Port)
 	a.logger.Info("starting http server", "addr", addr)
@@ -98,6 +100,9 @@ func (a *App) Run(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		a.logger.Info("shutting down http server")
+		if a.receiver != nil {
+			a.receiver.Close()
+		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return server.Shutdown(shutdownCtx)

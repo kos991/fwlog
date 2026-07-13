@@ -38,6 +38,7 @@ func settingsHandler(app *App) http.Handler {
 				return
 			}
 			app.reloadIPDataFromSettings()
+			app.applyReceiverFromSettings()
 			writeJSON(w, app.getSettings())
 		default:
 			w.Header().Set("Allow", "GET, POST")
@@ -46,6 +47,23 @@ func settingsHandler(app *App) http.Handler {
 				"message": fmt.Sprintf("%s %s is not allowed", r.Method, r.URL.Path),
 			})
 		}
+	})
+}
+
+func (a *App) applyReceiverFromSettings() {
+	if a.receiver == nil {
+		return
+	}
+	a.receiver.ApplySources(a.currentLogSources())
+}
+
+func (a *App) receiverStatusHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if a.receiver == nil {
+			writeJSON(w, map[string]any{})
+			return
+		}
+		writeJSON(w, a.receiver.Status())
 	})
 }
 

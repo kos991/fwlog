@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	receiverpkg "fwlog/internal/receiver"
 )
 
 const minPasswordHashIterations = 10000
@@ -24,6 +26,7 @@ type App struct {
 	loginLimiter  loginLimiter
 	importRunner  importRunnerFunc
 	imports       *ImportCoordinator
+	receiver      *receiverpkg.Manager
 	querySem      chan struct{}
 	upgradeMu     sync.Mutex
 	upgradeStatus UpgradeStatus
@@ -64,6 +67,7 @@ func NewApp(cfg Config) *App {
 		ipStatus:      defaultIPDataStatus(cfg),
 		passwordHash:  passwordHash,
 		imports:       NewImportCoordinator(cfg.Workers, defaultConcurrentWrites),
+		receiver:      receiverpkg.NewManager(),
 		querySem:      make(chan struct{}, 4),
 		upgradeStatus: defaultUpgradeStatus(),
 		versionInfo:   versionInfo,
@@ -100,6 +104,7 @@ func (a *App) Connect(ctx context.Context) error {
 	a.applySavedSettingsLocked(savedSettings)
 	a.mu.Unlock()
 	a.reloadIPDataFromSettings()
+	a.applyReceiverFromSettings()
 
 	a.logger.Info("application ready", "settings_count", len(savedSettings))
 	return nil
