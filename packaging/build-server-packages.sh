@@ -187,6 +187,7 @@ stage_rootfs() {
 
     install -m 0755 "$binary_path" "$rootfs/opt/fwlog/fwlog"
     printf 'VERSION=v%s\n' "$pkg_version" > "$rootfs/opt/fwlog/VERSION"
+    printf 'RUNTIME_VERSION=clickhouse-%s\n' "${CLICKHOUSE_VERSION:-25.8.27.1}" > "$rootfs/opt/fwlog/RUNTIME_VERSION"
     local service_unit="$repo_root/fwlog.service"
     if [[ "$include_clickhouse" != "true" ]]; then
         service_unit="$repo_root/packaging/systemd/fwlog.service"
@@ -195,7 +196,6 @@ stage_rootfs() {
     install -m 0644 "$geoip_db" "$rootfs/data/index/GeoLite2-City.mmdb"
 
     if [[ "$include_clickhouse" == "true" ]]; then
-        printf 'RUNTIME_VERSION=clickhouse-%s\n' "${CLICKHOUSE_VERSION:-25.8.27.1}" > "$rootfs/opt/fwlog/RUNTIME_VERSION"
         install -d "$rootfs/opt/fwlog/clickhouse/bin" \
             "$rootfs/opt/fwlog/clickhouse/etc" \
             "$rootfs/opt/fwlog/clickhouse/data" \

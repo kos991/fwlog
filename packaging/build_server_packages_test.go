@@ -203,13 +203,9 @@ func TestPackagedServiceUnitMatchesPackageMode(t *testing.T) {
 				t.Fatalf("VERSION file is invalid: %q, error %v", versionData, err)
 			}
 			runtimePath := filepath.Join(rootfs, "opt", "fwlog", "RUNTIME_VERSION")
-			if tc.includeClickHouse == "true" {
-				runtimeData, err := os.ReadFile(runtimePath)
-				if err != nil || strings.TrimSpace(string(runtimeData)) != "RUNTIME_VERSION=clickhouse-25.8.27.1" {
-					t.Fatalf("RUNTIME_VERSION file is invalid: %q, error %v", runtimeData, err)
-				}
-			} else if _, err := os.Stat(runtimePath); !os.IsNotExist(err) {
-				t.Fatal("upgrade rootfs must not contain RUNTIME_VERSION")
+			runtimeData, err := os.ReadFile(runtimePath)
+			if err != nil || strings.TrimSpace(string(runtimeData)) != "RUNTIME_VERSION=clickhouse-25.8.27.1" {
+				t.Fatalf("RUNTIME_VERSION file is invalid: %q, error %v", runtimeData, err)
 			}
 		})
 	}
