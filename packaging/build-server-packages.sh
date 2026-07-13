@@ -220,7 +220,7 @@ build_deb() {
     local installed_size
     installed_size="$(du -sk "$debroot" | awk '{print $1}')"
     local deb_replaces="fwlog, fwlog-full"
-    local deb_breaks="fwlog-full"
+    local deb_breaks=""
     if [[ "$include_clickhouse" == "true" ]]; then
         deb_replaces="fwlog, fwlog-upgrade"
         deb_breaks="fwlog-upgrade"
@@ -235,12 +235,14 @@ Architecture: $deb_arch
 Depends: systemd
 Provides: fwlog
 Replaces: $deb_replaces
-Breaks: $deb_breaks
 Installed-Size: $installed_size
 Maintainer: fwlog <noreply@example.invalid>
 Description: $package_summary
  $package_description
 EOF
+    if [[ -n "$deb_breaks" ]]; then
+        sed -i "/^Installed-Size:/i Breaks: $deb_breaks" "$debroot/DEBIAN/control"
+    fi
 
     cat > "$debroot/DEBIAN/preinst" <<'EOF'
 #!/bin/sh

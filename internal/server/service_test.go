@@ -243,9 +243,9 @@ func TestServerPackagesReplaceLegacyNatQueryPackage(t *testing.T) {
 	for _, want := range []string{
 		"Provides: fwlog",
 		"Replaces: $deb_replaces",
-		"Breaks: $deb_breaks",
+		`if [[ -n "$deb_breaks" ]]`,
 		`deb_replaces="fwlog, fwlog-full"`,
-		`deb_breaks="fwlog-full"`,
+		`deb_breaks=""`,
 		`deb_replaces="fwlog, fwlog-upgrade"`,
 		`deb_breaks="fwlog-upgrade"`,
 	} {

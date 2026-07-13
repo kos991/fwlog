@@ -260,11 +260,11 @@ func TestFullAndUpgradeArtifactsKeepRuntimeOwnerInstalled(t *testing.T) {
 	if !strings.Contains(text, `package_name="fwlog-full"`) || !strings.Contains(text, `package_name="fwlog-upgrade"`) {
 		t.Fatal("full must keep owning runtime files while the thin upgrade package replaces only shared application files")
 	}
-	if strings.Contains(text, `Breaks: $([[`) || !strings.Contains(text, `Breaks: $deb_breaks`) {
-		t.Fatal("DEB control must always emit a concrete Breaks relationship")
+	if strings.Contains(text, `Breaks: $([[`) {
+		t.Fatal("DEB control must not emit an empty Breaks relationship")
 	}
-	if !strings.Contains(text, `deb_breaks="fwlog-full"`) || !strings.Contains(text, `deb_breaks="fwlog-upgrade"`) {
-		t.Fatal("full and upgrade DEB packages must break each other, not an empty package name")
+	if !strings.Contains(text, `deb_breaks=""`) || !strings.Contains(text, `deb_breaks="fwlog-upgrade"`) || !strings.Contains(text, `if [[ -n "$deb_breaks" ]]`) {
+		t.Fatal("full DEB may replace upgrade, while thin upgrade must keep the full runtime owner installed")
 	}
 }
 
