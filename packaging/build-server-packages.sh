@@ -247,11 +247,17 @@ EOF
     cat > "$debroot/DEBIAN/preinst" <<'EOF'
 #!/bin/sh
 set -e
-if [ "$1" = "upgrade" ]; then
+if [ "$1" = "install" ] || [ "$1" = "upgrade" ]; then
     backup="/data/fwlog/backups/app_settings-before-package.tsv"
+    runtime_backup="/data/fwlog/backups/runtime-version-before-package.txt"
     client="/opt/fwlog/clickhouse/bin/clickhouse"
     mkdir -p "$(dirname "$backup")"
     chmod 700 "$(dirname "$backup")" || true
+    if [ -f /opt/fwlog/RUNTIME_VERSION ]; then
+        cp /opt/fwlog/RUNTIME_VERSION "$runtime_backup.tmp"
+        mv "$runtime_backup.tmp" "$runtime_backup"
+        chmod 600 "$runtime_backup"
+    fi
     if [ -x "$client" ]; then
         if "$client" client --query "SELECT key, value, now() FROM app_settings FINAL FORMAT TabSeparated" > "$backup.tmp" 2>/tmp/fwlog-preinst-backup.err; then
             mv "$backup.tmp" "$backup"
@@ -297,12 +303,20 @@ if command -v systemctl >/dev/null 2>&1; then
             client="/opt/fwlog/clickhouse/bin/clickhouse"
         fi
         backup="/data/fwlog/backups/app_settings-before-package.tsv"
+        runtime_backup="/data/fwlog/backups/runtime-version-before-package.txt"
         if [ -s "\$backup" ] && [ -x "\$client" ]; then
             if ! "\$client" client --query "INSERT INTO app_settings (key, value, updated_at) FORMAT TabSeparated" < "\$backup" >/dev/null 2>&1; then
                 echo "app_settings 鎭㈠澶辫触锛屽浠芥枃浠朵繚鐣欏湪 \$backup" >&2
             fi
         fi
+        if [ "$include_clickhouse" != "true" ] && [ -s "\$runtime_backup" ]; then
+            install -D -m 0644 "\$runtime_backup" /opt/fwlog/RUNTIME_VERSION
+        fi
         systemctl restart fwlog.service
+    fi
+    runtime_backup="/data/fwlog/backups/runtime-version-before-package.txt"
+    if [ "$include_clickhouse" != "true" ] && [ -s "\$runtime_backup" ]; then
+        install -D -m 0644 "\$runtime_backup" /opt/fwlog/RUNTIME_VERSION
     fi
 fi
 exit 0
