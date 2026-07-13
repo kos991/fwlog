@@ -187,10 +187,10 @@ func TestLogTrendSQLUsesDailyBucketsForRecentDates(t *testing.T) {
 	sql := ClickHouseLogTrendSQL()
 
 	for _, want := range []string{
-		"SELECT log_date, count()",
+		"SELECT log_date, source_id, log_tag, count()",
 		"WHERE log_date >= ? AND log_date <= ?",
-		"GROUP BY log_date",
-		"ORDER BY log_date",
+		"GROUP BY log_date, source_id, log_tag",
+		"ORDER BY log_date, source_id",
 	} {
 		if !strings.Contains(sql, want) {
 			t.Fatalf("log trend SQL missing %q: %s", want, sql)

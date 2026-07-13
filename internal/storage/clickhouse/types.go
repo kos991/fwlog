@@ -14,6 +14,7 @@ type QueryCursor = query.QueryCursor
 type QueryPageOptions = query.QueryPageOptions
 type DashboardMetrics = model.DashboardMetrics
 type DistributionItem = model.DistributionItem
+type LogTrendPoint = model.LogTrendPoint
 type SystemHealth = model.SystemHealth
 type CPUHealth = model.CPUHealth
 type MemoryHealth = model.MemoryHealth

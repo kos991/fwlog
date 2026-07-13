@@ -368,14 +368,14 @@ func (s *ClickHouseStore) countRowsForDate(ctx context.Context, date time.Time) 
 }
 
 func ClickHouseLogTrendSQL() string {
-	return `SELECT log_date, count()
+	return `SELECT log_date, source_id, log_tag, count()
 FROM nat_logs
 WHERE log_date >= ? AND log_date <= ?
-GROUP BY log_date
-ORDER BY log_date`
+GROUP BY log_date, source_id, log_tag
+ORDER BY log_date, source_id`
 }
 
-func (s *ClickHouseStore) dailyLogTrend(ctx context.Context, now time.Time) ([]DistributionItem, error) {
+func (s *ClickHouseStore) dailyLogTrend(ctx context.Context, now time.Time) ([]LogTrendPoint, error) {
 	end := startOfDay(now)
 	start := end.AddDate(0, 0, -13)
 
@@ -385,25 +385,24 @@ func (s *ClickHouseStore) dailyLogTrend(ctx context.Context, now time.Time) ([]D
 	}
 	defer rows.Close()
 
-	counts := make(map[time.Time]uint64)
+	trend := make([]LogTrendPoint, 0)
 	for rows.Next() {
 		var logDate time.Time
+		var sourceID string
+		var logTag string
 		var count uint64
-		if err := rows.Scan(&logDate, &count); err != nil {
+		if err := rows.Scan(&logDate, &sourceID, &logTag, &count); err != nil {
 			return nil, err
 		}
-		counts[startOfDay(logDate)] = count
+		trend = append(trend, LogTrendPoint{
+			Date:     formatDate(startOfDay(logDate)),
+			SourceID: sourceID,
+			LogTag:   logTag,
+			Value:    count,
+		})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
-	}
-
-	trend := make([]DistributionItem, 0, 14)
-	for day := start; !day.After(end); day = day.AddDate(0, 0, 1) {
-		trend = append(trend, DistributionItem{
-			Name:  day.Format("01-02"),
-			Value: counts[day],
-		})
 	}
 	return trend, nil
 }

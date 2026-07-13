@@ -87,6 +87,13 @@ type DistributionItem struct {
 	Value uint64 `json:"value"`
 }
 
+type LogTrendPoint struct {
+	Date     string `json:"date"`
+	SourceID string `json:"source_id"`
+	LogTag   string `json:"log_tag"`
+	Value    uint64 `json:"value"`
+}
+
 type CPUHealth struct {
 	Status      string  `json:"status"`
 	LoadPercent float64 `json:"load_percent"`
@@ -135,7 +142,7 @@ type DashboardMetrics struct {
 	GeoIPLoaded             bool
 	GeoIPStatus             string
 	SystemHealth            SystemHealth
-	LogTrend                []DistributionItem
+	LogTrend                []LogTrendPoint
 	LastAutoScanAt          time.Time
 	NextAutoScanAt          time.Time
 	AutoScanPolicy          string

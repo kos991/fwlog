@@ -9,6 +9,7 @@ type IngestStatus = model.IngestStatus
 type DateIngestState = model.DateIngestState
 type DashboardMetrics = model.DashboardMetrics
 type DistributionItem = model.DistributionItem
+type LogTrendPoint = model.LogTrendPoint
 type SystemHealth = model.SystemHealth
 type CPUHealth = model.CPUHealth
 type MemoryHealth = model.MemoryHealth
