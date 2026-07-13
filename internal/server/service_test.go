@@ -242,8 +242,12 @@ func TestServerPackagesReplaceLegacyNatQueryPackage(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Provides: fwlog",
-		"Replaces: fwlog",
-		`Breaks: $([[ "$include_clickhouse" == "true" ]] && echo fwlog)`,
+		"Replaces: $deb_replaces",
+		"Breaks: $deb_breaks",
+		`deb_replaces="fwlog, fwlog-full"`,
+		`deb_breaks="fwlog-full"`,
+		`deb_replaces="fwlog, fwlog-upgrade"`,
+		`deb_breaks="fwlog-upgrade"`,
 	} {
 		if !strings.Contains(buildScript, want) {
 			t.Fatalf("DEB control generation missing legacy package replacement rule %q", want)
