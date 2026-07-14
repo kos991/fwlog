@@ -173,6 +173,36 @@ func (m *Manager) Status() map[string]Status {
 	return statuses
 }
 
+func (m *Manager) UpdateArchiveResults(results []ArchiveResult) {
+	type archiveUpdate struct {
+		completedAt time.Time
+		error       string
+	}
+	updates := make(map[string]archiveUpdate)
+	for _, result := range results {
+		update := updates[result.SourceID]
+		if result.CompletedAt.After(update.completedAt) {
+			update.completedAt = result.CompletedAt
+		}
+		if result.Error != "" {
+			update.error = result.Error
+		}
+		updates[result.SourceID] = update
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for sourceID, update := range updates {
+		status, exists := m.statuses[sourceID]
+		if !exists {
+			continue
+		}
+		status.ArchiveError = update.error
+		status.LastArchiveAt = update.completedAt
+		m.statuses[sourceID] = status
+	}
+}
+
 func (m *Manager) Close() {
 	m.mu.Lock()
 	listeners := make([]*endpointListener, 0, len(m.listeners))
