@@ -113,6 +113,192 @@ func TestManagerReportsPortConflictWithoutPanic(t *testing.T) {
 	}
 }
 
+func TestManagerRoutesUDPClientsSharingOneEndpoint(t *testing.T) {
+	port := freeUDPPort(t)
+	localSpool := t.TempDir()
+	otherSpool := t.TempDir()
+	manager := NewManager()
+	t.Cleanup(manager.Close)
+
+	err := manager.ApplySources([]model.LogSource{
+		{
+			SourceID:       "local",
+			Enabled:        true,
+			SourceType:     "rsyslog",
+			ListenProtocol: "udp",
+			ListenHost:     "127.0.0.1",
+			ListenPort:     port,
+			ClientIP:       "127.0.0.1/32",
+			SpoolDir:       localSpool,
+		},
+		{
+			SourceID:       "other",
+			Enabled:        true,
+			SourceType:     "rsyslog",
+			ListenProtocol: "udp",
+			ListenHost:     "127.0.0.1",
+			ListenPort:     port,
+			ClientIP:       "192.0.2.0/24",
+			SpoolDir:       otherSpool,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ApplySources: %v", err)
+	}
+
+	conn, err := net.Dial("udp", net.JoinHostPort("127.0.0.1", intToString(port)))
+	if err != nil {
+		t.Fatalf("dial receiver: %v", err)
+	}
+	defer conn.Close()
+	message := "<134> shared UDP route"
+	if _, err := conn.Write([]byte(message)); err != nil {
+		t.Fatalf("write syslog: %v", err)
+	}
+
+	localPath := filepath.Join(localSpool, time.Now().Format("2006-01-02")+".log")
+	waitForFileContains(t, localPath, message)
+	assertFileDoesNotExist(t, filepath.Join(otherSpool, time.Now().Format("2006-01-02")+".log"))
+
+	status := waitForReceivedMessages(t, manager, "local", 1)
+	if status.ClientIP != "127.0.0.1/32" || status.LastClientIP != "127.0.0.1" || status.LastReceivedAt.IsZero() {
+		t.Fatalf("local status = %#v", status)
+	}
+}
+
+func TestManagerRoutesTCPClientsSharingOneEndpoint(t *testing.T) {
+	port := freeTCPPort(t)
+	localSpool := t.TempDir()
+	otherSpool := t.TempDir()
+	manager := NewManager()
+	t.Cleanup(manager.Close)
+
+	err := manager.ApplySources([]model.LogSource{
+		{
+			SourceID:       "local",
+			Enabled:        true,
+			SourceType:     "rsyslog",
+			ListenProtocol: "tcp",
+			ListenHost:     "127.0.0.1",
+			ListenPort:     port,
+			ClientIP:       "127.0.0.1",
+			SpoolDir:       localSpool,
+		},
+		{
+			SourceID:       "other",
+			Enabled:        true,
+			SourceType:     "rsyslog",
+			ListenProtocol: "tcp",
+			ListenHost:     "127.0.0.1",
+			ListenPort:     port,
+			ClientIP:       "198.51.100.0/24",
+			SpoolDir:       otherSpool,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ApplySources: %v", err)
+	}
+
+	conn, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", intToString(port)))
+	if err != nil {
+		t.Fatalf("dial receiver: %v", err)
+	}
+	message := "<134> shared TCP route"
+	if _, err := conn.Write([]byte(message + "\n")); err != nil {
+		conn.Close()
+		t.Fatalf("write syslog: %v", err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatalf("close connection: %v", err)
+	}
+
+	localPath := filepath.Join(localSpool, time.Now().Format("2006-01-02")+".log")
+	waitForFileContains(t, localPath, message)
+	assertFileDoesNotExist(t, filepath.Join(otherSpool, time.Now().Format("2006-01-02")+".log"))
+
+	status := waitForReceivedMessages(t, manager, "local", 1)
+	if status.ClientIP != "127.0.0.1" || status.LastClientIP != "127.0.0.1" || status.LastReceivedAt.IsZero() {
+		t.Fatalf("local status = %#v", status)
+	}
+}
+
+func TestManagerRejectsUnmatchedUDPClient(t *testing.T) {
+	port := freeUDPPort(t)
+	spoolDir := t.TempDir()
+	manager := NewManager()
+	t.Cleanup(manager.Close)
+
+	if err := manager.ApplySources([]model.LogSource{{
+		SourceID:       "remote-only",
+		Enabled:        true,
+		SourceType:     "rsyslog",
+		ListenProtocol: "udp",
+		ListenHost:     "127.0.0.1",
+		ListenPort:     port,
+		ClientIP:       "192.0.2.0/24",
+		SpoolDir:       spoolDir,
+	}}); err != nil {
+		t.Fatalf("ApplySources: %v", err)
+	}
+
+	conn, err := net.Dial("udp", net.JoinHostPort("127.0.0.1", intToString(port)))
+	if err != nil {
+		t.Fatalf("dial receiver: %v", err)
+	}
+	if _, err := conn.Write([]byte("<134> rejected UDP route")); err != nil {
+		conn.Close()
+		t.Fatalf("write syslog: %v", err)
+	}
+	conn.Close()
+
+	time.Sleep(100 * time.Millisecond)
+	assertFileDoesNotExist(t, filepath.Join(spoolDir, time.Now().Format("2006-01-02")+".log"))
+	if status := manager.Status()["remote-only"]; status.ReceivedMessages != 0 {
+		t.Fatalf("unmatched source status = %#v", status)
+	}
+}
+
+func TestManagerReloadsRoutesWithoutClosingSharedTCPConnection(t *testing.T) {
+	port := freeTCPPort(t)
+	firstSpool := t.TempDir()
+	secondSpool := t.TempDir()
+	manager := NewManager()
+	t.Cleanup(manager.Close)
+
+	base := model.LogSource{
+		SourceID:       "local",
+		Enabled:        true,
+		SourceType:     "rsyslog",
+		ListenProtocol: "tcp",
+		ListenHost:     "127.0.0.1",
+		ListenPort:     port,
+		ClientIP:       "127.0.0.1",
+		SpoolDir:       firstSpool,
+	}
+	if err := manager.ApplySources([]model.LogSource{base}); err != nil {
+		t.Fatalf("initial ApplySources: %v", err)
+	}
+
+	conn, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", intToString(port)))
+	if err != nil {
+		t.Fatalf("dial receiver: %v", err)
+	}
+	defer conn.Close()
+	if _, err := conn.Write([]byte("before reload\n")); err != nil {
+		t.Fatalf("write before reload: %v", err)
+	}
+	waitForFileContains(t, filepath.Join(firstSpool, time.Now().Format("2006-01-02")+".log"), "before reload")
+
+	base.SpoolDir = secondSpool
+	if err := manager.ApplySources([]model.LogSource{base}); err != nil {
+		t.Fatalf("reload ApplySources: %v", err)
+	}
+	if _, err := conn.Write([]byte("after reload\n")); err != nil {
+		t.Fatalf("write after reload: %v", err)
+	}
+	waitForFileContains(t, filepath.Join(secondSpool, time.Now().Format("2006-01-02")+".log"), "after reload")
+}
+
 func freeUDPPort(t *testing.T) int {
 	t.Helper()
 	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
@@ -145,4 +331,26 @@ func waitForFileContains(t *testing.T, path string, want string) {
 	}
 	content, _ := os.ReadFile(path)
 	t.Fatalf("%s does not contain %q, got %q", path, want, string(content))
+}
+
+func waitForReceivedMessages(t *testing.T, manager *Manager, sourceID string, want uint64) Status {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		status := manager.Status()[sourceID]
+		if status.ReceivedMessages >= want {
+			return status
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	status := manager.Status()[sourceID]
+	t.Fatalf("source %s received_messages = %d; want at least %d", sourceID, status.ReceivedMessages, want)
+	return Status{}
+}
+
+func assertFileDoesNotExist(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("unexpected spool file %s: %v", path, err)
+	}
 }
