@@ -22,7 +22,7 @@ import {
 import { Button, DatePicker, Empty, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Switch, Tabs, Tag, TimePicker, Tooltip, Typography, Upload, message } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { apiGet, apiPost, apiUpload, type UpgradeCheckResponse, type UpgradeStatus } from '../api';
-import { buildUpgradeView } from '../upgradePresentation';
+import { buildUpgradeView, isSupportedUpgradeVersion } from '../upgradePresentation';
 
 const { Text } = Typography;
 
@@ -538,8 +538,8 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
       message.error('请先检查更新并确认 Release 资产齐全');
       return;
     }
-    if (!/^v\d+\.\d+\.\d+$/.test(version)) {
-      message.error('检查到的升级版本必须使用 vX.Y.Z 格式');
+    if (!isSupportedUpgradeVersion(version)) {
+      message.error('检查到的升级版本必须使用 vX.Y.Z 或 vX.Y.Z.N 格式');
       return;
     }
     try {

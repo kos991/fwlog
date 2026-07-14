@@ -32,6 +32,10 @@ export type UpgradeView = {
   statusTone: 'default' | 'processing' | 'success' | 'warning' | 'error';
 };
 
+export function isSupportedUpgradeVersion(version: string) {
+  return /^v\d+\.\d+\.\d+(?:\.\d+)?$/.test(version.trim());
+}
+
 export function buildUpgradeView(input: BuildUpgradeViewInput): UpgradeView {
   const state = resolvePanelState(input);
   const currentVersion = input.check?.current_version || input.status?.current_version || '-';

@@ -2,7 +2,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { buildUpgradeView } from '../src/upgradePresentation.ts';
+import { buildUpgradeView, isSupportedUpgradeVersion } from '../src/upgradePresentation.ts';
+
+test('accepts stable and test release versions for online upgrade', () => {
+  assert.equal(isSupportedUpgradeVersion('v2.0.0'), true);
+  assert.equal(isSupportedUpgradeVersion('v2.0.0.3'), true);
+  assert.equal(isSupportedUpgradeVersion('v2.0.0.3;reboot'), false);
+});
 
 test('shows an upgrade action when a newer release has all assets', () => {
   const view = buildUpgradeView({

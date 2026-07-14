@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -104,9 +105,11 @@ type upgradePackage struct {
 }
 
 type githubRelease struct {
-	TagName string               `json:"tag_name"`
-	HTMLURL string               `json:"html_url"`
-	Assets  []githubReleaseAsset `json:"assets"`
+	TagName    string               `json:"tag_name"`
+	HTMLURL    string               `json:"html_url"`
+	Draft      bool                 `json:"draft"`
+	Prerelease bool                 `json:"prerelease"`
+	Assets     []githubReleaseAsset `json:"assets"`
 }
 
 type githubReleaseAsset struct {
@@ -117,7 +120,51 @@ type githubReleaseAsset struct {
 type upgradeRunnerFunc func(context.Context, upgradeTarget) UpgradeStatus
 
 func validUpgradeVersion(version string) bool {
-	return regexp.MustCompile(`^v\d+(\.\d+){0,2}$`).MatchString(strings.TrimSpace(version))
+	return regexp.MustCompile(`^v\d+\.\d+\.\d+(?:\.\d+)?$`).MatchString(strings.TrimSpace(version))
+}
+
+func releaseVersionIsNewer(latest, current string) bool {
+	latestParts, latestOK := releaseVersionParts(latest)
+	currentParts, currentOK := releaseVersionParts(current)
+	if !latestOK || !currentOK {
+		return false
+	}
+	for len(latestParts) < 4 {
+		latestParts = append(latestParts, 0)
+	}
+	for len(currentParts) < 4 {
+		currentParts = append(currentParts, 0)
+	}
+	for index := 0; index < 4; index++ {
+		if latestParts[index] != currentParts[index] {
+			return latestParts[index] > currentParts[index]
+		}
+	}
+	return strings.Contains(strings.TrimSpace(current), "-test") && !strings.Contains(strings.TrimSpace(latest), "-test")
+}
+
+func releaseVersionParts(version string) ([]int, bool) {
+	matches := regexp.MustCompile(`^v(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?(?:-test(?:\.[0-9A-Za-z.-]+)?)?$`).FindStringSubmatch(strings.TrimSpace(version))
+	if matches == nil {
+		return nil, false
+	}
+	parts := make([]int, 0, 4)
+	for _, item := range matches[1:] {
+		if item == "" {
+			continue
+		}
+		value, err := strconv.Atoi(item)
+		if err != nil {
+			return nil, false
+		}
+		parts = append(parts, value)
+	}
+	return parts, true
+}
+
+func isTestBuildVersion(version string) bool {
+	parts, ok := releaseVersionParts(version)
+	return ok && (len(parts) == 4 || strings.Contains(strings.TrimSpace(version), "-test"))
 }
 
 func releaseUpgradeAssets(release githubRelease) (upgradeAssets, []string) {
@@ -287,7 +334,8 @@ func (a *App) upgradeCheckHandler() http.Handler {
 			return
 		}
 
-		release, err := fetchGithubRelease(r.Context(), "latest")
+		currentVersion := a.currentAppVersion()
+		release, err := fetchLatestUpgradeRelease(r.Context(), currentVersion)
 		if err != nil {
 			writeJSONStatus(w, http.StatusBadGateway, map[string]any{
 				"error":   "release_check_failed",
@@ -304,9 +352,9 @@ func (a *App) upgradeCheckHandler() http.Handler {
 		runtimeCompatible := manifest.RuntimeVersion == "" || installed.RuntimeVersion == manifest.RuntimeVersion
 		latestVersion := strings.TrimSpace(release.TagName)
 		response := UpgradeCheckResponse{
-			CurrentVersion:         a.currentAppVersion(),
+			CurrentVersion:         currentVersion,
 			LatestVersion:          latestVersion,
-			UpdateAvailable:        latestVersion != "" && latestVersion != a.currentAppVersion(),
+			UpdateAvailable:        releaseVersionIsNewer(latestVersion, currentVersion),
 			ReleaseURL:             release.HTMLURL,
 			AssetsReady:            len(missing) == 0,
 			MissingAssets:          missing,
@@ -503,6 +551,47 @@ func fetchGithubRelease(ctx context.Context, version string) (githubRelease, err
 	return release, nil
 }
 
+func fetchLatestUpgradeRelease(ctx context.Context, currentVersion string) (githubRelease, error) {
+	if !isTestBuildVersion(currentVersion) {
+		return fetchGithubRelease(ctx, "latest")
+	}
+
+	endpoint := "https://api.github.com/repos/" + githubRepoOwner + "/" + githubRepoName + "/releases?per_page=100"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return githubRelease{}, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "fwlog-auto-upgrade")
+
+	resp, err := upgradeHTTPClient.Do(req)
+	if err != nil {
+		return githubRelease{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return githubRelease{}, fmt.Errorf("GitHub Release API 返回状态码 %d", resp.StatusCode)
+	}
+
+	var releases []githubRelease
+	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
+		return githubRelease{}, err
+	}
+	var latest githubRelease
+	for _, release := range releases {
+		if release.Draft || !release.Prerelease || !validUpgradeVersion(release.TagName) || !isTestBuildVersion(release.TagName) {
+			continue
+		}
+		if latest.TagName == "" || releaseVersionIsNewer(release.TagName, latest.TagName) {
+			latest = release
+		}
+	}
+	if latest.TagName == "" {
+		return githubRelease{}, errors.New("未找到可用的测试版 Release")
+	}
+	return latest, nil
+}
+
 func runSystemUpgrade(ctx context.Context, target upgradeTarget) UpgradeStatus {
 	status := UpgradeStatus{
 		State:          UpgradeStateRunning,
@@ -536,7 +625,12 @@ func executeSystemUpgrade(ctx context.Context, target upgradeTarget, status *Upg
 		status.BackupPath = backupPath
 	}
 
-	release, err := fetchGithubRelease(upgradeCtx, target.Version)
+	var release githubRelease
+	if target.Version == "latest" {
+		release, err = fetchLatestUpgradeRelease(upgradeCtx, currentAppVersion())
+	} else {
+		release, err = fetchGithubRelease(upgradeCtx, target.Version)
+	}
 	if err != nil {
 		return err
 	}

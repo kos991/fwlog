@@ -17,15 +17,120 @@ import (
 )
 
 func TestValidUpgradeVersionRequiresReleaseTag(t *testing.T) {
-	for _, version := range []string{"v2", "v2.1", "v2.1.0", "v2.0.0"} {
+	for _, version := range []string{"v2.1.0", "v2.0.0", "v2.0.0.3"} {
 		if !validUpgradeVersion(version) {
 			t.Fatalf("%s should be a valid upgrade version", version)
 		}
 	}
-	for _, version := range []string{"", "2.1.0", "latest", "v2.1.1.1", "v2.1.0;reboot"} {
+	for _, version := range []string{"", "v2", "v2.1", "2.1.0", "latest", "v2.1.0.0.1", "v2.1.0;reboot"} {
 		if validUpgradeVersion(version) {
 			t.Fatalf("%s should be rejected as an upgrade version", version)
 		}
+	}
+}
+
+func TestReleaseVersionIsNewerUsesNumericOrdering(t *testing.T) {
+	tests := []struct {
+		name    string
+		current string
+		latest  string
+		want    bool
+	}{
+		{name: "newer test release", current: "v2.0.0.2", latest: "v2.0.0.3", want: true},
+		{name: "older release", current: "v2.0.0.4-test.e62b53d", latest: "v2.0.0.3", want: false},
+		{name: "release replaces same-version test build", current: "v2.0.0.3-test.e62b53d", latest: "v2.0.0.3", want: true},
+		{name: "new stable release", current: "v1.0.16", latest: "v2.0.0", want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := releaseVersionIsNewer(tt.latest, tt.current); got != tt.want {
+				t.Fatalf("releaseVersionIsNewer(%q, %q) = %v, want %v", tt.latest, tt.current, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFetchLatestUpgradeReleaseUsesPrereleaseChannelForTestBuild(t *testing.T) {
+	restoreHTTP := stubHTTPClient(t, map[string]string{
+		"https://api.github.com/repos/kos991/fwlog/releases?per_page=100": `[
+			{"tag_name":"v1.0.16","prerelease":false,"draft":false},
+			{"tag_name":"v2.0.0.2","prerelease":true,"draft":false},
+			{"tag_name":"v2.0.0.3","prerelease":true,"draft":false},
+			{"tag_name":"v2.0.0.4","prerelease":true,"draft":true}
+		]`,
+	})
+	defer restoreHTTP()
+
+	release, err := fetchLatestUpgradeRelease(context.Background(), "v2.0.0.2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if release.TagName != "v2.0.0.3" {
+		t.Fatalf("release tag = %q, want v2.0.0.3", release.TagName)
+	}
+}
+
+func TestFetchLatestUpgradeReleaseUsesStableChannelForStableBuild(t *testing.T) {
+	restoreHTTP := stubHTTPClient(t, map[string]string{
+		"https://api.github.com/repos/kos991/fwlog/releases/latest": `{
+			"tag_name":"v1.0.16",
+			"prerelease":false,
+			"draft":false
+		}`,
+	})
+	defer restoreHTTP()
+
+	release, err := fetchLatestUpgradeRelease(context.Background(), "v1.0.15")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if release.TagName != "v1.0.16" {
+		t.Fatalf("release tag = %q, want v1.0.16", release.TagName)
+	}
+}
+
+func TestUpgradeCheckDoesNotTreatOlderPrereleaseAsUpdate(t *testing.T) {
+	restoreHTTP := stubHTTPClient(t, map[string]string{
+		"https://api.github.com/repos/kos991/fwlog/releases?per_page=100": `[
+			{
+				"tag_name":"v2.0.0.3",
+				"html_url":"https://github.com/kos991/fwlog/releases/tag/v2.0.0.3",
+				"prerelease":true,
+				"draft":false,
+				"assets":[
+					{"name":"fwlog_linux_amd64","browser_download_url":"https://downloads.test/fwlog_linux_amd64"},
+					{"name":"fwlog-upgrade-v2.0.0.3.x86_64.rpm","browser_download_url":"https://downloads.test/fwlog-upgrade.rpm"},
+					{"name":"fwlog-upgrade_2.0.0.3_amd64.deb","browser_download_url":"https://downloads.test/fwlog-upgrade.deb"},
+					{"name":"latest.json","browser_download_url":"https://downloads.test/latest.json"}
+				]
+			}
+		]`,
+		"https://downloads.test/latest.json": `{}`,
+	})
+	defer restoreHTTP()
+
+	app := NewApp(LoadConfig())
+	app.versionInfo.AppVersion = "v2.0.0.4-test.e62b53d"
+	router := app.Router()
+	cookie := loginForTest(t, router)
+	req := httptest.NewRequest(http.MethodGet, "/api/upgrade/check", nil)
+	req.AddCookie(cookie)
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("check status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	var response UpgradeCheckResponse
+	if err := json.NewDecoder(res.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if response.UpdateAvailable {
+		t.Fatalf("older prerelease must not be offered as update: %#v", response)
+	}
+	if !response.AssetsReady || len(response.MissingAssets) != 0 {
+		t.Fatalf("release assets should be ready: %#v", response)
 	}
 }
 
