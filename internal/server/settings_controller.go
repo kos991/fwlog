@@ -47,6 +47,9 @@ func settingsHandler(app *App) http.Handler {
 			app.applyNormalizedSettings(updates)
 			app.reloadIPDataFromSettings()
 			app.applyReceiverFromSettings()
+			if _, changed := updates["log_sources"]; changed {
+				app.triggerRSyslogArchive()
+			}
 			writeJSON(w, app.getSettings())
 		default:
 			w.Header().Set("Allow", "GET, POST")
@@ -62,7 +65,9 @@ func (a *App) applyReceiverFromSettings() {
 	if a.receiver == nil {
 		return
 	}
-	a.receiver.ApplySources(a.currentLogSources())
+	if err := a.receiver.ApplySources(a.currentLogSources()); err != nil {
+		a.logger.Error("应用 RSyslog 接收配置失败", "error", err)
+	}
 }
 
 func (a *App) receiverStatusHandler() http.Handler {

@@ -15,25 +15,29 @@ import (
 const minPasswordHashIterations = 10000
 
 type App struct {
-	cfg           Config
-	store         *ClickHouseStore
-	mu            sync.RWMutex
-	settings      map[string]string
-	ipEngine      *IPEngine
-	ipStatus      IPDataStatus
-	passwordHash  string
-	sessionToken  string
-	loginLimiter  loginLimiter
-	importRunner  importRunnerFunc
-	imports       *ImportCoordinator
-	receiver      *receiverpkg.Manager
-	querySem      chan struct{}
-	upgradeMu     sync.Mutex
-	upgradeStatus UpgradeStatus
-	upgradeRunner upgradeRunnerFunc
-	versionInfo   VersionInfo
-	logger        *slog.Logger
-	settingsSaver func(context.Context, map[string]string) error
+	cfg               Config
+	store             *ClickHouseStore
+	mu                sync.RWMutex
+	settings          map[string]string
+	ipEngine          *IPEngine
+	ipStatus          IPDataStatus
+	passwordHash      string
+	sessionToken      string
+	loginLimiter      loginLimiter
+	importRunner      importRunnerFunc
+	imports           *ImportCoordinator
+	receiver          *receiverpkg.Manager
+	querySem          chan struct{}
+	upgradeMu         sync.Mutex
+	upgradeStatus     UpgradeStatus
+	upgradeRunner     upgradeRunnerFunc
+	versionInfo       VersionInfo
+	logger            *slog.Logger
+	settingsSaver     func(context.Context, map[string]string) error
+	archiver          *receiverpkg.Archiver
+	dateStatesLoader  func(context.Context, time.Time) ([]DateIngestState, error)
+	rsyslogArchiveNow func() time.Time
+	rsyslogArchiveMu  sync.Mutex
 }
 
 type importRunnerFunc func(context.Context, *ClickHouseStore, LogSource, bool) ([]string, []string, error)
@@ -62,17 +66,19 @@ func NewApp(cfg Config) *App {
 	)
 
 	return &App{
-		cfg:           cfg,
-		settings:      defaultSettings(cfg),
-		ipEngine:      NewIPEngine(),
-		ipStatus:      defaultIPDataStatus(cfg),
-		passwordHash:  passwordHash,
-		imports:       NewImportCoordinator(cfg.Workers, defaultConcurrentWrites),
-		receiver:      receiverpkg.NewManager(),
-		querySem:      make(chan struct{}, 4),
-		upgradeStatus: defaultUpgradeStatus(),
-		versionInfo:   versionInfo,
-		logger:        logger,
+		cfg:               cfg,
+		settings:          defaultSettings(cfg),
+		ipEngine:          NewIPEngine(),
+		ipStatus:          defaultIPDataStatus(cfg),
+		passwordHash:      passwordHash,
+		imports:           NewImportCoordinator(cfg.Workers, defaultConcurrentWrites),
+		receiver:          receiverpkg.NewManager(),
+		archiver:          receiverpkg.NewArchiver(),
+		rsyslogArchiveNow: time.Now,
+		querySem:          make(chan struct{}, 4),
+		upgradeStatus:     defaultUpgradeStatus(),
+		versionInfo:       versionInfo,
+		logger:            logger,
 	}
 }
 

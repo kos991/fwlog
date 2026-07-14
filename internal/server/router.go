@@ -77,6 +77,7 @@ func (a *App) Run(ctx context.Context) error {
 	}
 
 	a.startAutoScanScheduler(ctx)
+	a.startRSyslogArchiveScheduler(ctx)
 	a.applyReceiverFromSettings()
 
 	addr := fmt.Sprintf(":%d", a.cfg.Port)
