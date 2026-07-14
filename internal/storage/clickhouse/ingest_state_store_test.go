@@ -82,9 +82,9 @@ func TestFileStatePointQueryReadsNewestState(t *testing.T) {
 func TestDateStateListQueryUsesArgMax(t *testing.T) {
 	sql := DateStateListQuery()
 	for _, want := range []string{
-		"argMax(status, tuple(updated_at, multiIf(status = 'failed', 4, status IN ('ready', 'succeeded'), 3",
-		"argMax(retry_count, tuple(updated_at, multiIf(status = 'failed', 4, status IN ('ready', 'succeeded'), 3",
-		"argMax(next_retry_at, tuple(updated_at, multiIf(status = 'failed', 4, status IN ('ready', 'succeeded'), 3",
+		"argMax(status, tuple(ingest_dates.updated_at, multiIf(ingest_dates.status = 'failed', 4",
+		"argMax(retry_count, tuple(ingest_dates.updated_at, multiIf(ingest_dates.status = 'failed', 4",
+		"argMax(next_retry_at, tuple(ingest_dates.updated_at, multiIf(ingest_dates.status = 'failed', 4",
 		"WHERE log_date >= toDate(?)",
 		"GROUP BY source_id, log_date",
 	} {
@@ -104,6 +104,18 @@ func TestDateStateListQueryDoesNotShadowUpdatedAtColumn(t *testing.T) {
 	}
 	if !strings.Contains(sql, "max(updated_at) AS latest_updated_at") {
 		t.Fatalf("list query should expose the latest timestamp with a non-conflicting alias: %s", sql)
+	}
+}
+
+func TestDateStateListQueryQualifiesStatusVersionColumns(t *testing.T) {
+	sql := DateStateListQuery()
+	for _, want := range []string{"ingest_dates.updated_at", "ingest_dates.status = 'failed'", "ingest_dates.status IN ('ready', 'succeeded')"} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("list query must qualify state version column %q to avoid alias expansion: %s", want, sql)
+		}
+	}
+	if strings.Contains(sql, "tuple(updated_at, multiIf(status") {
+		t.Fatalf("unqualified state version columns can expand the status alias into a nested aggregate: %s", sql)
 	}
 }
 

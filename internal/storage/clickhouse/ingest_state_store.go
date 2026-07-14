@@ -9,7 +9,8 @@ import (
 )
 
 const ingestStatusPrioritySQL = "multiIf(status = 'failed', 4, status IN ('ready', 'succeeded'), 3, status = 'importing', 1, 0)"
-const ingestStateVersionSQL = "tuple(updated_at, " + ingestStatusPrioritySQL + ")"
+const ingestDateStatusPrioritySQL = "multiIf(ingest_dates.status = 'failed', 4, ingest_dates.status IN ('ready', 'succeeded'), 3, ingest_dates.status = 'importing', 1, 0)"
+const ingestDateStateVersionSQL = "tuple(ingest_dates.updated_at, " + ingestDateStatusPrioritySQL + ")"
 
 func (s *ClickHouseStore) WriteDateState(ctx context.Context, state DateIngestState) error {
 	if s == nil || s.conn == nil {
@@ -177,7 +178,7 @@ func DateStateListQuery() string {
 FROM ingest_dates
 WHERE log_date >= toDate(?)
 GROUP BY source_id, log_date
-ORDER BY log_date DESC, source_id ASC`, ingestStateVersionSQL)
+ORDER BY log_date DESC, source_id ASC`, ingestDateStateVersionSQL)
 }
 
 func IngestStateMigrationSQL() []string {
@@ -209,6 +210,6 @@ GROUP BY source_id, log_date
 HAVING maxIf(updated_at, status = 'importing' AND progress_pct >= 100
         AND files_total > 0 AND files_done >= files_total) = max(updated_at)
     AND maxIf(updated_at, status = 'importing' AND progress_pct >= 100
-        AND files_total > 0 AND files_done >= files_total) > maxIf(updated_at, status = 'failed')`, ingestStateVersionSQL),
+        AND files_total > 0 AND files_done >= files_total) > maxIf(updated_at, status = 'failed')`, ingestDateStateVersionSQL),
 	}
 }
