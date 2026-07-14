@@ -19,8 +19,8 @@ test('search page exposes log source filter and device identity', () => {
   assert.match(page, /source_id\?: string;/);
   assert.match(page, /logSourceOptions/);
   assert.match(page, /source_id: values\.source_id/);
-  assert.match(page, /name="source_id" label="日志源"/);
-  assert.match(page, /title: '设备 ID'/);
+  assert.match(page, /name="source_id" label="日志来源"/);
+  assert.match(page, /title: '来源标识'/);
   assert.match(page, /dataIndex: 'source_id'/);
 });
 

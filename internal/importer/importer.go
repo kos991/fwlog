@@ -145,12 +145,14 @@ func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.T
 	}); err != nil {
 		return err
 	}
+	dateUpdatedAt := now
 
 	var totalRows uint64
 	var filesDone uint64
 	var bytesDone uint64
 
 	for _, file := range targetFiles {
+		progressUpdatedAt := i.nowOrDefault()()
 		if err := i.writeDateState(ctx, DateIngestState{
 			SourceID:     source.SourceID,
 			LogTag:       source.LogTag,
@@ -163,10 +165,14 @@ func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.T
 			BytesDone:    bytesDone,
 			CurrentFile:  filepath.Base(file.Path),
 			ProgressPct:  float64(filesDone) / float64(len(targetFiles)) * 100,
-			UpdatedAt:    i.nowOrDefault()(),
+			UpdatedAt:    progressUpdatedAt,
 		}); err != nil {
 			return err
 		}
+		if progressUpdatedAt.After(dateUpdatedAt) {
+			dateUpdatedAt = progressUpdatedAt
+		}
+		fileUpdatedAt := i.nowOrDefault()()
 		if err := i.writeFileState(ctx, FileIngestState{
 			Path:       file.Path,
 			SourceID:   source.SourceID,
@@ -174,17 +180,17 @@ func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.T
 			LogDate:    date,
 			Status:     StatusImporting,
 			BytesTotal: uint64(file.Size),
-			UpdatedAt:  now,
+			UpdatedAt:  fileUpdatedAt,
 		}); err != nil {
 			return err
 		}
 
 		rowsImported, err := i.importFile(ctx, source, date, file)
 		if err != nil {
-			if markErr := i.markFileFailed(ctx, source, date, file, now, err); markErr != nil {
+			if markErr := i.markFileFailed(ctx, source, date, file, fileUpdatedAt, err); markErr != nil {
 				return errors.Join(err, markErr)
 			}
-			if markErr := i.markDateFailed(ctx, source, date, now, filesDone, err); markErr != nil {
+			if markErr := i.markDateFailed(ctx, source, date, dateUpdatedAt, filesDone, err); markErr != nil {
 				return errors.Join(err, markErr)
 			}
 			return err
@@ -203,10 +209,11 @@ func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.T
 			BytesTotal:   uint64(file.Size),
 			BytesDone:    uint64(file.Size),
 			ProgressPct:  100,
-			UpdatedAt:    i.nowOrDefault()(),
+			UpdatedAt:    terminalStateTimestamp(fileUpdatedAt, i.nowOrDefault()()),
 		}); err != nil {
 			return err
 		}
+		progressUpdatedAt = i.nowOrDefault()()
 		if err := i.writeDateState(ctx, DateIngestState{
 			SourceID:     source.SourceID,
 			LogTag:       source.LogTag,
@@ -219,9 +226,12 @@ func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.T
 			BytesDone:    bytesDone,
 			CurrentFile:  filepath.Base(file.Path),
 			ProgressPct:  float64(filesDone) / float64(len(targetFiles)) * 100,
-			UpdatedAt:    i.nowOrDefault()(),
+			UpdatedAt:    progressUpdatedAt,
 		}); err != nil {
 			return err
+		}
+		if progressUpdatedAt.After(dateUpdatedAt) {
+			dateUpdatedAt = progressUpdatedAt
 		}
 	}
 
@@ -236,8 +246,16 @@ func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.T
 		BytesTotal:   totalBytes,
 		BytesDone:    totalBytes,
 		ProgressPct:  100,
-		UpdatedAt:    i.nowOrDefault()(),
+		UpdatedAt:    terminalStateTimestamp(dateUpdatedAt, i.nowOrDefault()()),
 	})
+}
+
+func terminalStateTimestamp(previous, current time.Time) time.Time {
+	minimum := previous.Truncate(time.Second).Add(time.Second)
+	if current.Before(minimum) {
+		return minimum
+	}
+	return current
 }
 
 func dropLogSourceDatePartitionSQL(sourceID string, date time.Time) string {
@@ -386,6 +404,7 @@ func (i *Importer) markDateFailed(ctx context.Context, source LogSource, date, n
 	if err != nil {
 		return err
 	}
+	failedAt := i.nowOrDefault()()
 	return i.writeDateState(ctx, DateIngestState{
 		SourceID:    source.SourceID,
 		LogTag:      source.LogTag,
@@ -393,9 +412,9 @@ func (i *Importer) markDateFailed(ctx context.Context, source LogSource, date, n
 		Status:      StatusFailed,
 		FilesDone:   filesDone,
 		RetryCount:  retryCount,
-		NextRetryAt: NextRetryAt(retryCount-1, now),
+		NextRetryAt: NextRetryAt(retryCount-1, failedAt),
 		Error:       cause.Error(),
-		UpdatedAt:   now,
+		UpdatedAt:   terminalStateTimestamp(now, failedAt),
 	})
 }
 
@@ -404,6 +423,7 @@ func (i *Importer) markFileFailed(ctx context.Context, source LogSource, date ti
 	if err != nil {
 		return err
 	}
+	failedAt := i.nowOrDefault()()
 	return i.writeFileState(ctx, FileIngestState{
 		Path:        file.Path,
 		SourceID:    source.SourceID,
@@ -412,9 +432,9 @@ func (i *Importer) markFileFailed(ctx context.Context, source LogSource, date ti
 		Status:      StatusFailed,
 		BytesTotal:  uint64(file.Size),
 		RetryCount:  retryCount,
-		NextRetryAt: NextRetryAt(retryCount-1, now),
+		NextRetryAt: NextRetryAt(retryCount-1, failedAt),
 		Error:       cause.Error(),
-		UpdatedAt:   now,
+		UpdatedAt:   terminalStateTimestamp(now, failedAt),
 	})
 }
 

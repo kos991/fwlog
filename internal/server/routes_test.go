@@ -589,6 +589,9 @@ func TestRouterSyncUsesAllEnabledLogSources(t *testing.T) {
 	if res.Code != http.StatusAccepted {
 		t.Fatalf("sync status = %d, body = %s", res.Code, res.Body.String())
 	}
+	if !strings.Contains(res.Body.String(), `"message":"入库任务已开始"`) {
+		t.Fatalf("sync response should include a clear user message: %s", res.Body.String())
+	}
 	got := make([]string, 0, 2)
 	for len(got) < 2 {
 		select {
@@ -719,7 +722,46 @@ func TestRouterSyncRejectsUnknownSource(t *testing.T) {
 	req.AddCookie(cookie)
 	res := httptest.NewRecorder()
 	router.ServeHTTP(res, req)
-	if res.Code != http.StatusBadRequest || !strings.Contains(res.Body.String(), "unknown_source") {
+	if res.Code != http.StatusBadRequest ||
+		!strings.Contains(res.Body.String(), "unknown_source") ||
+		!strings.Contains(res.Body.String(), "所选日志来源不存在或已停用") {
+		t.Fatalf("response = %d %s", res.Code, res.Body.String())
+	}
+}
+
+func TestRouterSyncExplainsUnavailableLogDatabase(t *testing.T) {
+	app := NewApp(LoadConfig())
+	router := app.Router()
+	cookie := loginForTest(t, router)
+	req := httptest.NewRequest(http.MethodPost, "/api/sync", nil)
+	req.AddCookie(cookie)
+	res := httptest.NewRecorder()
+
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusServiceUnavailable ||
+		!strings.Contains(res.Body.String(), "clickhouse_not_connected") ||
+		!strings.Contains(res.Body.String(), "日志数据库尚未连接，请稍后重试") {
+		t.Fatalf("response = %d %s", res.Code, res.Body.String())
+	}
+}
+
+func TestRouterSyncExplainsInvalidDateFormat(t *testing.T) {
+	app := NewApp(LoadConfig())
+	app.mu.Lock()
+	app.store = &ClickHouseStore{}
+	app.mu.Unlock()
+	router := app.Router()
+	cookie := loginForTest(t, router)
+	req := httptest.NewRequest(http.MethodPost, "/api/sync?date=2026-7-14", nil)
+	req.AddCookie(cookie)
+	res := httptest.NewRecorder()
+
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest ||
+		!strings.Contains(res.Body.String(), "invalid_date") ||
+		!strings.Contains(res.Body.String(), "日期格式无效，请使用 YYYY-MM-DD") {
 		t.Fatalf("response = %d %s", res.Code, res.Body.String())
 	}
 }

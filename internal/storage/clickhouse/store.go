@@ -76,6 +76,11 @@ func (s *ClickHouseStore) EnsureTables(ctx context.Context) error {
 			return err
 		}
 	}
+	for _, statement := range IngestStateMigrationSQL() {
+		if err := s.conn.Exec(ctx, statement); err != nil {
+			return fmt.Errorf("repair ingest state terminal records: %w", err)
+		}
+	}
 
 	return s.migrateNatLogsSourceDatePartition(ctx)
 }
@@ -553,7 +558,7 @@ ORDER BY source_id`,
     started_at DateTime DEFAULT toDateTime(0),
     finished_at DateTime DEFAULT toDateTime(0),
     error String DEFAULT '',
-    updated_at DateTime DEFAULT now()
+    updated_at DateTime64(6) DEFAULT now64(6)
 )
 ENGINE = ReplacingMergeTree(updated_at)
 PRIMARY KEY (source_id, log_date)
@@ -578,7 +583,7 @@ ORDER BY (source_id, log_date)`,
     started_at DateTime DEFAULT toDateTime(0),
     finished_at DateTime DEFAULT toDateTime(0),
     error String DEFAULT '',
-    updated_at DateTime DEFAULT now()
+    updated_at DateTime64(6) DEFAULT now64(6)
 )
 ENGINE = ReplacingMergeTree(updated_at)
 PRIMARY KEY path

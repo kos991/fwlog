@@ -3,6 +3,7 @@ import { CalendarOutlined, CheckCircleOutlined, DatabaseOutlined, FileZipOutline
 import { Button, Progress, Space, Switch, Tag, Typography, message } from 'antd';
 import { apiGet, buildQueryString } from '../api';
 import { buildIngestProgressView } from '../ingestPresentation';
+import { ingestStatusText } from '../uiCopy';
 
 const { Text } = Typography;
 
@@ -32,16 +33,6 @@ type ProgressResponse = DateState & {
   dates: DateState[];
   sources?: DateState[];
 };
-
-function statusText(status?: string) {
-  const map: Record<string, string> = {
-    importing: '入库中',
-    ready: '已入库',
-    failed: '失败',
-    idle: '空闲',
-  };
-  return status ? map[status] || status : '空闲';
-}
 
 function formatCount(value?: number) {
   return new Intl.NumberFormat('zh-CN').format(value ?? 0);
@@ -86,45 +77,45 @@ export function IncrementalProgressPage() {
   const nextScanLabel = autoScanEnabled ? '下次扫描' : '自动扫描';
   const nextScanText = autoScanEnabled ? data?.next_auto_scan_at || '计算中' : '未启用';
   const scanPolicyLabel = autoScanEnabled ? '扫描策略' : '触发方式';
-  const scanPolicyText = autoScanEnabled ? data?.auto_scan_policy || '配置待完善' : '手动入库';
+  const scanPolicyText = autoScanEnabled ? data?.auto_scan_policy || '配置待完善' : '仅手动触发';
 
   return (
     <div className="page-stack">
       <section className="page-header">
         <div>
-          <span className="eyebrow">日志入库状态</span>
+          <span className="eyebrow">日志处理状态</span>
           <h1>入库进度</h1>
         </div>
         <Space>
-          <Switch checked={includeReady} onChange={setIncludeReady} checkedChildren="含已入库" unCheckedChildren="仅进行中" />
+          <Switch checked={includeReady} onChange={setIncludeReady} checkedChildren="显示已完成" unCheckedChildren="仅未完成" />
           <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()} />
         </Space>
       </section>
 
       <section className="ops-section progress-current-card">
         <div className="section-head">
-          <h3>当前入库</h3>
-          <Tag color={data?.status === 'failed' ? 'error' : data?.status === 'importing' ? 'processing' : 'default'}>{statusText(data?.status)}</Tag>
+          <h3>当前任务</h3>
+          <Tag color={data?.status === 'failed' ? 'error' : data?.status === 'importing' ? 'processing' : 'default'}>{ingestStatusText(data?.status)}</Tag>
         </div>
         <div className="progress-summary-grid">
           <div className="progress-summary-item">
             <span className="status-icon"><DatabaseOutlined /></span>
-            <Text type="secondary">日志源</Text>
+            <Text type="secondary">日志来源</Text>
             <strong>{data?.log_tag || '-'}</strong>
           </div>
           <div className="progress-summary-item">
             <span className="status-icon"><CalendarOutlined /></span>
-            <Text type="secondary">日期</Text>
+            <Text type="secondary">处理日期</Text>
             <strong>{data?.current_date || data?.log_date || '-'}</strong>
           </div>
           <div className="progress-summary-item">
             <span className="status-icon"><FileZipOutlined /></span>
-            <Text type="secondary">当前文件</Text>
+            <Text type="secondary">处理文件</Text>
             <strong>{data?.current_file || '-'}</strong>
           </div>
           <div className="progress-summary-item">
             <span className="status-icon"><SyncOutlined /></span>
-            <Text type="secondary">行数</Text>
+            <Text type="secondary">已入库行数</Text>
             <strong>{formatCount(data?.rows_imported)}</strong>
           </div>
           <div className="progress-summary-item">
@@ -148,13 +139,13 @@ export function IncrementalProgressPage() {
       <section className="ops-section progress-list-card">
         <div className="section-head">
           <div>
-            <h3>日期进度</h3>
-            <span>按日志日期查看文件入库状态</span>
+            <h3>按日期查看进度</h3>
+            <span>查看每个日志日期的文件处理结果</span>
           </div>
         </div>
         <div className="progress-list">
           <div className="progress-list-row progress-list-head">
-            <span>Source</span>
+            <span>来源标识</span>
             <span>日期</span>
             <span>状态</span>
             <span>文件</span>
@@ -168,7 +159,7 @@ export function IncrementalProgressPage() {
               <div className="progress-list-row" key={`${row.source_id || 'default'}-${row.log_date}`}>
                 <strong>{row.source_id || 'default'}</strong>
                 <strong>{formatLogDate(row.log_date)}</strong>
-                <Tag color={row.status === 'failed' ? 'error' : row.status === 'ready' ? 'success' : 'processing'}>{statusText(row.status)}</Tag>
+                <Tag color={row.status === 'failed' ? 'error' : row.status === 'ready' ? 'success' : 'processing'}>{ingestStatusText(row.status)}</Tag>
                 <span className="mono-number">{row.files_done ?? 0}/{row.files_total ?? 0}</span>
                 <span className="mono-number">{formatCount(row.rows_imported)}</span>
                 <div className="progress-inline">

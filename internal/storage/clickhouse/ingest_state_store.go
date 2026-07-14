@@ -8,6 +8,9 @@ import (
 	"time"
 )
 
+const ingestStatusPrioritySQL = "multiIf(status = 'failed', 4, status IN ('ready', 'succeeded'), 3, status = 'importing', 1, 0)"
+const ingestStateVersionSQL = "tuple(updated_at, " + ingestStatusPrioritySQL + ")"
+
 func (s *ClickHouseStore) WriteDateState(ctx context.Context, state DateIngestState) error {
 	if s == nil || s.conn == nil {
 		return fmt.Errorf("clickhouse connection is not initialized")
@@ -134,45 +137,78 @@ func FileStateUpsertSQL() string {
 }
 
 func DateStatePointQuery() string {
-	return `SELECT
+	return fmt.Sprintf(`SELECT
     source_id, log_tag, log_date, status, files_total, files_done, rows_imported, bytes_total, bytes_done,
     current_file, progress_pct, max_visible_timestamp, retry_count, next_retry_at, error, updated_at
 FROM ingest_dates
 WHERE source_id = ? AND log_date = ?
-ORDER BY updated_at DESC
-LIMIT 1`
+ORDER BY updated_at DESC, %s DESC
+LIMIT 1`, ingestStatusPrioritySQL)
 }
 
 func FileStatePointQuery() string {
-	return `SELECT
+	return fmt.Sprintf(`SELECT
     path, source_id, log_tag, log_date, status, rows_imported, bytes_total, bytes_done,
     progress_pct, retry_count, next_retry_at, error, updated_at
 FROM ingest_files
 WHERE path = ?
-ORDER BY updated_at DESC
-LIMIT 1`
+ORDER BY updated_at DESC, %s DESC
+LIMIT 1`, ingestStatusPrioritySQL)
 }
 
 func DateStateListQuery() string {
-	return `SELECT
+	return fmt.Sprintf(`SELECT
     source_id,
-    argMax(log_tag, updated_at) AS log_tag,
+    argMax(log_tag, %[1]s) AS log_tag,
     log_date,
-    argMax(status, updated_at) AS status,
-    argMax(files_total, updated_at) AS files_total,
-    argMax(files_done, updated_at) AS files_done,
-    argMax(rows_imported, updated_at) AS rows_imported,
-    argMax(bytes_total, updated_at) AS bytes_total,
-    argMax(bytes_done, updated_at) AS bytes_done,
-    argMax(current_file, updated_at) AS current_file,
-    argMax(progress_pct, updated_at) AS progress_pct,
-    argMax(max_visible_timestamp, updated_at) AS max_visible_timestamp,
-    argMax(retry_count, updated_at) AS retry_count,
-    argMax(next_retry_at, updated_at) AS next_retry_at,
-    argMax(error, updated_at) AS error,
+    argMax(status, %[1]s) AS status,
+    argMax(files_total, %[1]s) AS files_total,
+    argMax(files_done, %[1]s) AS files_done,
+    argMax(rows_imported, %[1]s) AS rows_imported,
+    argMax(bytes_total, %[1]s) AS bytes_total,
+    argMax(bytes_done, %[1]s) AS bytes_done,
+    argMax(current_file, %[1]s) AS current_file,
+    argMax(progress_pct, %[1]s) AS progress_pct,
+    argMax(max_visible_timestamp, %[1]s) AS max_visible_timestamp,
+    argMax(retry_count, %[1]s) AS retry_count,
+    argMax(next_retry_at, %[1]s) AS next_retry_at,
+    argMax(error, %[1]s) AS error,
     max(updated_at) AS latest_updated_at
 FROM ingest_dates
 WHERE log_date >= toDate(?)
 GROUP BY source_id, log_date
-ORDER BY log_date DESC, source_id ASC`
+ORDER BY log_date DESC, source_id ASC`, ingestStateVersionSQL)
+}
+
+func IngestStateMigrationSQL() []string {
+	return []string{
+		fmt.Sprintf(`INSERT INTO ingest_dates (
+    source_id, log_tag, log_date, status, files_total, files_done, rows_imported,
+    bytes_total, bytes_done, current_file, progress_pct, max_visible_timestamp,
+    retry_count, next_retry_at, error, updated_at
+)
+SELECT
+    source_id,
+    argMax(log_tag, %[1]s),
+    log_date,
+    'ready',
+    argMax(files_total, %[1]s),
+    argMax(files_done, %[1]s),
+    argMax(rows_imported, %[1]s),
+    argMax(bytes_total, %[1]s),
+    argMax(bytes_done, %[1]s),
+    argMax(current_file, %[1]s),
+    100,
+    argMax(max_visible_timestamp, %[1]s),
+    0,
+    toDateTime(0),
+    '',
+    addSeconds(now(), 1)
+FROM ingest_dates
+GROUP BY source_id, log_date
+HAVING maxIf(updated_at, status = 'importing' AND progress_pct >= 100
+        AND files_total > 0 AND files_done >= files_total) = max(updated_at)
+    AND maxIf(updated_at, status = 'importing' AND progress_pct >= 100
+        AND files_total > 0 AND files_done >= files_total) > maxIf(updated_at, status = 'failed')`, ingestStateVersionSQL),
+	}
 }

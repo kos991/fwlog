@@ -16,17 +16,17 @@ import (
 func (a *App) importHandler(rebuild bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if a.currentStore() == nil {
-			writeJSONStatus(w, http.StatusServiceUnavailable, map[string]any{"error": "clickhouse_not_connected", "message": "ClickHouse is not connected"})
+			writeJSONStatus(w, http.StatusServiceUnavailable, map[string]any{"error": "clickhouse_not_connected", "message": "日志数据库尚未连接，请稍后重试"})
 			return
 		}
 		targetDate, err := parseImportTargetDate(r)
 		if err != nil {
-			writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "invalid_date", "message": "date/date_from/date_to must use YYYY-MM-DD format"})
+			writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "invalid_date", "message": "日期格式无效，请使用 YYYY-MM-DD"})
 			return
 		}
 		sources, found := selectImportSources(a.currentLogSources(), r.URL.Query().Get("source_id"))
 		if !found {
-			writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "unknown_source", "message": "source_id is not enabled"})
+			writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "unknown_source", "message": "所选日志来源不存在或已停用"})
 			return
 		}
 
@@ -45,7 +45,7 @@ func (a *App) importHandler(rebuild bool) http.Handler {
 		)
 
 		writeJSONStatus(w, http.StatusAccepted, map[string]any{
-			"status": string(StatusImporting), "message": "import request accepted", "rebuild": rebuild,
+			"status": string(StatusImporting), "message": "入库任务已开始", "rebuild": rebuild,
 			"accepted_sources": result.Accepted, "busy_sources": result.Busy,
 		})
 	})

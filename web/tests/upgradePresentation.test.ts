@@ -71,7 +71,9 @@ test('requires the full bundle when the installed runtime is incompatible', () =
 
   assert.equal(view.state, 'runtime_incompatible');
   assert.equal(view.showUpgradeAction, false);
-  assert.match(view.message, /full/);
+  assert.match(view.message, /当前运行组件版本/);
+  assert.match(view.message, /完整本地升级包/);
+  assert.doesNotMatch(view.message, /runtime|full|离线包/i);
 });
 
 test('maintenance page uses the resolved upgrade view tone for the status tag', () => {

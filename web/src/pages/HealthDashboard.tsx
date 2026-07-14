@@ -14,6 +14,7 @@ import {
 import { Progress, Segmented, Select, Tag, message } from 'antd';
 import { apiGet, buildQueryString, type DistributionItem } from '../api';
 import { buildIngestProgressView } from '../ingestPresentation';
+import { ingestStatusText } from '../uiCopy';
 
 type LogTrendPoint = {
   date: string;
@@ -111,16 +112,6 @@ type RankingKey = 'source' | 'destination' | 'country';
 type RankingRow = DistributionItem & {
   rank: number;
 };
-
-function statusText(status?: string) {
-  const map: Record<string, string> = {
-    importing: '入库中',
-    ready: '已入库',
-    failed: '失败',
-    idle: '空闲',
-  };
-  return status ? map[status] || status : '空闲';
-}
 
 function formatCount(value?: number) {
   return new Intl.NumberFormat('zh-CN').format(value ?? 0);
@@ -651,9 +642,9 @@ export function HealthDashboard(_props: HealthDashboardProps) {
     <div className="page-stack">
       <section className="page-header">
         <div className="dashboard-title-block">
-          <span className="eyebrow">运行概览</span>
+          <span className="eyebrow">系统状态</span>
           <h1>数据概览</h1>
-          <span>入库范围、查询状态和 NAT 流量排行</span>
+          <span>查看日志数据范围、入库进度和 NAT 流量分布</span>
         </div>
         <SystemStatusStrip health={data?.system_health} />
       </section>
@@ -661,23 +652,23 @@ export function HealthDashboard(_props: HealthDashboardProps) {
       <section className="metric-grid">
         <MetricCard
           icon={<DatabaseOutlined />}
-          label="日志总量"
+          label="已入库日志"
           value={formatCount(health?.total_logs)}
-          meta={`${health?.ready_dates ?? 0} 天已入库`}
+          meta={`覆盖 ${health?.ready_dates ?? 0} 个日志日期`}
           tone="blue"
           bars={[42, 58, 64, 71, 86, 78, 92]}
         />
         <MetricCard
           icon={<CalendarOutlined />}
-          label="可查日期"
+          label="可查询日期范围"
           value={queryRange}
-          meta={`${health?.pending_dates ?? 0} 天待入库，${health?.importing_dates ?? 0} 天入库中`}
+          meta={`等待处理 ${health?.pending_dates ?? 0} 天 · 正在入库 ${health?.importing_dates ?? 0} 天`}
           tone="green"
           bars={[30, 42, 57, 63, 68, 78, 88]}
         />
         <MetricCard
           icon={<CloudUploadOutlined />}
-          label="今日入库"
+          label="今日新增日志"
           value={formatCount(health?.today_rows)}
           meta={`昨日 ${formatCount(health?.yesterday_rows)} 行`}
           tone="amber"
@@ -685,9 +676,9 @@ export function HealthDashboard(_props: HealthDashboardProps) {
         />
         <MetricCard
           icon={<HddOutlined />}
-          label="存储占用"
+          label="日志存储占用"
           value={formatBytes(health?.clickhouse_disk_used_bytes)}
-          meta="MergeTree 数据目录"
+          meta="ClickHouse 日志数据"
           tone="cyan"
           bars={[18, 24, 31, 38, 44, 53, 61]}
         />
@@ -696,16 +687,16 @@ export function HealthDashboard(_props: HealthDashboardProps) {
       <section className="ops-section ingest-card">
         <div className="section-head">
           <div>
-            <h3>入库状态</h3>
+            <h3>当前入库任务</h3>
           </div>
           <Tag color={ingest?.status === 'failed' ? 'error' : ingest?.status === 'importing' ? 'processing' : 'success'}>
-            {statusText(ingest?.status)}
+            {ingestStatusText(ingest?.status)}
           </Tag>
         </div>
         <div className="status-grid">
-          <div><span className="status-icon"><DatabaseOutlined /></span><span className="status-label">日志源</span><strong>{ingest?.log_tag || '-'}</strong></div>
-          <div><span className="status-icon"><FieldTimeOutlined /></span><span className="status-label">当前日期</span><strong>{ingest?.current_date || '-'}</strong></div>
-          <div><span className="status-icon"><FileZipOutlined /></span><span className="status-label">当前文件</span><strong>{ingestView.currentFileText}</strong></div>
+          <div><span className="status-icon"><DatabaseOutlined /></span><span className="status-label">日志来源</span><strong>{ingest?.log_tag || '-'}</strong></div>
+          <div><span className="status-icon"><FieldTimeOutlined /></span><span className="status-label">处理日期</span><strong>{ingest?.current_date || '-'}</strong></div>
+          <div><span className="status-icon"><FileZipOutlined /></span><span className="status-label">处理文件</span><strong>{ingestView.currentFileText}</strong></div>
           <div className="status-grid-note">
             <span className="status-icon"><ClockCircleOutlined /></span>
             <span className="status-label">自动扫描</span>

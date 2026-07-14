@@ -134,6 +134,54 @@ func TestUpgradeCheckDoesNotTreatOlderPrereleaseAsUpdate(t *testing.T) {
 	}
 }
 
+func TestUpgradeCheckUsesClearRuntimeCompatibilityMessage(t *testing.T) {
+	restoreHTTP := stubHTTPClient(t, map[string]string{
+		"https://api.github.com/repos/kos991/fwlog/releases/latest": `{
+			"tag_name":"v2.0.0.5",
+			"html_url":"https://github.com/kos991/fwlog/releases/tag/v2.0.0.5",
+			"assets":[
+				{"name":"fwlog_linux_amd64","browser_download_url":"https://downloads.test/fwlog_linux_amd64"},
+				{"name":"fwlog-upgrade-v2.0.0.5.x86_64.rpm","browser_download_url":"https://downloads.test/fwlog-upgrade.rpm"},
+				{"name":"fwlog-upgrade_2.0.0.5_amd64.deb","browser_download_url":"https://downloads.test/fwlog-upgrade.deb"},
+				{"name":"latest.json","browser_download_url":"https://downloads.test/latest.json"}
+			]
+		}`,
+		"https://downloads.test/latest.json": `{"app_version":"v2.0.0.5","runtime_version":"clickhouse-25.8"}`,
+	})
+	defer restoreHTTP()
+
+	runtimePath := filepath.Join(t.TempDir(), "RUNTIME_VERSION")
+	if err := os.WriteFile(runtimePath, []byte("clickhouse-24.1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	originalRuntimePath := runtimeVersionFile
+	runtimeVersionFile = runtimePath
+	defer func() { runtimeVersionFile = originalRuntimePath }()
+
+	app := NewApp(LoadConfig())
+	app.versionInfo.AppVersion = "v2.0.0"
+	router := app.Router()
+	cookie := loginForTest(t, router)
+	req := httptest.NewRequest(http.MethodGet, "/api/upgrade/check", nil)
+	req.AddCookie(cookie)
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), "当前运行组件版本不满足升级要求，请使用完整本地升级包") {
+		t.Fatalf("response = %d %s", res.Code, res.Body.String())
+	}
+}
+
+func TestSelectUpgradePackageUsesClearPublishedFileMessage(t *testing.T) {
+	restore := stubLookPath(t, map[string]bool{"rpm": true})
+	defer restore()
+
+	_, err := selectUpgradePackage(upgradeAssets{})
+	if err == nil || !strings.Contains(err.Error(), "发布文件中缺少适用的 fwlog-upgrade 安装包") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestReleaseHasRequiredLinuxUpgradeAssets(t *testing.T) {
 	release := githubRelease{
 		TagName: "v2.1.0",

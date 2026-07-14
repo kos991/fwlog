@@ -13,6 +13,9 @@ func TestDateStatePointQueryOrdersByUpdatedAt(t *testing.T) {
 	if !strings.Contains(sql, "ORDER BY updated_at DESC") || !strings.Contains(sql, "LIMIT 1") {
 		t.Fatalf("point query must read newest state: %s", sql)
 	}
+	if !strings.Contains(sql, "multiIf(status = 'failed', 4, status IN ('ready', 'succeeded'), 3") {
+		t.Fatalf("point query must prefer terminal states when timestamps tie: %s", sql)
+	}
 	if strings.Contains(sql, "FINAL") {
 		t.Fatalf("point query must not use FINAL: %s", sql)
 	}
@@ -71,14 +74,17 @@ func TestFileStatePointQueryReadsNewestState(t *testing.T) {
 	if strings.Contains(sql, "FINAL") {
 		t.Fatalf("file point query must not use FINAL: %s", sql)
 	}
+	if !strings.Contains(sql, "multiIf(status = 'failed', 4, status IN ('ready', 'succeeded'), 3") {
+		t.Fatalf("file point query must prefer terminal states when timestamps tie: %s", sql)
+	}
 }
 
 func TestDateStateListQueryUsesArgMax(t *testing.T) {
 	sql := DateStateListQuery()
 	for _, want := range []string{
-		"argMax(status, updated_at)",
-		"argMax(retry_count, updated_at)",
-		"argMax(next_retry_at, updated_at)",
+		"argMax(status, tuple(updated_at, multiIf(status = 'failed', 4, status IN ('ready', 'succeeded'), 3",
+		"argMax(retry_count, tuple(updated_at, multiIf(status = 'failed', 4, status IN ('ready', 'succeeded'), 3",
+		"argMax(next_retry_at, tuple(updated_at, multiIf(status = 'failed', 4, status IN ('ready', 'succeeded'), 3",
 		"WHERE log_date >= toDate(?)",
 		"GROUP BY source_id, log_date",
 	} {
@@ -98,6 +104,41 @@ func TestDateStateListQueryDoesNotShadowUpdatedAtColumn(t *testing.T) {
 	}
 	if !strings.Contains(sql, "max(updated_at) AS latest_updated_at") {
 		t.Fatalf("list query should expose the latest timestamp with a non-conflicting alias: %s", sql)
+	}
+}
+
+func TestIngestStateTimestampsUseMicroseconds(t *testing.T) {
+	ddl := strings.Join(ClickHouseDDL(), "\n")
+	for _, table := range []string{"ingest_dates", "ingest_files"} {
+		start := strings.Index(ddl, "CREATE TABLE IF NOT EXISTS "+table)
+		if start < 0 {
+			t.Fatalf("missing %s DDL", table)
+		}
+		segment := ddl[start:]
+		if next := strings.Index(segment[1:], "CREATE TABLE IF NOT EXISTS "); next >= 0 {
+			segment = segment[:next+1]
+		}
+		if !strings.Contains(segment, "updated_at DateTime64(6) DEFAULT now64(6)") {
+			t.Fatalf("%s must use a microsecond state version: %s", table, segment)
+		}
+	}
+}
+
+func TestIngestStateMigrationRepairsCompletedImportingStates(t *testing.T) {
+	statements := strings.Join(IngestStateMigrationSQL(), "\n")
+	for _, want := range []string{
+		"INSERT INTO ingest_dates",
+		"maxIf(updated_at, status = 'importing' AND progress_pct >= 100",
+		"files_done >= files_total) = max(updated_at)",
+		"maxIf(updated_at, status = 'failed')",
+		"addSeconds(now(), 1)",
+	} {
+		if !strings.Contains(statements, want) {
+			t.Fatalf("ingest state migration must repair completed importing states; missing %q: %s", want, statements)
+		}
+	}
+	if strings.Contains(statements, "MODIFY COLUMN updated_at") {
+		t.Fatalf("migration must not alter a ReplacingMergeTree version column in place: %s", statements)
 	}
 }
 

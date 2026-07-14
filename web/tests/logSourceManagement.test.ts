@@ -13,10 +13,10 @@ test('log source management uses compact rows and a modal editor', () => {
   assert.match(page, /className="source-management-row source-management-row--header"/);
   assert.match(page, /<Modal/);
   assert.match(page, /编辑 RSyslog 接收源/);
-  assert.match(page, /客户端 IP \/ 网段/);
-  assert.match(page, /归档目录/);
-  assert.match(page, /归档保留天数/);
-  assert.match(page, /留空时压缩文件保留在落盘目录，不移动/);
+  assert.match(page, /允许的发送端地址（可选）/);
+  assert.match(page, /压缩文件保存目录（可选）/);
+  assert.match(page, /压缩文件保留天数/);
+  assert.match(page, /留空时压缩文件保留在接收文件保存目录/);
   assert.match(page, /0 表示永久保留/);
   assert.doesNotMatch(page, /<Form\.List name="log_sources">/);
   assert.doesNotMatch(page, /className=\{`source-item-card/);
@@ -29,9 +29,9 @@ test('source CRUD persists the complete list immediately without stale form owne
   assert.match(page, /apiPost<Settings>\('\/api\/settings', \{\s*log_sources: JSON\.stringify\(normalized\)/s);
   assert.match(page, /await persistLogSources\(next\)/);
   assert.match(page, /const \{ log_sources: _ignoredLogSources, \.\.\.settingsValues \} = values;/);
-  assert.match(page, /description="只删除配置，不会删除已落盘或已归档文件。"/);
-  assert.match(page, /aria-label="编辑日志源"/);
-  assert.match(page, /aria-label="删除日志源"/);
+  assert.match(page, /description="只删除配置，不会删除已接收或已压缩的文件。"/);
+  assert.match(page, /aria-label="编辑日志来源"/);
+  assert.match(page, /aria-label="删除日志来源"/);
 });
 
 test('receiver status and responsive source rows expose client and archive state', () => {

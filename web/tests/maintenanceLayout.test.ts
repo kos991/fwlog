@@ -30,7 +30,7 @@ test('maintenance page uses unified Chinese copy only', () => {
   assert.doesNotMatch(page, /Auto upgrade/);
   assert.doesNotMatch(page, /自动升级/);
 
-  for (const required of ['日志源', '全部启用日志源', '日期范围', '手动入库', '全量重建', '执行操作', '版本升级', '手动升级', '离线升级包', '选择升级包', '上传并安装']) {
+  for (const required of ['日志来源', '全部已启用日志来源', '日期范围', '导入新增日志', '重新导入所选日期', '开始处理', '版本升级', '在线升级', '本地升级包', '选择升级包', '上传并安装']) {
     assert.match(page, new RegExp(required), `维护页缺少统一文案：${required}`);
   }
 });
@@ -58,9 +58,9 @@ test('maintenance ingest action uses source date range and action type', () => {
   assert.match(page, /DatePicker\.RangePicker/);
   assert.match(page, /所有历史日期/);
   assert.match(page, /日期范围/);
-  assert.match(page, /执行入库/);
-  assert.match(page, /执行全量重建/);
-  assert.match(page, /本次操作：日志源 =/);
+  assert.match(page, /开始导入/);
+  assert.match(page, /开始重新导入/);
+  assert.match(page, /本次处理：日志来源 =/);
   assert.match(styles, /\.maintenance-action-summary\s*\{/);
 });
 
@@ -71,10 +71,10 @@ test('maintenance cards share compact fields and summary copy', () => {
   assert.match(page, /autoScanSummary/);
   assert.match(page, /upgradeSummary/);
   assert.match(page, /自动扫描：/);
-  assert.match(page, /按增量入库处理/);
-  assert.match(page, /更新维护：/);
+  assert.match(page, /只导入尚未完成的日期/);
+  assert.match(page, /版本状态：/);
   assert.match(page, /检查更新/);
-  assert.match(page, /离线升级包/);
+  assert.match(page, /本地升级包/);
   assert.doesNotMatch(page, /const INGEST_BUTTON_LABELS/);
   assert.doesNotMatch(page, /入库全部日志源的所有历史日志/);
   assert.doesNotMatch(page, /全量重建当前日志源的所选日期范围/);
@@ -87,7 +87,7 @@ test('log source management distinguishes directory and rsyslog receivers with s
   const page = fs.readFileSync(pagePath, 'utf8');
   const styles = fs.readFileSync(stylesPath, 'utf8');
 
-  for (const required of ['添加文件目录源', '添加 RSyslog 接收源', '文件目录源', 'RSyslog 接收源', '接收协议', '监听端口', '落盘目录'] ) {
+  for (const required of ['添加文件目录源', '添加 RSyslog 接收源', '文件目录源', 'RSyslog 接收源', '接收协议', '监听端口', '接收文件保存目录', '允许的发送端地址（可选）', '压缩文件保存目录（可选）'] ) {
     assert.match(page, new RegExp(required), `日志源编辑器缺少文案：${required}`);
   }
   assert.match(page, /\{ value: 'udp', label: 'UDP' \}/);
@@ -97,4 +97,8 @@ test('log source management distinguishes directory and rsyslog receivers with s
   assert.doesNotMatch(page, /<Form\.List name="log_sources">/);
   assert.match(styles, /\.source-management-list\s*\{/);
   assert.match(styles, /\.source-editor-grid\s*\{/);
+  assert.doesNotMatch(page, /label="设备 ID"/);
+  assert.doesNotMatch(page, /label="客户端 IP \/ 网段"/);
+  assert.doesNotMatch(page, /兼容全匹配/);
+  assert.doesNotMatch(page, /label="落盘目录"/);
 });

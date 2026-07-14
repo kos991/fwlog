@@ -91,15 +91,15 @@ function buildMessage(input: BuildUpgradeViewInput, state: UpgradePanelState, la
   }
   if (state === 'asset_missing') {
     const missing = input.check?.missing_assets || [];
-    return missing.length ? `缺少发布资产：${missing.join(', ')}` : input.check?.message || '发布资产不完整，暂不能升级。';
+    return missing.length ? `缺少发布文件：${missing.join(', ')}` : input.check?.message || '发布文件不完整，暂不能升级。';
   }
   if (state === 'runtime_incompatible') {
-    const current = input.check?.runtime_version || 'unknown';
-    const required = input.check?.required_runtime_version || 'unknown';
-    return `当前 runtime ${current}，目标版本要求 ${required}，请使用 full 离线包升级。`;
+    const current = input.check?.runtime_version || '未知';
+    const required = input.check?.required_runtime_version || '未知';
+    return `当前运行组件版本 ${current}，目标版本要求 ${required}，请使用完整本地升级包升级。`;
   }
   if (state === 'available') {
-    return latestVersion ? `发现新版本：${latestVersion}，可手动升级。` : '发现新版本，可手动升级。';
+    return latestVersion ? `发现新版本：${latestVersion}，可在线升级。` : '发现新版本，可在线升级。';
   }
   if (state === 'latest') return '当前已是最新版本。';
   if (state === 'checking') return '正在检查发布版本。';
@@ -123,7 +123,7 @@ function resolveStateText(state: UpgradePanelState) {
     case 'latest':
       return '已是最新';
     case 'asset_missing':
-      return '资产缺失';
+      return '发布文件缺失';
     case 'runtime_incompatible':
       return '需要全量包';
     case 'running':

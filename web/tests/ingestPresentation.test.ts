@@ -45,3 +45,25 @@ const finalizingView = buildIngestProgressView({
 assert.equal(finalizingView.displayPercent, 99);
 assert.equal(finalizingView.percentText, '收尾中');
 assert.equal(finalizingView.detailText, '正在处理最后 1 个文件');
+
+const fullyReadButFinalizingView = buildIngestProgressView({
+  status: 'importing',
+  files_total: 2,
+  files_done: 2,
+  rows_imported: 3197207,
+  progress_pct: 100,
+});
+
+assert.equal(fullyReadButFinalizingView.percentText, '收尾中');
+assert.equal(fullyReadButFinalizingView.detailText, '文件已读取完成，正在确认入库结果');
+
+const completedView = buildIngestProgressView({
+  status: 'ready',
+  files_total: 2,
+  files_done: 2,
+  rows_imported: 3197207,
+  progress_pct: 100,
+});
+
+assert.equal(completedView.percentText, '100%');
+assert.equal(completedView.detailText, '已完成 2 个文件，共入库 3,197,207 行');

@@ -126,6 +126,22 @@ func TestDropLogSourceDatePartitionSQLSeparatesSources(t *testing.T) {
 	}
 }
 
+func TestTerminalStateTimestampAdvancesPastSecondPrecision(t *testing.T) {
+	previous := time.Date(2026, 7, 14, 10, 0, 0, 900_000_000, time.Local)
+	current := previous.Add(50 * time.Millisecond)
+
+	got := terminalStateTimestamp(previous, current)
+	want := time.Date(2026, 7, 14, 10, 0, 1, 0, time.Local)
+	if !got.Equal(want) {
+		t.Fatalf("terminal timestamp = %v, want %v", got, want)
+	}
+
+	later := want.Add(2 * time.Second)
+	if got := terminalStateTimestamp(previous, later); !got.Equal(later) {
+		t.Fatalf("later terminal timestamp = %v, want %v", got, later)
+	}
+}
+
 func TestImportDateUpdatesDateProgressAfterEachFile(t *testing.T) {
 	dir := t.TempDir()
 	logDate := time.Date(2026, 7, 2, 0, 0, 0, 0, time.Local)

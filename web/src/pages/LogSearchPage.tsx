@@ -6,6 +6,7 @@ import { Alert, Button, DatePicker, Descriptions, Form, Input, Select, Tag, mess
 import type { FilterDropdownProps } from 'antd/es/table/interface';
 import dayjs, { type Dayjs } from 'dayjs';
 import { apiGet, buildQueryString, type QueryVisibility } from '../api';
+import { ingestStatusText } from '../uiCopy';
 
 const { RangePicker } = DatePicker;
 const defaultQueryPageSize = 100;
@@ -124,17 +125,6 @@ function normalizeProtocolText(protocol?: string) {
     '1': 'ICMP',
   };
   return map[value] || value || '-';
-}
-
-function statusText(status?: string) {
-  const map: Record<string, string> = {
-    ready: '已入库',
-    importing: '入库中',
-    failed: '失败',
-    pending: '待入库',
-    skipped: '未查询',
-  };
-  return status ? map[status] || status : '-';
 }
 
 function parseCidrAliases(value?: CidrAliasSetting[] | string): CidrAliasSetting[] {
@@ -374,13 +364,13 @@ export function LogSearchPage(_props: LogSearchPageProps) {
   const columns: ProColumns<SearchRecord>[] = [
     { title: '时间', dataIndex: 'timestamp', width: 180, render: (_, row) => mono(row.timestamp) },
     {
-      title: '设备 ID', dataIndex: 'source_id', width: 150,
+      title: '来源标识', dataIndex: 'source_id', width: 150,
       render: (_, row) => <Tag color="blue">{row.source_id || '-'}</Tag>,
     },
     {
-      title: '日志名称', dataIndex: 'log_tag', width: 150,
+      title: '来源名称', dataIndex: 'log_tag', width: 150,
       filteredValue: queryValues?.log_tag ? [queryValues.log_tag] : null,
-      filterDropdown: textFilterDropdown('输入日志名称', (value) => applyColumnFilter('log_tag', value)),
+      filterDropdown: textFilterDropdown('输入来源名称', (value) => applyColumnFilter('log_tag', value)),
     },
     {
       title: '源 IP / 端口', width: 180,
@@ -447,23 +437,23 @@ export function LogSearchPage(_props: LogSearchPageProps) {
       if (item.status === 'ready') {
         next = {
           kind: 'ready',
-          title: `${sourceText}：已入库，${formatCount(item.rows_imported)} 行`,
+          title: `${sourceText}：已完成，可查询 ${formatCount(item.rows_imported)} 行`,
         };
       } else if (item.status === 'importing') {
         const pct = Math.round(item.progress_pct ?? 0);
         next = {
           kind: 'importing',
-          title: `${sourceText}：入库中，${pct}%${item.current_file ? `，${item.current_file}` : ''}`,
+          title: `${sourceText}：正在入库，${pct}%${item.current_file ? `，${item.current_file}` : ''}`,
         };
       } else if (item.status === 'failed') {
         next = {
           kind: 'failed',
-          title: `${sourceText}：${item.error || '入库失败'}`,
+          title: `${sourceText}：${item.error || '处理失败'}`,
         };
       } else {
         next = {
           kind: 'pending',
-          title: `${sourceText}：${statusText(item.status)}`,
+          title: `${sourceText}：${ingestStatusText(item.status)}`,
         };
       }
       const previous = dates.get(date);
@@ -475,7 +465,7 @@ export function LogSearchPage(_props: LogSearchPageProps) {
     visibility?.queried_ranges?.forEach((range) => {
       dates.set(range.log_date.slice(0, 10), {
         kind: 'ready',
-        title: '已入库，可查询',
+        title: '已完成，可查询',
       });
     });
     visibility?.skipped_dates?.forEach((item) => {
@@ -483,7 +473,7 @@ export function LogSearchPage(_props: LogSearchPageProps) {
       if (dates.has(date)) return;
       dates.set(date, {
         kind: 'skipped',
-        title: `${statusText(item.status)}，${item.reason}`,
+        title: `${ingestStatusText(item.status)}，${item.reason}`,
       });
     });
     return dates;
@@ -522,23 +512,23 @@ export function LogSearchPage(_props: LogSearchPageProps) {
                 cellRender={renderDateCell}
                 renderExtraFooter={() => (
                   <div className="date-picker-legend">
-                    <span><i className="legend-dot legend-dot-ready" />可查</span>
-                    <span><i className="legend-dot legend-dot-importing" />入库中</span>
-                    <span><i className="legend-dot legend-dot-pending" />未入库</span>
-                    <span><i className="legend-dot legend-dot-failed" />失败</span>
+                    <span><i className="legend-dot legend-dot-ready" />已完成，可查询</span>
+                    <span><i className="legend-dot legend-dot-importing" />正在入库</span>
+                    <span><i className="legend-dot legend-dot-pending" />等待处理</span>
+                    <span><i className="legend-dot legend-dot-failed" />处理失败</span>
                   </div>
                 )}
                 style={{ width: '100%' }}
               />
             </Form.Item>
-            <Form.Item name="source_id" label="日志源">
+            <Form.Item name="source_id" label="日志来源">
               <Select
                 allowClear
-                placeholder="全部日志源"
+                placeholder="全部日志来源"
                 options={logSourceOptions}
               />
             </Form.Item>
-            <Form.Item name="ip" label="IP"><Input /></Form.Item>
+            <Form.Item name="ip" label="任意 IP"><Input /></Form.Item>
             <div className="filter-actions">
               <Button type="primary" icon={<SearchOutlined />} loading={loading || booting} onClick={() => void handleSearch()}>
                 查询
@@ -561,14 +551,14 @@ export function LogSearchPage(_props: LogSearchPageProps) {
             <Form.Item name="dst_port" label="目标端口"><Input /></Form.Item>
             <Form.Item name="nat_port" label="NAT 端口"><Input /></Form.Item>
             <Form.Item name="protocol" label="协议"><Select allowClear options={['TCP', 'UDP', 'ICMP'].map((value) => ({ value, label: value }))} /></Form.Item>
-            <Form.Item name="action" label="结果"><Select allowClear options={[{ value: 'ALLOW', label: '放行' }, { value: 'DENY', label: '拒绝' }]} /></Form.Item>
-            <Form.Item name="log_tag" label="日志名称"><Input /></Form.Item>
+            <Form.Item name="action" label="访问结果"><Select allowClear options={[{ value: 'ALLOW', label: '放行' }, { value: 'DENY', label: '拒绝' }]} /></Form.Item>
+            <Form.Item name="log_tag" label="来源名称"><Input /></Form.Item>
           </div>
           )}
           <div className="query-limit-hint" aria-label="查询范围说明">
             <InfoCircleOutlined />
             <span>无筛选查询最多支持 1 天。</span>
-            <span>填写任一 IP、端口、协议、结果或日志名称后，最多支持 31 天。</span>
+            <span>填写任一 IP、端口、协议、访问结果或来源名称后，最多支持 31 天。</span>
           </div>
         </Form>
       </section>
@@ -616,8 +606,8 @@ export function LogSearchPage(_props: LogSearchPageProps) {
           expandedRowRender: (row) => (
             <Descriptions className="record-detail" size="small" column={3}>
               <Descriptions.Item label="来源文件">{row.source_file || '-'}</Descriptions.Item>
-              <Descriptions.Item label="文件偏移">{row.source_offset ?? '-'}</Descriptions.Item>
-              <Descriptions.Item label="日志源">{row.source_id || '-'}</Descriptions.Item>
+              <Descriptions.Item label="文件内位置">{row.source_offset ?? '-'}</Descriptions.Item>
+              <Descriptions.Item label="来源标识">{row.source_id || '-'}</Descriptions.Item>
               <Descriptions.Item label="日志日期">{row.log_date || '-'}</Descriptions.Item>
               <Descriptions.Item label="入库时间">{row.ingested_at || '-'}</Descriptions.Item>
               <Descriptions.Item label="IP 标注">

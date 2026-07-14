@@ -219,7 +219,7 @@ func selectUpgradePackage(assets upgradeAssets) (upgradePackage, error) {
 	if pkg, ok := availableUpgradePackage(upgradePackageRPM, assets.UpgradeRPMName, assets.UpgradeRPMURL); ok {
 		return pkg, nil
 	}
-	return upgradePackage{}, errors.New("未找到可用的 rpm/dpkg 包管理器，或 Release 缺少对应的 fwlog-upgrade 包")
+	return upgradePackage{}, errors.New("未找到可用的 rpm/dpkg 包管理器，或发布文件中缺少适用的 fwlog-upgrade 安装包")
 }
 
 func availableUpgradePackage(format upgradePackageFormat, assetName, assetURL string) (upgradePackage, bool) {
@@ -365,10 +365,10 @@ func (a *App) upgradeCheckHandler() http.Handler {
 		}
 		if !runtimeCompatible {
 			response.AssetsReady = false
-			response.Message = "当前 runtime 不满足升级要求，请使用 full 离线包"
+			response.Message = "当前运行组件版本不满足升级要求，请使用完整本地升级包"
 		}
 		if len(missing) > 0 {
-			response.Message = "Release 缺少 Linux 升级资产"
+			response.Message = "发布文件不完整，缺少 Linux 升级文件"
 		}
 		writeJSON(w, response)
 	})
@@ -587,7 +587,7 @@ func fetchLatestUpgradeRelease(ctx context.Context, currentVersion string) (gith
 		}
 	}
 	if latest.TagName == "" {
-		return githubRelease{}, errors.New("未找到可用的测试版 Release")
+		return githubRelease{}, errors.New("未找到可用的测试版本")
 	}
 	return latest, nil
 }
@@ -636,7 +636,7 @@ func executeSystemUpgrade(ctx context.Context, target upgradeTarget, status *Upg
 	}
 	assets, missing := releaseUpgradeAssets(release)
 	if len(missing) > 0 {
-		return fmt.Errorf("release_asset_missing: %s", strings.Join(missing, ", "))
+		return fmt.Errorf("发布文件缺失：%s", strings.Join(missing, ", "))
 	}
 
 	if err := os.MkdirAll(upgradeTempRoot, 0o755); err != nil {

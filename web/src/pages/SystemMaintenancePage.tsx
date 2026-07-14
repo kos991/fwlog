@@ -304,8 +304,8 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   const canCheckUpgrade = upgradeStatus?.state !== 'running' && !upgradeLoading;
   const canRunUpgrade = upgradeView.showUpgradeAction && upgradeStatus?.state !== 'running' && !upgradeLoading;
   const autoScanDisplay = firstAutoScanTime(autoScanTimes);
-  const autoScanSummary = `自动扫描：${autoScanEnabled ? '已开启' : '已关闭'}；每天 ${autoScanDisplay} 扫描全部启用日志源，按增量入库处理。`;
-  const upgradeSummary = `更新维护：当前版本 ${upgradeView.currentVersion}；${upgradeCheckError || upgradeView.message}`;
+  const autoScanSummary = `自动扫描：${autoScanEnabled ? '已开启' : '已关闭'}；每天 ${autoScanDisplay} 扫描全部已启用日志来源，只导入尚未完成的日期。`;
+  const upgradeSummary = `版本状态：当前版本 ${upgradeView.currentVersion}；${upgradeCheckError || upgradeView.message}`;
 
   async function persistLogSources(next: LogSourceSetting[]) {
     const normalized = normalizeLogSourcesForForm(next);
@@ -363,10 +363,10 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
       setSourceSaving(true);
       await persistLogSources(next);
       setSourceEditor(null);
-      message.success(sourceEditor.index === null ? '日志源已添加并应用' : '日志源已更新并应用');
+      message.success(sourceEditor.index === null ? '日志来源已添加并应用' : '日志来源已更新并应用');
     } catch (error) {
       if (error && typeof error === 'object' && 'errorFields' in error) return;
-      message.error(error instanceof Error ? error.message : '保存日志源失败');
+      message.error(error instanceof Error ? error.message : '保存日志来源失败');
     } finally {
       setSourceSaving(false);
     }
@@ -379,10 +379,10 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
     setSourceSaving(true);
     try {
       await persistLogSources(next);
-      message.success(enabled ? '日志源已启用' : '日志源已停用');
+      message.success(enabled ? '日志来源已启用' : '日志来源已停用');
     } catch (error) {
       setSavedLogSources(previous);
-      message.error(error instanceof Error ? error.message : '更新日志源状态失败');
+      message.error(error instanceof Error ? error.message : '更新日志来源状态失败');
     } finally {
       setSourceSaving(false);
     }
@@ -393,9 +393,9 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
     setSourceSaving(true);
     try {
       await persistLogSources(next);
-      message.success('日志源配置已删除');
+      message.success('日志来源配置已删除');
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '删除日志源失败');
+      message.error(error instanceof Error ? error.message : '删除日志来源失败');
     } finally {
       setSourceSaving(false);
     }
@@ -433,8 +433,8 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   const selectedLogSource = enabledLogSources.find((source) => (source.source_id || 'default') === importSourceID);
   const selectedSourceLabel = importSourceID
     ? selectedLogSource?.log_tag || selectedLogSource?.source_id || importSourceID
-    : '全部启用日志源';
-  const actionLabel = ingestAction === 'sync' ? '手动入库' : '全量重建';
+    : '全部已启用日志来源';
+  const actionLabel = ingestAction === 'sync' ? '导入新增日志' : '重新导入所选日期';
   const dateScopeLabel = dateMode === 'all'
     ? '所有历史日期'
     : dateMode === 'single'
@@ -442,9 +442,9 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
       : dateRange?.[0] && dateRange?.[1]
         ? `${dateRange[0].format('YYYY-MM-DD')} 至 ${dateRange[1].format('YYYY-MM-DD')}`
         : '未选择日期范围';
-  const buttonLabel = ingestAction === 'sync' ? '执行入库' : '执行全量重建';
-  const actionSummary = `本次操作：日志源 = ${selectedSourceLabel}；日期 = ${dateScopeLabel}；动作 = ${actionLabel}。`;
-  const rebuildConfirmDescription = `本次将对「${selectedSourceLabel}」的「${dateScopeLabel}」执行全量重建。该操作会重新处理目标范围内的数据，耗时可能较长。`;
+  const buttonLabel = ingestAction === 'sync' ? '开始导入' : '开始重新导入';
+  const actionSummary = `本次处理：日志来源 = ${selectedSourceLabel}；日期 = ${dateScopeLabel}；处理方式 = ${actionLabel}。`;
+  const rebuildConfirmDescription = `将先清除「${selectedSourceLabel}」在「${dateScopeLabel}」已有的入库结果，再重新处理所选日期。该操作耗时可能较长。`;
   const ingestActionDisabled = dateMode === 'single'
     ? !singleDate
     : dateMode === 'range'
@@ -487,7 +487,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
     try {
       setLoading(true);
       await apiPost(buildIngestPath());
-      message.success(ingestAction === 'sync' ? '已开始入库' : '已触发全量重建');
+      message.success(ingestAction === 'sync' ? '新增日志导入任务已开始' : '重新导入任务已开始');
     } catch (error) {
       message.error(error instanceof Error ? error.message : '操作失败');
     } finally {
@@ -518,7 +518,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
       if (response.update_available && response.assets_ready) {
         message.success(`发现可升级版本 ${response.latest_version}`);
       } else if (response.update_available) {
-        message.warning('发现新版本，但 Release 资产不齐，暂不能升级');
+        message.warning('发现新版本，但发布文件不完整，暂不能升级');
       } else {
         message.success('当前已是最新版本');
       }
@@ -535,7 +535,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   const runUpgrade = async () => {
     const version = upgradeView.state === 'available' ? upgradeView.latestVersion.trim() : '';
     if (!version) {
-      message.error('请先检查更新并确认 Release 资产齐全');
+      message.error('请先检查更新并确认发布文件完整');
       return;
     }
     if (!isSupportedUpgradeVersion(version)) {
@@ -566,7 +566,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
       const status = await apiUpload<UpgradeStatus>('/api/upgrade/upload', upgradeFile);
       setUpgradeStatus(status);
       setUpgradeFile(null);
-      message.success('离线升级包已上传，安装任务已开始');
+      message.success('本地升级包已上传，安装任务已开始');
     } catch (error) {
       message.error(error instanceof Error ? error.message : '上传升级包失败');
     } finally {
@@ -610,13 +610,13 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
           items={[
             {
               key: 'source',
-              label: tabLabel(<FolderOpenOutlined />, '日志源'),
+              label: tabLabel(<FolderOpenOutlined />, '日志来源'),
               children: (
                 <section className="ops-section maintenance-card">
                   <div className="source-list-editor">
                     <div className="source-list-head">
                       <div>
-                        <strong>日志源配置</strong>
+                        <strong>日志来源配置</strong>
                         <Text type="secondary">添加、启停或修改后立即应用</Text>
                       </div>
                       <Space wrap>
@@ -631,16 +631,16 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
 
                     <div className="source-management-list">
                       <div className="source-management-row source-management-row--header">
-                        <span>设备 ID</span>
-                        <span>日志名称</span>
+                        <span>来源标识</span>
+                        <span>显示名称</span>
                         <span>类型</span>
-                        <span>客户端 / 目录</span>
-                        <span>接收与归档</span>
+                        <span>发送端 / 目录</span>
+                        <span>接收与压缩</span>
                         <span>状态</span>
                         <span>操作</span>
                       </div>
                       {savedLogSources.length === 0 ? (
-                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无日志源" />
+                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无日志来源" />
                       ) : savedLogSources.map((source, index) => {
                         const sourceID = source.source_id || `source-${index + 1}`;
                         const isRSyslog = source.source_type === 'rsyslog';
@@ -651,34 +651,34 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                         const sourceError = status?.error || status?.archive_error;
                         return (
                           <div className="source-management-row" key={sourceID}>
-                            <div className="source-management-cell" data-label="设备 ID">
-                              <span className="source-management-mobile-label">设备 ID</span>
+                            <div className="source-management-cell" data-label="来源标识">
+                              <span className="source-management-mobile-label">来源标识</span>
                               <strong title={sourceID}>{sourceID}</strong>
                             </div>
-                            <div className="source-management-cell" data-label="日志名称">
-                              <span className="source-management-mobile-label">日志名称</span>
+                            <div className="source-management-cell" data-label="显示名称">
+                              <span className="source-management-mobile-label">显示名称</span>
                               <strong title={source.log_tag || ''}>{source.log_tag || '-'}</strong>
                             </div>
                             <div className="source-management-cell" data-label="类型">
                               <span className="source-management-mobile-label">类型</span>
                               <Tag color={isRSyslog ? 'processing' : 'default'}>{isRSyslog ? 'RSyslog 接收源' : '文件目录源'}</Tag>
                             </div>
-                            <div className="source-management-cell source-management-detail" data-label="客户端 / 目录">
-                              <span className="source-management-mobile-label">客户端 / 目录</span>
+                            <div className="source-management-cell source-management-detail" data-label="发送端 / 目录">
+                              <span className="source-management-mobile-label">发送端 / 目录</span>
                               <strong title={isRSyslog ? source.client_ip : source.log_dir}>
-                                {isRSyslog ? source.client_ip || '兼容全匹配' : source.log_dir || '-'}
+                                {isRSyslog ? source.client_ip || '接受任意发送端' : source.log_dir || '-'}
                               </strong>
-                              {isRSyslog && <Text type="secondary" title={source.spool_dir}>落盘：{source.spool_dir || '-'}</Text>}
+                              {isRSyslog && <Text type="secondary" title={source.spool_dir}>接收文件：{source.spool_dir || '-'}</Text>}
                             </div>
-                            <div className="source-management-cell source-management-detail" data-label="接收与归档">
-                              <span className="source-management-mobile-label">接收与归档</span>
+                            <div className="source-management-cell source-management-detail" data-label="接收与压缩">
+                              <span className="source-management-mobile-label">接收与压缩</span>
                               {isRSyslog ? (
                                 <>
                                   <strong>{String(source.listen_protocol || 'udp').toUpperCase()} · {Number(source.listen_port || 5514)}</strong>
-                                  <Text type="secondary">最近客户端：{status?.last_client_ip || '尚未收到'}</Text>
+                                  <Text type="secondary">最近发送端：{status?.last_client_ip || '尚未收到'}</Text>
                                   <Text type="secondary">接收：{status?.received_messages || 0} 条{lastReceivedAt ? ` · ${lastReceivedAt}` : ''}</Text>
                                   <Text type="secondary">
-                                    归档：{source.archive_dir ? '指定目录' : '原地压缩'} · {retentionDays === 0 ? '永久保留' : `${retentionDays} 天`}{lastArchiveAt ? ` · ${lastArchiveAt}` : ''}
+                                    压缩文件：{source.archive_dir ? '保存到指定目录' : '保留在接收目录'} · {retentionDays === 0 ? '永久保留' : `${retentionDays} 天`}{lastArchiveAt ? ` · ${lastArchiveAt}` : ''}
                                   </Text>
                                 </>
                               ) : <Text type="secondary">文件扫描</Text>}
@@ -686,7 +686,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                             <div className="source-management-cell" data-label="状态">
                               <span className="source-management-mobile-label">状态</span>
                               {source.enabled === false ? (
-                                <Tag>已停用</Tag>
+                                <Text type="secondary">-</Text>
                               ) : sourceError ? (
                                 <Tooltip title={sourceError}><Tag color="error">异常</Tag></Tooltip>
                               ) : isRSyslog ? (
@@ -698,27 +698,27 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                                 size="small"
                                 checked={source.enabled !== false}
                                 loading={sourceSaving}
-                                aria-label={`${sourceID} 启用状态`}
+                                aria-label={`${sourceID} 启用日志接收`}
                                 onChange={(checked) => void toggleLogSource(index, checked)}
                               />
                               <Tooltip title="编辑">
                                 <Button
                                   type="text"
                                   icon={<EditOutlined />}
-                                  aria-label="编辑日志源"
+                                  aria-label="编辑日志来源"
                                   disabled={sourceSaving}
                                   onClick={() => openSourceEditor(isRSyslog ? 'rsyslog' : 'file', index)}
                                 />
                               </Tooltip>
                               <Popconfirm
-                                title="删除这个日志源？"
-                                description="只删除配置，不会删除已落盘或已归档文件。"
+                                title="删除这个日志来源？"
+                                description="只删除配置，不会删除已接收或已压缩的文件。"
                                 okText="删除"
                                 cancelText="取消"
                                 onConfirm={() => void deleteLogSource(index)}
                               >
                                 <Tooltip title="删除">
-                                  <Button type="text" danger icon={<DeleteOutlined />} aria-label="删除日志源" disabled={sourceSaving} />
+                                  <Button type="text" danger icon={<DeleteOutlined />} aria-label="删除日志来源" disabled={sourceSaving} />
                                 </Tooltip>
                               </Popconfirm>
                             </div>
@@ -839,8 +839,8 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                         </Form.Item>
                       </div>
                       <div className="maintenance-field">
-                        <label>日志源范围</label>
-                        <Text className="maintenance-value">全部启用日志源</Text>
+                        <label>日志来源范围</label>
+                        <Text className="maintenance-value">全部已启用日志来源</Text>
                       </div>
                       <div className="maintenance-field">
                         <label>入库方式</label>
@@ -863,12 +863,12 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
 
                     <div className="maintenance-run-grid">
                       <div className="maintenance-field">
-                        <label>日志源</label>
+                        <label>日志来源</label>
                         <Select
                           value={importSourceID}
                           onChange={setImportSourceID}
                           options={[
-                            { value: '', label: '全部启用日志源' },
+                            { value: '', label: '全部已启用日志来源' },
                             ...enabledLogSources.map((source) => ({
                               value: source.source_id || 'default',
                               label: source.log_tag || source.source_id || 'default',
@@ -896,7 +896,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                         ) : dateMode === 'range' ? (
                           <DatePicker.RangePicker value={dateRange} onChange={(value) => setDateRange(value)} />
                         ) : (
-                          <Text type="secondary">系统会扫描所选日志源下已有历史日志</Text>
+                          <Text type="secondary">系统会扫描所选日志来源下已有的历史日志</Text>
                         )}
                       </div>
 
@@ -906,19 +906,19 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                           value={ingestAction}
                           onChange={(value: IngestAction) => setIngestAction(value)}
                           options={[
-                            { value: 'sync', label: '手动入库' },
-                            { value: 'rebuild', label: '全量重建' },
+                            { value: 'sync', label: '导入新增日志' },
+                            { value: 'rebuild', label: '重新导入所选日期' },
                           ]}
                         />
                       </div>
 
                       <div className="maintenance-field maintenance-danger-field">
-                        <label>执行操作</label>
+                        <label>开始处理</label>
                         {ingestAction === 'rebuild' ? (
                           <Popconfirm
-                            title={`确认全量重建${importSourceID ? '当前日志源' : '全部日志源'}？`}
+                            title={`确认重新导入${importSourceID ? '当前日志来源' : '全部日志来源'}？`}
                             description={rebuildConfirmDescription}
-                            okText="确认全量重建"
+                            okText="确认重新导入"
                             cancelText="取消"
                             onConfirm={() => void triggerIngestAction()}
                           >
@@ -942,7 +942,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                   <div className="maintenance-run-card maintenance-run-card--upgrade">
                     <div className="maintenance-card-head">
                       <div>
-                        <span className="maintenance-card-kicker"><CloudDownloadOutlined /> 手动升级</span>
+                        <span className="maintenance-card-kicker"><CloudDownloadOutlined /> 在线升级</span>
                         <strong>版本升级</strong>
                       </div>
                       <Tag color={upgradeView.statusTone}>
@@ -977,7 +977,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                         </Button>
                       </div>
                       <div className="maintenance-field">
-                        <label>离线升级包</label>
+                        <label>本地升级包</label>
                         <Upload
                           accept=".rpm,.deb"
                           maxCount={1}
@@ -1104,15 +1104,15 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
           <div className="source-editor-grid">
             <Form.Item
               name="source_id"
-              label="设备 ID"
+              label="来源标识"
               rules={[
-                { required: true, message: '请输入设备 ID' },
+                { required: true, message: '请输入来源标识' },
                 { pattern: /^[A-Za-z0-9._-]+$/, message: '只允许字母、数字、点、下划线和连字符' },
               ]}
             >
               <Input prefix={<DatabaseOutlined />} placeholder="device-id" />
             </Form.Item>
-            <Form.Item name="log_tag" label="日志名称" rules={[{ required: true, message: '请输入日志名称' }]}>
+            <Form.Item name="log_tag" label="显示名称" rules={[{ required: true, message: '请输入显示名称' }]}>
               <Input prefix={<TagsOutlined />} placeholder="例如：出口防火墙" />
             </Form.Item>
 
@@ -1121,9 +1121,8 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                 <Form.Item
                   className="source-editor-field-wide"
                   name="client_ip"
-                  label="客户端 IP / 网段"
+                  label="允许的发送端地址（可选）"
                   rules={[
-                    { required: true, whitespace: true, message: '请输入客户端 IP 或网段' },
                     { pattern: /^(?:[0-9]{1,3}(?:\.[0-9]{1,3}){3}(?:\/(?:[0-9]|[12][0-9]|3[0-2]))?|[0-9A-Fa-f:.]+(?:\/(?:[0-9]|[1-9][0-9]|1[01][0-9]|12[0-8]))?)$/, message: '请输入有效的 IPv4、IPv6 或 CIDR' },
                   ]}
                 >
@@ -1141,9 +1140,9 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                 <Form.Item
                   className="source-editor-field-wide"
                   name="spool_dir"
-                  label="落盘目录"
+                  label="接收文件保存目录"
                   rules={[
-                    { required: true, whitespace: true, message: '请输入落盘目录' },
+                    { required: true, whitespace: true, message: '请输入接收文件保存目录' },
                     { pattern: /^\//, message: '请输入绝对路径' },
                   ]}
                 >
@@ -1152,17 +1151,17 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                 <Form.Item
                   className="source-editor-field-wide"
                   name="archive_dir"
-                  label="归档目录"
-                  extra="留空时压缩文件保留在落盘目录，不移动"
+                  label="压缩文件保存目录（可选）"
+                  extra="留空时压缩文件保留在接收文件保存目录"
                   rules={[{ pattern: /^(?:\/.*)?$/, message: '请输入绝对路径或留空' }]}
                 >
                   <Input prefix={<FolderOpenOutlined />} placeholder="可选，例如 /data/fwlog/archive/device-id" />
                 </Form.Item>
                 <Form.Item
                   name="archive_retention_days"
-                  label="归档保留天数"
+                  label="压缩文件保留天数"
                   extra="0 表示永久保留"
-                  rules={[{ required: true, message: '请输入归档保留天数' }]}
+                  rules={[{ required: true, message: '请输入压缩文件保留天数' }]}
                 >
                   <InputNumber min={0} max={3650} precision={0} />
                 </Form.Item>
@@ -1184,7 +1183,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
               </Form.Item>
             )}
 
-            <Form.Item className="source-editor-field-wide" name="enabled" label="启用状态" valuePropName="checked">
+            <Form.Item className="source-editor-field-wide" name="enabled" label="启用日志接收" valuePropName="checked">
               <Switch checkedChildren="启用" unCheckedChildren="停用" />
             </Form.Item>
           </div>
