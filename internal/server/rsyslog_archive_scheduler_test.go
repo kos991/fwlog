@@ -26,6 +26,25 @@ func TestArchiveReadyMapIncludesOnlyReadySourceDates(t *testing.T) {
 	}
 }
 
+func TestArchiveStatusResultsIncludesSuccessfulIdleSources(t *testing.T) {
+	now := time.Date(2026, 7, 14, 1, 0, 0, 0, time.Local)
+	results := archiveStatusResults(
+		[]LogSource{{SourceID: "a"}, {SourceID: "b"}},
+		[]receiver.ArchiveResult{{SourceID: "a", Error: "failed", CompletedAt: now}},
+		now,
+	)
+
+	if len(results) != 2 {
+		t.Fatalf("results = %#v", results)
+	}
+	if results[0].SourceID != "a" || results[0].Error != "failed" {
+		t.Fatalf("error result changed: %#v", results[0])
+	}
+	if results[1].SourceID != "b" || results[1].Error != "" || !results[1].CompletedAt.Equal(now) {
+		t.Fatalf("idle source result = %#v", results[1])
+	}
+}
+
 func TestRunRSyslogArchiveLoadsRequiredRetentionWindow(t *testing.T) {
 	app := NewApp(LoadConfig())
 	configureArchiveSource(t, app, model.LogSource{

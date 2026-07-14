@@ -69,7 +69,7 @@ func (a *App) runRSyslogArchive(ctx context.Context, now time.Time) {
 	}
 	results := archiver.Run(sources, ready, now)
 	if a.receiver != nil {
-		a.receiver.UpdateArchiveResults(results)
+		a.receiver.UpdateArchiveResults(archiveStatusResults(sources, results, now))
 	}
 	for _, result := range results {
 		if result.Error == "" {
@@ -82,6 +82,24 @@ func (a *App) runRSyslogArchive(ctx context.Context, now time.Time) {
 			"error", result.Error,
 		)
 	}
+}
+
+func archiveStatusResults(sources []LogSource, results []receiver.ArchiveResult, completedAt time.Time) []receiver.ArchiveResult {
+	statusResults := append([]receiver.ArchiveResult(nil), results...)
+	seen := make(map[string]struct{}, len(results))
+	for _, result := range results {
+		seen[result.SourceID] = struct{}{}
+	}
+	for _, source := range sources {
+		if _, exists := seen[source.SourceID]; exists {
+			continue
+		}
+		statusResults = append(statusResults, receiver.ArchiveResult{
+			SourceID:    source.SourceID,
+			CompletedAt: completedAt,
+		})
+	}
+	return statusResults
 }
 
 func (a *App) triggerRSyslogArchive() {
