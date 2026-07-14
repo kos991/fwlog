@@ -4,7 +4,7 @@ export function LoginDataFlowScene() {
       <svg
         className="login-data-scene__canvas"
         viewBox="0 0 1280 800"
-        preserveAspectRatio="xMidYMid slice"
+        preserveAspectRatio="xMidYMin meet"
         focusable="false"
       >
         <defs>
@@ -55,7 +55,7 @@ export function LoginDataFlowScene() {
         <g className="login-scene-nodes">
           <g data-login-node className="login-scene-node" transform="translate(62 354)">
             <rect className="login-scene-node__surface" width="142" height="112" rx="8" />
-            <g className="login-scene-node__icon" transform="translate(18 18)">
+            <g data-login-node-icon className="login-scene-node__icon" transform="translate(18 18)">
               <rect width="32" height="30" rx="4" />
               <path d="M8 10h16M8 16h12M8 22h8" />
             </g>
@@ -65,7 +65,7 @@ export function LoginDataFlowScene() {
 
           <g data-login-node className="login-scene-node" transform="translate(354 222)">
             <rect className="login-scene-node__surface" width="166" height="112" rx="8" />
-            <g className="login-scene-node__icon" transform="translate(18 18)">
+            <g data-login-node-icon className="login-scene-node__icon" transform="translate(18 18)">
               <path d="M4 9h24v18H4zM10 4v5M22 4v5M10 18h12" />
             </g>
             <text className="login-scene-node__title" x="18" y="72">RSyslog 接收</text>
@@ -75,7 +75,7 @@ export function LoginDataFlowScene() {
 
           <g data-login-node className="login-scene-node" transform="translate(718 344)">
             <rect className="login-scene-node__surface" width="166" height="112" rx="8" />
-            <g className="login-scene-node__icon" transform="translate(18 18)">
+            <g data-login-node-icon className="login-scene-node__icon" transform="translate(18 18)">
               <ellipse cx="16" cy="7" rx="13" ry="5" />
               <path d="M3 7v17c0 3 6 5 13 5s13-2 13-5V7M3 15c0 3 6 5 13 5s13-2 13-5" />
             </g>
@@ -85,7 +85,7 @@ export function LoginDataFlowScene() {
 
           <g data-login-node className="login-scene-node" transform="translate(1070 242)">
             <rect className="login-scene-node__surface" width="154" height="112" rx="8" />
-            <g className="login-scene-node__icon" transform="translate(18 18)">
+            <g data-login-node-icon className="login-scene-node__icon" transform="translate(18 18)">
               <circle cx="14" cy="14" r="10" />
               <path d="m22 22 8 8" />
             </g>
@@ -95,7 +95,7 @@ export function LoginDataFlowScene() {
 
           <g data-login-node className="login-scene-node login-scene-node--archive" transform="translate(718 470)">
             <rect className="login-scene-node__surface" width="166" height="112" rx="8" />
-            <g className="login-scene-node__icon" transform="translate(18 18)">
+            <g data-login-node-icon className="login-scene-node__icon" transform="translate(18 18)">
               <path d="M4 10h24v18H4zM2 5h28v7H2zM12 17h8" />
             </g>
             <text className="login-scene-node__title" x="18" y="72">压缩归档</text>
@@ -104,10 +104,10 @@ export function LoginDataFlowScene() {
         </g>
 
         <g className="login-scene-particles" filter="url(#login-particle-glow)">
-          <circle data-login-particle data-route="ingest" className="login-scene-particle" cx="118" cy="410" r="5" />
-          <circle data-login-particle data-route="ingest" className="login-scene-particle" cx="118" cy="410" r="4" />
-          <circle data-login-particle data-route="archive" className="login-scene-particle login-scene-particle--muted" cx="428" cy="322" r="4" />
-          <circle data-login-particle data-route="query" className="login-scene-particle login-scene-particle--green" cx="782" cy="354" r="4" />
+          <circle data-login-particle data-route="ingest" className="login-scene-particle" r="5" />
+          <circle data-login-particle data-route="ingest" className="login-scene-particle" r="4" />
+          <circle data-login-particle data-route="archive" className="login-scene-particle login-scene-particle--muted" r="4" />
+          <circle data-login-particle data-route="query" className="login-scene-particle login-scene-particle--green" r="4" />
         </g>
 
         <g className="login-scene-telemetry" transform="translate(78 642)">

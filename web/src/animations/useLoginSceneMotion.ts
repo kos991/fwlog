@@ -52,12 +52,11 @@ export function useLoginSceneMotion(root: React.RefObject<HTMLElement>): LoginSc
 
           anime
             .createTimeline({ defaults: { ease: 'out(3)' } })
-            .add('[data-login-grid], .login-brand', { opacity: [0, 1], duration: 260 })
+            .add('[data-login-grid]', { opacity: [0, 1], duration: 260 })
             .add(
               '[data-login-node]',
               {
                 opacity: [0, 1],
-                translateY: [10, 0],
                 delay: anime.stagger(80),
                 duration: 420,
               },
@@ -73,7 +72,7 @@ export function useLoginSceneMotion(root: React.RefObject<HTMLElement>): LoginSc
               '-=300',
             )
             .add(
-              '.login-title-block, .login-panel',
+              '.login-panel',
               {
                 opacity: [0, 1],
                 translateY: [12, 0],
@@ -90,6 +89,14 @@ export function useLoginSceneMotion(root: React.RefObject<HTMLElement>): LoginSc
           const queryMotion = anime.createMotionPath('#login-route-query');
 
           loopsRef.current = [
+            anime.animate('[data-login-node-icon] > *', {
+              opacity: [0.58, 1, 0.58],
+              strokeWidth: [1.8, 2.6, 1.8],
+              duration: 2400,
+              delay: anime.stagger(180),
+              ease: 'inOut(2)',
+              loop: true,
+            }),
             anime.animate('[data-login-particle][data-route="ingest"]', {
               ...ingestMotion,
               opacity: [0, 1, 1, 0],
