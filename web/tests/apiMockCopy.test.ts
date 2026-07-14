@@ -20,4 +20,9 @@ test('api mock includes rsyslog log source defaults', () => {
   assert.match(source, /listen_protocol:\s*'udp'/);
   assert.match(source, /listen_port:\s*5514/);
   assert.match(source, /spool_dir:\s*'\/data\/fwlog\/received\/rsyslog-main'/);
+  assert.match(source, /client_ip:\s*'192\.168\.10\.20'/);
+  assert.match(source, /archive_dir:\s*''/);
+  assert.match(source, /archive_retention_days:\s*0/);
+  assert.match(source, /last_client_ip:\s*'192\.168\.10\.20'/);
+  assert.match(source, /received_messages:\s*128/);
 });

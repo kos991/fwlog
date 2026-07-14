@@ -27,7 +27,7 @@ async function requestJSON<T>(path: string, init: RequestInit): Promise<T> {
   const useMock = String(import.meta.env.VITE_USE_MOCK || '').toLowerCase() === 'true';
 
   if (useMock) {
-    return mockResponse<T>(path);
+    return mockResponse<T>(path, init);
   }
 
   const controller = new AbortController();
@@ -55,7 +55,25 @@ async function requestJSON<T>(path: string, init: RequestInit): Promise<T> {
   }
 }
 
-function mockResponse<T>(path: string): T {
+let mockLogSources = [
+  { source_id: 'sangfor-main', log_tag: '深信服 NAT', log_dir: '/data/sangfor_fw_log', source_type: 'file', enabled: true },
+  {
+    source_id: 'rsyslog-main',
+    log_tag: '核心防火墙',
+    log_dir: '/data/fwlog/received/rsyslog-main',
+    source_type: 'rsyslog',
+    listen_protocol: 'udp',
+    listen_host: '0.0.0.0',
+    listen_port: 5514,
+    spool_dir: '/data/fwlog/received/rsyslog-main',
+    client_ip: '192.168.10.20',
+    archive_dir: '',
+    archive_retention_days: 0,
+    enabled: true,
+  },
+];
+
+function mockResponse<T>(path: string, init: RequestInit): T {
   if (path.startsWith('/api/session') || path.startsWith('/api/login')) {
     return { authenticated: true } as T;
   }
@@ -239,24 +257,37 @@ function mockResponse<T>(path: string): T {
       message: '模拟升级状态',
     } as T;
   }
+  if (path.startsWith('/api/receiver/status')) {
+    return {
+      'rsyslog-main': {
+        source_id: 'rsyslog-main',
+        protocol: 'udp',
+        address: '0.0.0.0:5514',
+        port: 5514,
+        spool_dir: '/data/fwlog/received/rsyslog-main',
+        client_ip: '192.168.10.20',
+        running: true,
+        error: '',
+        last_client_ip: '192.168.10.20',
+        last_received_at: '2026-07-14T08:30:00+08:00',
+        received_messages: 128,
+        archive_error: '',
+        last_archive_at: '2026-07-14T00:01:00+08:00',
+      },
+    } as T;
+  }
   if (path.startsWith('/api/settings')) {
+    if (init.method === 'POST' && typeof init.body === 'string') {
+      const payload = JSON.parse(init.body) as { log_sources?: unknown };
+      if (typeof payload.log_sources === 'string') {
+        const parsed = JSON.parse(payload.log_sources) as unknown;
+        if (Array.isArray(parsed)) mockLogSources = parsed as typeof mockLogSources;
+      }
+    }
     return {
       log_dir: '/data/sangfor_fw_log',
       log_tag: '深信服 NAT',
-      log_sources: [
-        { source_id: 'sangfor-main', log_tag: '深信服 NAT', log_dir: '/data/sangfor_fw_log', source_type: 'file', enabled: true },
-        {
-          source_id: 'rsyslog-main',
-          log_tag: '核心防火墙',
-          log_dir: '/data/fwlog/received/rsyslog-main',
-          source_type: 'rsyslog',
-          listen_protocol: 'udp',
-          listen_host: '0.0.0.0',
-          listen_port: 5514,
-          spool_dir: '/data/fwlog/received/rsyslog-main',
-          enabled: true,
-        },
-      ],
+      log_sources: mockLogSources,
       cidr_aliases: [{ cidr: '10.10.0.0/16', alias: '办公网段', enabled: true }],
       custom_ip_map_path: '/opt/fwlog/custom_ip_map.csv',
       geoip_db_path: '/data/index/GeoLite2-City.mmdb',

@@ -4,6 +4,7 @@ import {
   CloudDownloadOutlined,
   DatabaseOutlined,
   DeleteOutlined,
+  EditOutlined,
   FileTextOutlined,
   FolderOpenOutlined,
   GlobalOutlined,
@@ -18,7 +19,7 @@ import {
   UploadOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
-import { Button, DatePicker, Form, Input, InputNumber, Popconfirm, Select, Space, Switch, Tabs, Tag, TimePicker, Typography, Upload, message } from 'antd';
+import { Button, DatePicker, Empty, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Switch, Tabs, Tag, TimePicker, Tooltip, Typography, Upload, message } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { apiGet, apiPost, apiUpload, type UpgradeCheckResponse, type UpgradeStatus } from '../api';
 import { buildUpgradeView } from '../upgradePresentation';
@@ -38,7 +39,33 @@ type LogSourceSetting = {
   listen_host?: string;
   listen_port?: number | string;
   spool_dir?: string;
+  client_ip?: string;
+  archive_dir?: string;
+  archive_retention_days?: number | string;
   enabled?: boolean;
+};
+
+type ReceiverStatus = {
+  source_id?: string;
+  protocol?: string;
+  address?: string;
+  port?: number;
+  spool_dir?: string;
+  client_ip?: string;
+  running?: boolean;
+  error?: string;
+  last_client_ip?: string;
+  last_received_at?: string;
+  received_messages?: number;
+  archive_error?: string;
+  last_archive_at?: string;
+};
+
+type ReceiverStatusMap = Record<string, ReceiverStatus>;
+
+type SourceEditorState = {
+  type: 'file' | 'rsyslog';
+  index: number | null;
 };
 
 type CidrAliasSetting = {
@@ -102,6 +129,7 @@ function normalizeLogSourceSetting(source: LogSourceSetting, index: number): Log
   const sourceType = source.source_type === 'rsyslog' ? 'rsyslog' : 'file';
   if (sourceType === 'rsyslog') {
     const spoolDir = source.spool_dir || source.log_dir || defaultSpoolDir(sourceID);
+    const archiveDir = String(source.archive_dir || '').trim();
     return {
       ...source,
       source_id: sourceID,
@@ -110,7 +138,10 @@ function normalizeLogSourceSetting(source: LogSourceSetting, index: number): Log
       listen_host: source.listen_host || '0.0.0.0',
       listen_port: Number(source.listen_port || 5514),
       spool_dir: spoolDir,
-      log_dir: source.log_dir || spoolDir,
+      client_ip: String(source.client_ip || '').trim(),
+      archive_dir: archiveDir,
+      archive_retention_days: Math.max(0, Number(source.archive_retention_days || 0)),
+      log_dir: archiveDir || spoolDir,
       enabled: source.enabled !== false,
     };
   }
@@ -124,6 +155,19 @@ function normalizeLogSourceSetting(source: LogSourceSetting, index: number): Log
 
 function normalizeLogSourcesForForm(sources: LogSourceSetting[]) {
   return sources.map((source, index) => normalizeLogSourceSetting(source, index));
+}
+
+function nextSourceID(prefix: string, sources: LogSourceSetting[]) {
+  const used = new Set(sources.map((source) => source.source_id));
+  let suffix = sources.length + 1;
+  while (used.has(`${prefix}-${suffix}`)) suffix += 1;
+  return `${prefix}-${suffix}`;
+}
+
+function formatReceiverTime(value?: string) {
+  if (!value || value.startsWith('0001-')) return '';
+  const parsed = dayjs(value);
+  return parsed.isValid() ? parsed.format('YYYY-MM-DD HH:mm:ss') : '';
 }
 
 function firstAutoScanTime(value?: string | Dayjs | null) {
@@ -151,6 +195,7 @@ function formatAutoScanTime(value?: string | Dayjs | null) {
 
 export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageProps) {
   const [form] = Form.useForm<Settings>();
+  const [sourceForm] = Form.useForm<LogSourceSetting>();
   const [loading, setLoading] = React.useState(false);
   const [upgradeLoading, setUpgradeLoading] = React.useState(false);
   const [upgradeStatus, setUpgradeStatus] = React.useState<UpgradeStatus | null>(null);
@@ -163,12 +208,24 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   const [dateRange, setDateRange] = React.useState<[Dayjs | null, Dayjs | null] | null>(null);
   const [importSourceID, setImportSourceID] = React.useState('');
   const [savedLogSources, setSavedLogSources] = React.useState<LogSourceSetting[]>([]);
+  const [receiverStatuses, setReceiverStatuses] = React.useState<ReceiverStatusMap>({});
+  const [sourceEditor, setSourceEditor] = React.useState<SourceEditorState | null>(null);
+  const [sourceSaving, setSourceSaving] = React.useState(false);
   const [upgradeRestarting, setUpgradeRestarting] = React.useState(false);
   const [upgradeFile, setUpgradeFile] = React.useState<File | null>(null);
   const geoipPath = Form.useWatch('geoip_db_path', form);
   const customIpPath = Form.useWatch('custom_ip_map_path', form);
   const autoScanEnabled = Form.useWatch('auto_scan_enabled', form);
   const autoScanTimes = Form.useWatch('auto_scan_times', form);
+
+  const loadReceiverStatus = React.useCallback(async () => {
+    try {
+      const status = await apiGet<ReceiverStatusMap>('/api/receiver/status');
+      setReceiverStatuses(status || {});
+    } catch {
+      setReceiverStatuses({});
+    }
+  }, []);
 
   const load = React.useCallback(async () => {
     try {
@@ -186,9 +243,9 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
       ]);
       const cidrAliases = parseCidrAliases(settings.cidr_aliases);
       setSavedLogSources(logSources);
+      const { log_sources: _ignoredLogSources, ...formSettings } = settings;
       form.setFieldsValue({
-        ...settings,
-        log_sources: logSources,
+        ...formSettings,
         cidr_aliases: cidrAliases,
         auto_scan_enabled: settings.auto_scan_enabled === true || settings.auto_scan_enabled === 'true',
         auto_scan_mode: settings.auto_scan_mode || 'daily',
@@ -196,12 +253,13 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
         auto_scan_timezone: settings.auto_scan_timezone || 'Asia/Shanghai',
         auto_scan_interval_sec: Number(settings.auto_scan_interval_sec || 3600),
       });
+      await loadReceiverStatus();
     } catch (error) {
       message.error(error instanceof Error ? error.message : '加载设置失败');
     } finally {
       setLoading(false);
     }
-  }, [form]);
+  }, [form, loadReceiverStatus]);
 
   React.useEffect(() => {
     void load();
@@ -249,16 +307,109 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   const autoScanSummary = `自动扫描：${autoScanEnabled ? '已开启' : '已关闭'}；每天 ${autoScanDisplay} 扫描全部启用日志源，按增量入库处理。`;
   const upgradeSummary = `更新维护：当前版本 ${upgradeView.currentVersion}；${upgradeCheckError || upgradeView.message}`;
 
+  async function persistLogSources(next: LogSourceSetting[]) {
+    const normalized = normalizeLogSourcesForForm(next);
+    const response = await apiPost<Settings>('/api/settings', {
+      log_sources: JSON.stringify(normalized),
+    });
+    const persisted = normalizeLogSourcesForForm(parseLogSources(response.log_sources));
+    const applied = persisted.length || normalized.length === 0 ? persisted : normalized;
+    setSavedLogSources(applied);
+    if (importSourceID && !applied.some((source) => source.enabled !== false && source.source_id === importSourceID)) {
+      setImportSourceID('');
+    }
+    await loadReceiverStatus();
+    return applied;
+  }
+
+  function openSourceEditor(type: 'file' | 'rsyslog', index: number | null = null) {
+    const source = index === null ? undefined : savedLogSources[index];
+    const sourceID = source?.source_id || nextSourceID(type === 'rsyslog' ? 'rsyslog' : 'source', savedLogSources);
+    sourceForm.resetFields();
+    sourceForm.setFieldsValue(source || (type === 'rsyslog' ? {
+      source_id: sourceID,
+      log_tag: '',
+      source_type: 'rsyslog',
+      listen_protocol: 'udp',
+      listen_host: '0.0.0.0',
+      listen_port: 5514,
+      client_ip: '',
+      spool_dir: defaultSpoolDir(sourceID),
+      archive_dir: '',
+      archive_retention_days: 0,
+      enabled: true,
+    } : {
+      source_id: sourceID,
+      log_tag: '',
+      log_dir: '',
+      source_type: 'file',
+      enabled: true,
+    }));
+    setSourceEditor({ type, index });
+  }
+
+  async function saveSourceEditor() {
+    if (!sourceEditor) return;
+    try {
+      const values = await sourceForm.validateFields();
+      const source = normalizeLogSourceSetting({
+        ...values,
+        source_type: sourceEditor.type,
+        listen_host: sourceEditor.type === 'rsyslog' ? '0.0.0.0' : undefined,
+      }, sourceEditor.index ?? savedLogSources.length);
+      const next = sourceEditor.index === null
+        ? [...savedLogSources, source]
+        : savedLogSources.map((item, index) => (index === sourceEditor.index ? source : item));
+      setSourceSaving(true);
+      await persistLogSources(next);
+      setSourceEditor(null);
+      message.success(sourceEditor.index === null ? '日志源已添加并应用' : '日志源已更新并应用');
+    } catch (error) {
+      if (error && typeof error === 'object' && 'errorFields' in error) return;
+      message.error(error instanceof Error ? error.message : '保存日志源失败');
+    } finally {
+      setSourceSaving(false);
+    }
+  }
+
+  async function toggleLogSource(index: number, enabled: boolean) {
+    const previous = savedLogSources;
+    const next = previous.map((source, sourceIndex) => (sourceIndex === index ? { ...source, enabled } : source));
+    setSavedLogSources(next);
+    setSourceSaving(true);
+    try {
+      await persistLogSources(next);
+      message.success(enabled ? '日志源已启用' : '日志源已停用');
+    } catch (error) {
+      setSavedLogSources(previous);
+      message.error(error instanceof Error ? error.message : '更新日志源状态失败');
+    } finally {
+      setSourceSaving(false);
+    }
+  }
+
+  async function deleteLogSource(index: number) {
+    const next = savedLogSources.filter((_, sourceIndex) => sourceIndex !== index);
+    setSourceSaving(true);
+    try {
+      await persistLogSources(next);
+      message.success('日志源配置已删除');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '删除日志源失败');
+    } finally {
+      setSourceSaving(false);
+    }
+  }
+
   const save = async () => {
     try {
       setLoading(true);
       const values = form.getFieldsValue();
-      const logSources = normalizeLogSourcesForForm(parseLogSources(values.log_sources));
-      const firstSource = logSources[0];
+      const { log_sources: _ignoredLogSources, ...settingsValues } = values;
+      const firstSource = savedLogSources[0];
       await apiPost('/api/settings', {
-        ...values,
+        ...settingsValues,
         cidr_aliases: JSON.stringify(values.cidr_aliases || []),
-        log_sources: JSON.stringify(logSources),
         log_dir: firstSource?.log_dir || values.log_dir,
         log_tag: firstSource?.log_tag || values.log_tag,
         auto_scan_enabled: String(Boolean(values.auto_scan_enabled)),
@@ -267,10 +418,6 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
         auto_scan_timezone: values.auto_scan_timezone || 'Asia/Shanghai',
         auto_scan_interval_sec: String(Number(values.auto_scan_interval_sec) || 3600),
       });
-      setSavedLogSources(logSources);
-      if (importSourceID && !logSources.some((source) => source.enabled !== false && source.source_id === importSourceID)) {
-        setImportSourceID('');
-      }
       message.success('设置已保存');
     } catch (error) {
       message.error(error instanceof Error ? error.message : '保存设置失败');
@@ -466,109 +613,120 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
               label: tabLabel(<FolderOpenOutlined />, '日志源'),
               children: (
                 <section className="ops-section maintenance-card">
-                  <Form.List name="log_sources">
-                    {(fields, { add, remove }) => (
-                      <div className="source-list-editor">
-                        <div className="source-list-head">
-                          <div>
-                            <strong>日志源配置</strong>
-                          </div>
-                          <Space wrap>
-                            <Button
-                              icon={<PlusOutlined />}
-                              onClick={() => add({ source_id: `source-${fields.length + 1}`, log_tag: '', log_dir: '', source_type: 'file', enabled: true })}
-                            >
-                              添加文件目录源
-                            </Button>
-                            <Button
-                              icon={<PlusOutlined />}
-                              onClick={() => add({
-                                source_id: `rsyslog-${fields.length + 1}`,
-                                log_tag: '',
-                                source_type: 'rsyslog',
-                                listen_protocol: 'udp',
-                                listen_host: '0.0.0.0',
-                                listen_port: 5514,
-                                spool_dir: defaultSpoolDir(`rsyslog-${fields.length + 1}`),
-                                enabled: true,
-                              })}
-                            >
-                              添加 RSyslog 接收源
-                            </Button>
-                          </Space>
-                        </div>
-                        {fields.map((field) => (
-                          <Form.Item noStyle shouldUpdate key={field.key}>
-                            {({ getFieldValue }) => {
-                              const sourceType = getFieldValue(['log_sources', field.name, 'source_type']) || 'file';
-                              const sourceTitle = sourceType === 'rsyslog' ? 'RSyslog 接收源' : '文件目录源';
-                              return (
-                                <div className={`source-item-card source-item-card--${sourceType}`}>
-                                  <div className="source-item-head">
-                                    <Tag color={sourceType === 'rsyslog' ? 'processing' : 'default'}>{sourceTitle}</Tag>
-                                    <Space>
-                                      <Form.Item name={[field.name, 'enabled']} valuePropName="checked" noStyle>
-                                        <Switch checkedChildren="启用" unCheckedChildren="停用" />
-                                      </Form.Item>
-                                      <Popconfirm
-                                        title="删除这个日志源？"
-                                        okText="删除"
-                                        cancelText="取消"
-                                        onConfirm={() => remove(field.name)}
-                                      >
-                                        <Button danger icon={<DeleteOutlined />} aria-label="删除日志源" />
-                                      </Popconfirm>
-                                    </Space>
-                                  </div>
-                                  <div className="source-fields-grid">
-                                    <Form.Item name={[field.name, 'source_id']} label="设备 ID" rules={[{ required: true, message: '请输入设备 ID' }]}>
-                                      <Input prefix={<DatabaseOutlined />} placeholder="device-id" />
-                                    </Form.Item>
-                                    <Form.Item name={[field.name, 'log_tag']} label="日志名称" rules={[{ required: true, message: '请输入日志名称' }]}>
-                                      <Input prefix={<TagsOutlined />} placeholder="日志名称" />
-                                    </Form.Item>
-                                    <Form.Item name={[field.name, 'source_type']} label="日志源类型" initialValue="file">
-                                      <Select
-                                        options={[
-                                          { value: 'file', label: '文件目录源' },
-                                          { value: 'rsyslog', label: 'RSyslog 接收源' },
-                                        ]}
-                                      />
-                                    </Form.Item>
-                                    {sourceType === 'rsyslog' ? (
-                                      <>
-                                        <Form.Item name={[field.name, 'listen_protocol']} label="接收协议" initialValue="udp">
-                                          <Select
-                                            options={[
-                                              { value: 'udp', label: 'UDP' },
-                                              { value: 'tcp', label: 'TCP' },
-                                            ]}
-                                          />
-                                        </Form.Item>
-                                        <Form.Item name={[field.name, 'listen_port']} label="监听端口" initialValue={5514} rules={[{ required: true, message: '请输入监听端口' }]}>
-                                          <InputNumber min={1} max={65535} prefix={<GlobalOutlined />} placeholder="默认 5514" style={{ width: '100%' }} />
-                                        </Form.Item>
-                                        <Form.Item className="source-field-wide" name={[field.name, 'spool_dir']} label="落盘目录" rules={[{ required: true, message: '请输入落盘目录' }]}>
-                                          <Input prefix={<FolderOpenOutlined />} placeholder="/data/fwlog/received/device-id" />
-                                        </Form.Item>
-                                        <Form.Item name={[field.name, 'listen_host']} initialValue="0.0.0.0" hidden>
-                                          <Input />
-                                        </Form.Item>
-                                      </>
-                                    ) : (
-                                      <Form.Item className="source-field-wide" name={[field.name, 'log_dir']} label="文件目录" rules={[{ required: true, message: '请输入文件目录' }]}>
-                                        <Input prefix={<FolderOpenOutlined />} placeholder="/data/device_fw_log" />
-                                      </Form.Item>
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            }}
-                          </Form.Item>
-                        ))}
+                  <div className="source-list-editor">
+                    <div className="source-list-head">
+                      <div>
+                        <strong>日志源配置</strong>
+                        <Text type="secondary">添加、启停或修改后立即应用</Text>
                       </div>
-                    )}
-                  </Form.List>
+                      <Space wrap>
+                        <Button icon={<PlusOutlined />} onClick={() => openSourceEditor('file')}>
+                          添加文件目录源
+                        </Button>
+                        <Button type="primary" icon={<PlusOutlined />} onClick={() => openSourceEditor('rsyslog')}>
+                          添加 RSyslog 接收源
+                        </Button>
+                      </Space>
+                    </div>
+
+                    <div className="source-management-list">
+                      <div className="source-management-row source-management-row--header">
+                        <span>设备 ID</span>
+                        <span>日志名称</span>
+                        <span>类型</span>
+                        <span>客户端 / 目录</span>
+                        <span>接收与归档</span>
+                        <span>状态</span>
+                        <span>操作</span>
+                      </div>
+                      {savedLogSources.length === 0 ? (
+                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无日志源" />
+                      ) : savedLogSources.map((source, index) => {
+                        const sourceID = source.source_id || `source-${index + 1}`;
+                        const isRSyslog = source.source_type === 'rsyslog';
+                        const status = receiverStatuses[sourceID];
+                        const lastReceivedAt = formatReceiverTime(status?.last_received_at);
+                        const lastArchiveAt = formatReceiverTime(status?.last_archive_at);
+                        const retentionDays = Number(source.archive_retention_days || 0);
+                        const sourceError = status?.error || status?.archive_error;
+                        return (
+                          <div className="source-management-row" key={sourceID}>
+                            <div className="source-management-cell" data-label="设备 ID">
+                              <span className="source-management-mobile-label">设备 ID</span>
+                              <strong title={sourceID}>{sourceID}</strong>
+                            </div>
+                            <div className="source-management-cell" data-label="日志名称">
+                              <span className="source-management-mobile-label">日志名称</span>
+                              <strong title={source.log_tag || ''}>{source.log_tag || '-'}</strong>
+                            </div>
+                            <div className="source-management-cell" data-label="类型">
+                              <span className="source-management-mobile-label">类型</span>
+                              <Tag color={isRSyslog ? 'processing' : 'default'}>{isRSyslog ? 'RSyslog 接收源' : '文件目录源'}</Tag>
+                            </div>
+                            <div className="source-management-cell source-management-detail" data-label="客户端 / 目录">
+                              <span className="source-management-mobile-label">客户端 / 目录</span>
+                              <strong title={isRSyslog ? source.client_ip : source.log_dir}>
+                                {isRSyslog ? source.client_ip || '兼容全匹配' : source.log_dir || '-'}
+                              </strong>
+                              {isRSyslog && <Text type="secondary" title={source.spool_dir}>落盘：{source.spool_dir || '-'}</Text>}
+                            </div>
+                            <div className="source-management-cell source-management-detail" data-label="接收与归档">
+                              <span className="source-management-mobile-label">接收与归档</span>
+                              {isRSyslog ? (
+                                <>
+                                  <strong>{String(source.listen_protocol || 'udp').toUpperCase()} · {Number(source.listen_port || 5514)}</strong>
+                                  <Text type="secondary">最近客户端：{status?.last_client_ip || '尚未收到'}</Text>
+                                  <Text type="secondary">接收：{status?.received_messages || 0} 条{lastReceivedAt ? ` · ${lastReceivedAt}` : ''}</Text>
+                                  <Text type="secondary">
+                                    归档：{source.archive_dir ? '指定目录' : '原地压缩'} · {retentionDays === 0 ? '永久保留' : `${retentionDays} 天`}{lastArchiveAt ? ` · ${lastArchiveAt}` : ''}
+                                  </Text>
+                                </>
+                              ) : <Text type="secondary">文件扫描</Text>}
+                            </div>
+                            <div className="source-management-cell" data-label="状态">
+                              <span className="source-management-mobile-label">状态</span>
+                              {source.enabled === false ? (
+                                <Tag>已停用</Tag>
+                              ) : sourceError ? (
+                                <Tooltip title={sourceError}><Tag color="error">异常</Tag></Tooltip>
+                              ) : isRSyslog ? (
+                                <Tag color={status?.running ? 'success' : 'warning'}>{status?.running ? '运行中' : '等待启动'}</Tag>
+                              ) : <Tag color="success">已启用</Tag>}
+                            </div>
+                            <div className="source-management-actions" data-label="操作">
+                              <Switch
+                                size="small"
+                                checked={source.enabled !== false}
+                                loading={sourceSaving}
+                                aria-label={`${sourceID} 启用状态`}
+                                onChange={(checked) => void toggleLogSource(index, checked)}
+                              />
+                              <Tooltip title="编辑">
+                                <Button
+                                  type="text"
+                                  icon={<EditOutlined />}
+                                  aria-label="编辑日志源"
+                                  disabled={sourceSaving}
+                                  onClick={() => openSourceEditor(isRSyslog ? 'rsyslog' : 'file', index)}
+                                />
+                              </Tooltip>
+                              <Popconfirm
+                                title="删除这个日志源？"
+                                description="只删除配置，不会删除已落盘或已归档文件。"
+                                okText="删除"
+                                cancelText="取消"
+                                onConfirm={() => void deleteLogSource(index)}
+                              >
+                                <Tooltip title="删除">
+                                  <Button type="text" danger icon={<DeleteOutlined />} aria-label="删除日志源" disabled={sourceSaving} />
+                                </Tooltip>
+                              </Popconfirm>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </section>
               ),
             },
@@ -927,6 +1085,111 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
           ]}
         />
       </Form>
+      <Modal
+        open={sourceEditor !== null}
+        title={sourceEditor?.index === null
+          ? sourceEditor.type === 'rsyslog' ? '添加 RSyslog 接收源' : '添加文件目录源'
+          : sourceEditor?.type === 'rsyslog' ? '编辑 RSyslog 接收源' : '编辑文件目录源'}
+        width={760}
+        okText="保存并应用"
+        cancelText="取消"
+        confirmLoading={sourceSaving}
+        maskClosable={!sourceSaving}
+        onOk={() => void saveSourceEditor()}
+        onCancel={() => {
+          if (!sourceSaving) setSourceEditor(null);
+        }}
+      >
+        <Form form={sourceForm} layout="vertical" preserve={false} className="source-editor-form">
+          <div className="source-editor-grid">
+            <Form.Item
+              name="source_id"
+              label="设备 ID"
+              rules={[
+                { required: true, message: '请输入设备 ID' },
+                { pattern: /^[A-Za-z0-9._-]+$/, message: '只允许字母、数字、点、下划线和连字符' },
+              ]}
+            >
+              <Input prefix={<DatabaseOutlined />} placeholder="device-id" />
+            </Form.Item>
+            <Form.Item name="log_tag" label="日志名称" rules={[{ required: true, message: '请输入日志名称' }]}>
+              <Input prefix={<TagsOutlined />} placeholder="例如：出口防火墙" />
+            </Form.Item>
+
+            {sourceEditor?.type === 'rsyslog' ? (
+              <>
+                <Form.Item
+                  className="source-editor-field-wide"
+                  name="client_ip"
+                  label="客户端 IP / 网段"
+                  rules={[
+                    { required: true, whitespace: true, message: '请输入客户端 IP 或网段' },
+                    { pattern: /^(?:[0-9]{1,3}(?:\.[0-9]{1,3}){3}(?:\/(?:[0-9]|[12][0-9]|3[0-2]))?|[0-9A-Fa-f:.]+(?:\/(?:[0-9]|[1-9][0-9]|1[01][0-9]|12[0-8]))?)$/, message: '请输入有效的 IPv4、IPv6 或 CIDR' },
+                  ]}
+                >
+                  <Input prefix={<GlobalOutlined />} placeholder="192.168.10.20 或 192.168.10.0/24" />
+                </Form.Item>
+                <Form.Item name="listen_protocol" label="接收协议" rules={[{ required: true }]}>
+                  <Select options={[
+                    { value: 'udp', label: 'UDP' },
+                    { value: 'tcp', label: 'TCP' },
+                  ]} />
+                </Form.Item>
+                <Form.Item name="listen_port" label="监听端口" rules={[{ required: true, message: '请输入监听端口' }]}>
+                  <InputNumber min={1} max={65535} prefix={<GlobalOutlined />} placeholder="默认 5514" />
+                </Form.Item>
+                <Form.Item
+                  className="source-editor-field-wide"
+                  name="spool_dir"
+                  label="落盘目录"
+                  rules={[
+                    { required: true, whitespace: true, message: '请输入落盘目录' },
+                    { pattern: /^\//, message: '请输入绝对路径' },
+                  ]}
+                >
+                  <Input prefix={<FolderOpenOutlined />} placeholder="/data/fwlog/received/device-id" />
+                </Form.Item>
+                <Form.Item
+                  className="source-editor-field-wide"
+                  name="archive_dir"
+                  label="归档目录"
+                  extra="留空时压缩文件保留在落盘目录，不移动"
+                  rules={[{ pattern: /^(?:\/.*)?$/, message: '请输入绝对路径或留空' }]}
+                >
+                  <Input prefix={<FolderOpenOutlined />} placeholder="可选，例如 /data/fwlog/archive/device-id" />
+                </Form.Item>
+                <Form.Item
+                  name="archive_retention_days"
+                  label="归档保留天数"
+                  extra="0 表示永久保留"
+                  rules={[{ required: true, message: '请输入归档保留天数' }]}
+                >
+                  <InputNumber min={0} max={3650} precision={0} />
+                </Form.Item>
+                <Form.Item name="listen_host" hidden>
+                  <Input />
+                </Form.Item>
+              </>
+            ) : (
+              <Form.Item
+                className="source-editor-field-wide"
+                name="log_dir"
+                label="文件目录"
+                rules={[
+                  { required: true, whitespace: true, message: '请输入文件目录' },
+                  { pattern: /^\//, message: '请输入绝对路径' },
+                ]}
+              >
+                <Input prefix={<FolderOpenOutlined />} placeholder="/data/device_fw_log" />
+              </Form.Item>
+            )}
+
+            <Form.Item className="source-editor-field-wide" name="enabled" label="启用状态" valuePropName="checked">
+              <Switch checkedChildren="启用" unCheckedChildren="停用" />
+            </Form.Item>
+          </div>
+        </Form>
+      </Modal>
     </div>
   );
 }

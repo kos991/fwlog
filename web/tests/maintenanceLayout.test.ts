@@ -83,7 +83,7 @@ test('maintenance cards share compact fields and summary copy', () => {
   assert.match(styles, /\.maintenance-plan-grid\s*\{[^}]*grid-template-columns:[^;]+repeat\(4,/s);
 });
 
-test('log source editor distinguishes directory and rsyslog receivers with selectable transport', () => {
+test('log source management distinguishes directory and rsyslog receivers with selectable transport', () => {
   const page = fs.readFileSync(pagePath, 'utf8');
   const styles = fs.readFileSync(stylesPath, 'utf8');
 
@@ -92,7 +92,9 @@ test('log source editor distinguishes directory and rsyslog receivers with selec
   }
   assert.match(page, /\{ value: 'udp', label: 'UDP' \}/);
   assert.match(page, /\{ value: 'tcp', label: 'TCP' \}/);
-  assert.doesNotMatch(page, /name=\{\[field\.name, 'listen_protocol'\]\} initialValue="udp" hidden/);
-  assert.match(styles, /\.source-item-card\s*\{/);
-  assert.match(styles, /\.source-fields-grid\s*\{/);
+  assert.match(page, /className="source-management-list"/);
+  assert.match(page, /<Modal/);
+  assert.doesNotMatch(page, /<Form\.List name="log_sources">/);
+  assert.match(styles, /\.source-management-list\s*\{/);
+  assert.match(styles, /\.source-editor-grid\s*\{/);
 });

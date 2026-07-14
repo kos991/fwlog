@@ -1698,38 +1698,137 @@ body {
   font-size: 15px;
 }
 
-.source-item-card {
-  display: grid;
-  gap: 12px;
-  padding: 14px 0 4px;
-  border-top: 1px solid var(--fw-line-soft);
+.source-list-head .ant-typography {
+  font-size: 12px;
 }
 
-.source-item-head {
-  display: flex;
+.source-management-list {
+  display: grid;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--fw-line-soft);
+  border-radius: 8px;
+  background: var(--fw-surface);
+}
+
+.source-management-row {
+  display: grid;
+  grid-template-columns: minmax(80px, 0.65fr) minmax(90px, 0.8fr) minmax(80px, 0.65fr) minmax(0, 1.25fr) minmax(0, 1.65fr) 76px 112px;
+  gap: 12px;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  min-width: 0;
+  min-height: 58px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--fw-line-soft);
 }
 
-.source-fields-grid {
+.source-management-row:last-child {
+  border-bottom: 0;
+}
+
+.source-management-row:not(.source-management-row--header):hover {
+  background: var(--fw-surface-soft);
+}
+
+.source-management-row--header {
+  min-height: 36px;
+  padding-block: 6px;
+  background: var(--fw-surface-soft);
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.source-management-cell,
+.source-management-actions {
+  min-width: 0;
+}
+
+.source-management-cell {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0 12px;
-  min-width: 0;
+  gap: 3px;
+  align-content: center;
 }
 
-.source-fields-grid .ant-form-item {
+.source-management-cell strong,
+.source-management-cell .ant-typography {
   min-width: 0;
-  margin-bottom: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.source-fields-grid .ant-input-number {
+.source-management-cell strong {
+  color: var(--fw-text);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.source-management-cell .ant-typography {
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.source-management-cell .ant-tag {
+  width: fit-content;
+  max-width: 100%;
+  margin-inline-end: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.source-management-detail {
+  align-self: stretch;
+}
+
+.source-management-actions {
+  display: grid;
+  grid-template-columns: 30px 32px 32px;
+  gap: 4px;
+  align-items: center;
+  justify-content: end;
+}
+
+.source-management-actions .ant-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+
+.source-management-mobile-label {
+  display: none;
+}
+
+.source-management-list .ant-empty {
+  margin-block: 28px;
+}
+
+.source-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+  min-width: 0;
+  padding-top: 8px;
+}
+
+.source-editor-grid .ant-form-item {
+  min-width: 0;
+  margin-bottom: 14px;
+}
+
+.source-editor-grid .ant-input-number {
   width: 100%;
 }
 
-.source-field-wide {
-  grid-column: span 2;
+.source-editor-field-wide {
+  grid-column: 1 / -1;
+}
+
+.source-editor-form .ant-form-item-extra {
+  padding-top: 3px;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .source-row {
@@ -2203,18 +2302,65 @@ body {
     grid-template-columns: 1fr;
   }
 
-  .source-fields-grid {
+  .source-list-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .source-management-list {
+    border-inline: 0;
+    border-radius: 0;
+  }
+
+  .source-management-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 14px 4px;
+  }
+
+  .source-management-row--header {
+    display: none;
+  }
+
+  .source-management-cell {
+    grid-template-columns: 112px minmax(0, 1fr);
+    gap: 4px 10px;
+    align-items: baseline;
+  }
+
+  .source-management-cell > :not(.source-management-mobile-label) {
+    grid-column: 2;
+  }
+
+  .source-management-mobile-label {
+    grid-column: 1;
+    grid-row: 1 / span 4;
+    display: block;
+    color: #6b7280;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .source-management-cell strong,
+  .source-management-cell .ant-typography {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .source-management-actions {
+    grid-template-columns: 36px 36px 36px;
+    justify-content: start;
+    padding-left: 122px;
+  }
+
+  .source-editor-grid {
     grid-template-columns: 1fr;
   }
 
-  .source-field-wide {
+  .source-editor-field-wide {
     grid-column: auto;
-  }
-
-  .source-list-head,
-  .source-item-head {
-    align-items: flex-start;
-    flex-direction: column;
   }
 
   .maintenance-ops-card {
