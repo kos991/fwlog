@@ -52,6 +52,10 @@ func (s appQueryService) Query(r *http.Request) (QueryResponse, error) {
 	visibility := query.BuildVisibleRanges(req.Start, req.End, states)
 	querySQL, args, err := query.BuildQuerySQL(req, visibility)
 	if err != nil {
+		var queryErr *query.QueryError
+		if errors.As(err, &queryErr) {
+			return QueryResponse{}, queryErr
+		}
 		return QueryResponse{
 			Records:     []map[string]any{},
 			Total:       0,

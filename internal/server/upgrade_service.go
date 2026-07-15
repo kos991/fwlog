@@ -818,7 +818,7 @@ func copyFileForBackup(src, dst string) error {
 func verifyPackageChecksum(ctx context.Context, release githubRelease, pkg upgradePackage) error {
 	checksumURL := findChecksumAssetURL(release)
 	if checksumURL == "" {
-		return nil
+		return errors.New("发布文件缺少 checksums.txt，已拒绝安装未校验的升级包")
 	}
 
 	tempDir := filepath.Dir(pkg.Path)

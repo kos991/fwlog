@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -19,9 +21,13 @@ import (
 const sessionCookieName = security.SessionCookieName
 
 const (
-	maxLoginFailures = 5
-	loginCooldown    = 5 * time.Minute
-	sessionMaxAge    = security.SessionMaxAge
+	maxLoginFailures    = 5
+	loginCooldown       = 5 * time.Minute
+	maxLoginBodyBytes   = 4 * 1024
+	maxJSONBodyBytes    = 1024 * 1024
+	maxPasswordBytes    = 256
+	maxConcurrentLogins = 4
+	sessionMaxAge       = security.SessionMaxAge
 )
 
 type loginRequest struct {
@@ -34,32 +40,48 @@ type passwordChangeRequest struct {
 }
 
 type loginLimiter struct {
-	mu          sync.Mutex
+	mu      sync.Mutex
+	buckets map[string]loginFailureBucket
+}
+
+type loginFailureBucket struct {
 	failures    int
 	lastFailure time.Time
 }
 
-func (l *loginLimiter) check() error {
+func (l *loginLimiter) check(source string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.failures >= maxLoginFailures && time.Since(l.lastFailure) < loginCooldown {
-		remaining := loginCooldown - time.Since(l.lastFailure)
+	bucket := l.buckets[source]
+	if bucket.failures >= maxLoginFailures && time.Since(bucket.lastFailure) < loginCooldown {
+		remaining := loginCooldown - time.Since(bucket.lastFailure)
 		return fmt.Errorf("登录尝试过于频繁，请 %d 分钟后重试", int(remaining.Minutes())+1)
 	}
 	return nil
 }
 
-func (l *loginLimiter) recordFailure() {
+func (l *loginLimiter) recordFailure(source string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.failures++
-	l.lastFailure = time.Now()
+	if l.buckets == nil {
+		l.buckets = make(map[string]loginFailureBucket)
+	}
+	now := time.Now()
+	for key, bucket := range l.buckets {
+		if now.Sub(bucket.lastFailure) >= loginCooldown {
+			delete(l.buckets, key)
+		}
+	}
+	bucket := l.buckets[source]
+	bucket.failures++
+	bucket.lastFailure = now
+	l.buckets[source] = bucket
 }
 
-func (l *loginLimiter) reset() {
+func (l *loginLimiter) reset(source string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.failures = 0
+	delete(l.buckets, source)
 }
 
 func (a *App) sessionHandler() http.Handler {
@@ -70,7 +92,19 @@ func (a *App) sessionHandler() http.Handler {
 
 func (a *App) loginHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := a.loginLimiter.check(); err != nil {
+		select {
+		case a.loginSem <- struct{}{}:
+			defer func() { <-a.loginSem }()
+		default:
+			writeJSONStatus(w, http.StatusTooManyRequests, map[string]any{
+				"error":   "login_busy",
+				"message": "登录请求较多，请稍后重试",
+			})
+			return
+		}
+
+		source := loginSource(r)
+		if err := a.loginLimiter.check(source); err != nil {
 			writeJSONStatus(w, http.StatusTooManyRequests, map[string]any{
 				"error":   "rate_limited",
 				"message": err.Error(),
@@ -80,7 +114,12 @@ func (a *App) loginHandler() http.Handler {
 
 		payload, err := decodeLoginRequest(r)
 		if err != nil {
-			writeJSONStatus(w, http.StatusBadRequest, map[string]any{
+			status := http.StatusBadRequest
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				status = http.StatusRequestEntityTooLarge
+			}
+			writeJSONStatus(w, status, map[string]any{
 				"error":   "invalid_request",
 				"message": err.Error(),
 			})
@@ -88,7 +127,7 @@ func (a *App) loginHandler() http.Handler {
 		}
 
 		if !a.verifyPassword(payload.Password) {
-			a.loginLimiter.recordFailure()
+			a.loginLimiter.recordFailure(source)
 			writeJSONStatus(w, http.StatusUnauthorized, map[string]any{
 				"error":   "invalid_password",
 				"message": "管理员密码错误",
@@ -96,7 +135,7 @@ func (a *App) loginHandler() http.Handler {
 			return
 		}
 
-		a.loginLimiter.reset()
+		a.loginLimiter.reset(source)
 
 		token, err := newSessionToken()
 		if err != nil {
@@ -129,11 +168,14 @@ func (a *App) logoutHandler() http.Handler {
 
 func decodeLoginRequest(r *http.Request) (loginRequest, error) {
 	var payload loginRequest
-	if err := decodeJSONBody(r, &payload); err != nil {
+	if err := decodeJSONBodyLimit(r, &payload, maxLoginBodyBytes); err != nil {
 		return loginRequest{}, err
 	}
 	if strings.TrimSpace(payload.Password) == "" {
 		return loginRequest{}, errors.New("password 不能为空")
+	}
+	if len(payload.Password) > maxPasswordBytes {
+		return loginRequest{}, fmt.Errorf("password 不能超过 %d 字节", maxPasswordBytes)
 	}
 	return payload, nil
 }
@@ -149,6 +191,9 @@ func decodePasswordChangeRequest(r *http.Request) (passwordChangeRequest, error)
 	if strings.TrimSpace(payload.NewPassword) == "" {
 		return passwordChangeRequest{}, errors.New("new_password 不能为空")
 	}
+	if len(payload.CurrentPassword) > maxPasswordBytes || len(payload.NewPassword) > maxPasswordBytes {
+		return passwordChangeRequest{}, fmt.Errorf("密码不能超过 %d 字节", maxPasswordBytes)
+	}
 	if err := validateNewAdminPassword(payload.NewPassword); err != nil {
 		return passwordChangeRequest{}, err
 	}
@@ -163,17 +208,39 @@ func validateNewAdminPassword(password string) error {
 }
 
 func decodeJSONBody(r *http.Request, target any) error {
+	return decodeJSONBodyLimit(r, target, maxJSONBodyBytes)
+}
+
+func decodeJSONBodyLimit(r *http.Request, target any, maxBytes int64) error {
 	if r.Body == nil {
 		return errors.New("请求体不能为空")
 	}
 	defer r.Body.Close()
 
+	r.Body = http.MaxBytesReader(nil, r.Body, maxBytes)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
 		return err
 	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("请求体只能包含一个 JSON 对象")
+		}
+		return err
+	}
 	return nil
+}
+
+func loginSource(r *http.Request) string {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
+	if err == nil && host != "" {
+		return host
+	}
+	if r.RemoteAddr == "" {
+		return "unknown"
+	}
+	return r.RemoteAddr
 }
 
 func newSessionToken() (string, error) {

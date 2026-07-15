@@ -1,7 +1,11 @@
 import React from 'react';
-import type { JSAnimation, Scope } from 'animejs';
+import type { Scope } from 'animejs';
 
 type AnimeModule = typeof import('animejs');
+type PausableAnimation = {
+  pause: () => unknown;
+  resume: () => unknown;
+};
 
 export type LoginSceneMotion = {
   ready: boolean;
@@ -16,7 +20,7 @@ function cleanupScope(scope: Scope | null) {
 export function useLoginSceneMotion(root: React.RefObject<HTMLElement>): LoginSceneMotion {
   const animeRef = React.useRef<AnimeModule | null>(null);
   const scopeRef = React.useRef<Scope | null>(null);
-  const loopsRef = React.useRef<JSAnimation[]>([]);
+  const loopsRef = React.useRef<PausableAnimation[]>([]);
   const [ready, setReady] = React.useState(false);
 
   React.useEffect(() => {
@@ -50,6 +54,9 @@ export function useLoginSceneMotion(root: React.RefObject<HTMLElement>): LoginSc
 
           if (self.matches.reducedMotion) return;
 
+          anime.set('[data-login-logo-channel]', { strokeDashoffset: 1 });
+          anime.set('[data-login-title-char]', { opacity: 0, translateY: 10 });
+
           anime
             .createTimeline({ defaults: { ease: 'out(3)' } })
             .add('[data-login-grid]', { opacity: [0, 1], duration: 260 })
@@ -80,15 +87,50 @@ export function useLoginSceneMotion(root: React.RefObject<HTMLElement>): LoginSc
                 duration: 400,
               },
               '-=300',
-            );
+            )
+            .add('[data-login-logo-channel]', {
+              strokeDashoffset: 0,
+              delay: anime.stagger(70),
+              duration: 420,
+            }, '-=320')
+            .add('[data-login-title-char]', {
+              opacity: 1,
+              translateY: 0,
+              delay: anime.stagger(36),
+              duration: 380,
+            }, '-=260');
+
+          const logoRoutes = [
+            { name: 'top', path: '#login-logo-route-top', delay: 0 },
+            { name: 'middle', path: '#login-logo-route-middle', delay: 320 },
+            { name: 'bottom', path: '#login-logo-route-bottom', delay: 640 },
+          ];
+
+          loopsRef.current = logoRoutes.map((route) =>
+            anime.animate(`[data-login-logo-particle][data-logo-route="${route.name}"]`, {
+              ...anime.createMotionPath(route.path),
+              opacity: [0, 1, 1, 0],
+              duration: 2400,
+              delay: route.delay,
+              ease: 'linear',
+              loop: true,
+            }),
+          );
+          loopsRef.current.push(
+            anime.animate('[data-login-logo-channel], .brand-mark__hub', {
+              opacity: [0.58, 1, 0.58],
+              duration: 2400,
+              ease: 'inOut(2)',
+              loop: true,
+            }),
+          );
 
           if (self.matches.mobile) return;
 
           const ingestMotion = anime.createMotionPath('#login-route-ingest');
           const archiveMotion = anime.createMotionPath('#login-route-archive');
-          const queryMotion = anime.createMotionPath('#login-route-query');
 
-          loopsRef.current = [
+          loopsRef.current.push(
             anime.animate('[data-login-node-icon] > *', {
               opacity: [0.58, 1, 0.58],
               strokeWidth: [1.8, 2.6, 1.8],
@@ -113,15 +155,7 @@ export function useLoginSceneMotion(root: React.RefObject<HTMLElement>): LoginSc
               ease: 'linear',
               loop: true,
             }),
-            anime.animate('[data-login-particle][data-route="query"]', {
-              ...queryMotion,
-              opacity: [0, 0.92, 0.92, 0],
-              duration: 5200,
-              delay: 1800,
-              ease: 'linear',
-              loop: true,
-            }),
-          ];
+          );
 
           if (document.hidden) {
             loopsRef.current.forEach((animation) => animation.pause());
@@ -155,14 +189,30 @@ export function useLoginSceneMotion(root: React.RefObject<HTMLElement>): LoginSc
   const playSuccess = React.useCallback(async () => {
     const anime = animeRef.current;
     const scope = scopeRef.current;
-    if (!anime || !scope || scope.matches.mobile || scope.matches.reducedMotion) return;
+    if (!anime || !scope || scope.matches.reducedMotion) return;
 
     try {
       loopsRef.current.forEach((animation) => animation.pause());
       await scope.execute(() =>
         anime
           .createTimeline({ defaults: { ease: 'inOut(3)' } })
-          .add('[data-login-particle]', { opacity: [1, 0], scale: [1, 0.35], duration: 170 })
+          .add('[data-login-logo-particle]', {
+            opacity: [1, 0],
+            scale: [1, 1.35, 0.4],
+            duration: 240,
+          })
+          .add('[data-login-logo-channel], .brand-mark__hub', {
+            opacity: [0.68, 1, 0.68],
+            strokeWidth: [1.6, 2.4, 1.6],
+            duration: 220,
+          }, '-=180')
+          .add('[data-login-title-char]', {
+            opacity: [1, 0.82],
+            translateY: [0, -2],
+            scaleX: [1, 0.98],
+            duration: 180,
+          })
+          .add('[data-login-particle]', { opacity: [1, 0], scale: [1, 0.35], duration: 170 }, '-=120')
           .add('.login-shell', { opacity: [1, 0], duration: 240 }, '-=70'),
       );
     } catch {

@@ -32,6 +32,8 @@ go run ./cmd/fwlog
 
 常用配置包括 ClickHouse 地址、日志目录、管理员密码和 IP 数据路径，具体字段见 `internal/config`。
 
+首次启动必须通过 `ADMIN_PASSWORD` 或权限为 `0600` 的 `ADMIN_PASSWORD_FILE` 提供管理员密码；RPM/DEB 安装会自动生成 `/etc/fwlog/admin-password`。手动上传未签名升级包默认关闭，仅可由运维人员临时设置 `ALLOW_UNSIGNED_UPGRADE_UPLOAD=true` 启用，日常升级应使用带 `checksums.txt` 的发布版本。
+
 ## 构建与验证
 
 ```powershell

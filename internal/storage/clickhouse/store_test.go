@@ -1,6 +1,7 @@
 package clickhouse
 
 import (
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +31,19 @@ func TestNatLogsDDLUsesExpectedPartitionAndOrderKey(t *testing.T) {
 	}
 }
 
+func TestNatLogsDDLUsesIPv6ColumnsForDualStackAddresses(t *testing.T) {
+	sql := natLogsTableDDL("nat_logs", true)
+
+	for _, column := range []string{"src_ip IPv6", "dst_ip IPv6", "nat_ip IPv6"} {
+		if !strings.Contains(sql, column) {
+			t.Fatalf("dual-stack DDL missing %q:\n%s", column, sql)
+		}
+	}
+	if strings.Contains(sql, "src_ip IPv4") || strings.Contains(sql, "dst_ip IPv4") || strings.Contains(sql, "nat_ip IPv4") {
+		t.Fatalf("dual-stack DDL must not keep IPv4-only address columns:\n%s", sql)
+	}
+}
+
 func TestStateTablesUseReplacingMergeTree(t *testing.T) {
 	sql := strings.Join(ClickHouseDDL(), "\n")
 
@@ -54,9 +68,34 @@ func TestNormalizePartitionKey(t *testing.T) {
 
 func TestNatLogsMigrationSQLPreservesBackupAndCopiesRows(t *testing.T) {
 	statements := strings.Join(natLogsMigrationSQL(), "\n")
-	for _, want := range []string{"CREATE TABLE nat_logs_source_date", "PARTITION BY (source_id, log_date)", "INSERT INTO nat_logs_source_date SELECT * FROM nat_logs", "RENAME TABLE nat_logs TO nat_logs_date_partition_backup, nat_logs_source_date TO nat_logs"} {
+	for _, want := range []string{"CREATE TABLE nat_logs_dual_stack", "PARTITION BY (source_id, log_date)", "INSERT INTO nat_logs_dual_stack", "FROM nat_logs", "RENAME TABLE nat_logs TO nat_logs_ipv4_backup, nat_logs_dual_stack TO nat_logs"} {
 		if !strings.Contains(statements, want) {
 			t.Fatalf("migration SQL missing %q:\n%s", want, statements)
+		}
+	}
+}
+
+func TestNatLogsMigrationSQLConvertsIPv4ColumnsWithoutDroppingOldTable(t *testing.T) {
+	statements := strings.Join(natLogsMigrationSQL(), "\n")
+
+	for _, want := range []string{
+		"CREATE TABLE nat_logs_dual_stack",
+		"IPv4ToIPv6(src_ip)",
+		"IPv4ToIPv6(dst_ip)",
+		"IPv4ToIPv6(nat_ip)",
+		"RENAME TABLE nat_logs TO nat_logs_ipv4_backup, nat_logs_dual_stack TO nat_logs",
+	} {
+		if !strings.Contains(statements, want) {
+			t.Fatalf("dual-stack migration SQL missing %q:\n%s", want, statements)
+		}
+	}
+}
+
+func TestNatLogsMigrationSQLDisablesInteractiveQueryLimits(t *testing.T) {
+	copySQL := natLogsMigrationSQL()[1]
+	for _, want := range []string{"max_execution_time = 0", "max_rows_to_read = 0"} {
+		if !strings.Contains(copySQL, want) {
+			t.Fatalf("migration copy SQL must override %q: %s", want, copySQL)
 		}
 	}
 }
@@ -117,9 +156,8 @@ func TestDestinationSubnetDistributionSQLCoversAllTraffic(t *testing.T) {
 	for _, want := range []string{
 		"log_date >= ?",
 		"source_id = ?",
-		"intDiv(toUInt32(dst_ip), 256)",
-		"IPv4NumToString",
-		"GROUP BY subnet",
+		"cutIPv6(dst_ip, 8, 1)",
+		"GROUP BY name",
 	} {
 		if !strings.Contains(sql, want) {
 			t.Fatalf("destination subnet SQL missing %q: %s", want, sql)
@@ -130,6 +168,33 @@ func TestDestinationSubnetDistributionSQLCoversAllTraffic(t *testing.T) {
 	}
 	if len(args) != 2 || args[1] != "fw-a" {
 		t.Fatalf("destination subnet args = %#v", args)
+	}
+}
+
+func TestDestinationSubnetDistributionSQLUsesIPv4Slash24AndIPv6Slash64(t *testing.T) {
+	sql, _ := destinationSubnetDistributionSQL(time.Time{}, "")
+
+	if !strings.Contains(sql, "cutIPv6(dst_ip, 8, 1)") {
+		t.Fatalf("destination subnet SQL must group IPv6 by /64 and mapped IPv4 by /24: %s", sql)
+	}
+}
+
+func TestIPStringUnmapsIPv4AndKeepsIPv6(t *testing.T) {
+	tests := []struct {
+		name string
+		ip   net.IP
+		want string
+	}{
+		{name: "mapped IPv4", ip: net.ParseIP("::ffff:192.0.2.10"), want: "192.0.2.10"},
+		{name: "IPv6", ip: net.ParseIP("2001:db8::10"), want: "2001:db8::10"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ipString(tt.ip); got != tt.want {
+				t.Fatalf("ipString(%v) = %q, want %q", tt.ip, got, tt.want)
+			}
+		})
 	}
 }
 

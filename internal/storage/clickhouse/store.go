@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -82,7 +83,7 @@ func (s *ClickHouseStore) EnsureTables(ctx context.Context) error {
 		}
 	}
 
-	return s.migrateNatLogsSourceDatePartition(ctx)
+	return s.migrateNatLogsDualStackSchema(ctx)
 }
 
 func (s *ClickHouseStore) ListDateStates(ctx context.Context, since time.Time) ([]DateIngestState, error) {
@@ -438,6 +439,9 @@ func (s *ClickHouseStore) distribution(ctx context.Context, column string, since
 		if err := rows.Scan(&item.Name, &item.Value); err != nil {
 			return nil, err
 		}
+		if column != "log_tag" {
+			item.Name = normalizeIPAddress(item.Name)
+		}
 		items = append(items, item)
 	}
 	return items, rows.Err()
@@ -457,6 +461,7 @@ func (s *ClickHouseStore) destinationSubnetDistribution(ctx context.Context, sin
 		if err := rows.Scan(&item.Name, &item.Value); err != nil {
 			return nil, err
 		}
+		item.Name = normalizeIPAddress(item.Name)
 		items = append(items, item)
 	}
 	return items, rows.Err()
@@ -464,13 +469,9 @@ func (s *ClickHouseStore) destinationSubnetDistribution(ctx context.Context, sin
 
 func destinationSubnetDistributionSQL(since time.Time, sourceID string) (string, []any) {
 	where, args := distributionWhere(since, sourceID)
-	sql := `SELECT IPv4NumToString(toUInt32(subnet * 256)) AS name, value
-FROM
-(
-    SELECT intDiv(toUInt32(dst_ip), 256) AS subnet, count() AS value
-    FROM nat_logs` + where + `
-    GROUP BY subnet
-)
+	sql := `SELECT cutIPv6(dst_ip, 8, 1) AS name, count() AS value
+FROM nat_logs` + where + `
+GROUP BY name
 ORDER BY value DESC`
 	return sql, args
 }
@@ -510,11 +511,18 @@ func ipString(ip net.IP) string {
 	if ip == nil {
 		return ""
 	}
-	text := ip.String()
-	if strings.HasPrefix(text, "::ffff:") {
-		return strings.TrimPrefix(text, "::ffff:")
+	if addr, ok := netip.AddrFromSlice(ip); ok {
+		return addr.Unmap().String()
 	}
-	return text
+	return ip.String()
+}
+
+func normalizeIPAddress(value string) string {
+	addr, err := netip.ParseAddr(strings.TrimSpace(value))
+	if err != nil {
+		return value
+	}
+	return addr.Unmap().String()
 }
 
 func ClickHouseDDL() []string {
@@ -603,11 +611,11 @@ func natLogsTableDDL(table string, ifNotExists bool) string {
     log_tag LowCardinality(String) CODEC(ZSTD(3)),
     log_date Date CODEC(DoubleDelta, ZSTD(3)),
     timestamp DateTime CODEC(DoubleDelta, ZSTD(3)),
-    src_ip IPv4 CODEC(ZSTD(3)),
+    src_ip IPv6 CODEC(ZSTD(3)),
     src_port UInt16 CODEC(T64, ZSTD(3)),
-    dst_ip IPv4 CODEC(ZSTD(3)),
+    dst_ip IPv6 CODEC(ZSTD(3)),
     dst_port UInt16 CODEC(T64, ZSTD(3)),
-    nat_ip IPv4 CODEC(ZSTD(3)),
+    nat_ip IPv6 CODEC(ZSTD(3)),
     nat_port UInt16 CODEC(T64, ZSTD(3)),
     protocol LowCardinality(String) CODEC(ZSTD(3)),
     action LowCardinality(String) DEFAULT 'ALLOW' CODEC(ZSTD(3)),

@@ -37,6 +37,7 @@ func TestPackageFormatFromFilenameAcceptsOnlyUpgradePackages(t *testing.T) {
 }
 
 func TestUpgradeUploadHandlerValidatesAndStartsDebPackage(t *testing.T) {
+	t.Setenv("ALLOW_UNSIGNED_UPGRADE_UPLOAD", "true")
 	oldRoot, oldRunCommand, oldLookPath := upgradeTempRoot, runCommand, lookPath
 	upgradeTempRoot = t.TempDir()
 	lookPath = func(string) (string, error) { return "", os.ErrNotExist }
@@ -82,5 +83,19 @@ func TestUpgradeUploadHandlerValidatesAndStartsDebPackage(t *testing.T) {
 	case <-called:
 	case <-time.After(2 * time.Second):
 		t.Fatal("uploaded package was not installed")
+	}
+}
+
+func TestUpgradeUploadHandlerRejectsUnsignedUploadsByDefault(t *testing.T) {
+	t.Setenv("ALLOW_UNSIGNED_UPGRADE_UPLOAD", "")
+
+	request := httptest.NewRequest(http.MethodPost, "/api/upgrade/upload", bytes.NewBufferString("not-used"))
+	response := httptest.NewRecorder()
+	app := NewApp(Config{})
+
+	app.upgradeUploadHandler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403, body = %s", response.Code, response.Body.String())
 	}
 }

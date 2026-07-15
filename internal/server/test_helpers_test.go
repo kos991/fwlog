@@ -6,6 +6,13 @@ import (
 	"testing"
 )
 
+func TestMain(m *testing.M) {
+	if err := os.Setenv("ADMIN_PASSWORD", "admin"); err != nil {
+		panic(err)
+	}
+	os.Exit(m.Run())
+}
+
 func repoPath(parts ...string) string {
 	segments := append([]string{"..", ".."}, parts...)
 	return filepath.Join(segments...)

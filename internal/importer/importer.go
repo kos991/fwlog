@@ -15,7 +15,12 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
 
-const defaultImportBatchSize = 20000
+const (
+	defaultImportBatchSize      = 20000
+	defaultMaxDecompressedBytes = 4 * 1024 * 1024 * 1024
+)
+
+var errDecompressedLogTooLarge = errors.New("gzip 解压后的日志超过允许大小")
 
 type clickHouseWriter interface {
 	PrepareBatch(ctx context.Context, query string, opts ...driver.PrepareBatchOption) (driver.Batch, error)
@@ -33,13 +38,14 @@ type ingestStateReader interface {
 }
 
 type Importer struct {
-	store     *ClickHouseStore
-	writer    clickHouseWriter
-	states    ingestStateWriter
-	now       func() time.Time
-	sleep     func(time.Duration)
-	batchSize int
-	writeGate batchWriteGate
+	store                *ClickHouseStore
+	writer               clickHouseWriter
+	states               ingestStateWriter
+	now                  func() time.Time
+	sleep                func(time.Duration)
+	batchSize            int
+	maxDecompressedBytes int64
+	writeGate            batchWriteGate
 }
 
 type batchWriteGate interface {
@@ -264,13 +270,20 @@ func dropLogSourceDatePartitionSQL(sourceID string, date time.Time) string {
 }
 
 func (i *Importer) importFile(ctx context.Context, source LogSource, date time.Time, file LogFileSnapshot) (uint64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	handle, err := os.Open(file.Path)
 	if err != nil {
 		return 0, err
 	}
 	defer handle.Close()
 
-	reader, closeReader, err := openLogReader(handle, file.Path)
+	maxDecompressedBytes := i.maxDecompressedBytes
+	if maxDecompressedBytes <= 0 {
+		maxDecompressedBytes = defaultMaxDecompressedBytes
+	}
+	reader, closeReader, err := openLogReader(handle, file.Path, maxDecompressedBytes)
 	if err != nil {
 		return 0, err
 	}
@@ -292,6 +305,9 @@ func (i *Importer) importFile(ctx context.Context, source LogSource, date time.T
 	var offset uint64
 	batchID := fmt.Sprintf("%s-%s", source.SourceID, date.Format("20060102"))
 	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			return rowsImported, err
+		}
 		line := scanner.Text()
 		meta := ParseMeta{
 			SourceID:     source.SourceID,
@@ -331,7 +347,7 @@ func (i *Importer) importFile(ctx context.Context, source LogSource, date time.T
 	return rowsImported, nil
 }
 
-func openLogReader(handle *os.File, path string) (io.Reader, func() error, error) {
+func openLogReader(handle *os.File, path string, maxDecompressedBytes int64) (io.Reader, func() error, error) {
 	if !strings.HasSuffix(path, ".gz") {
 		return handle, nil, nil
 	}
@@ -340,7 +356,30 @@ func openLogReader(handle *os.File, path string) (io.Reader, func() error, error
 	if err != nil {
 		return nil, nil, err
 	}
-	return reader, reader.Close, nil
+	return &decompressedBudgetReader{reader: reader, remaining: maxDecompressedBytes}, reader.Close, nil
+}
+
+type decompressedBudgetReader struct {
+	reader    io.Reader
+	remaining int64
+}
+
+func (r *decompressedBudgetReader) Read(p []byte) (int, error) {
+	if r.remaining > 0 {
+		if int64(len(p)) > r.remaining {
+			p = p[:r.remaining]
+		}
+		n, err := r.reader.Read(p)
+		r.remaining -= int64(n)
+		return n, err
+	}
+
+	var probe [1]byte
+	n, err := r.reader.Read(probe[:])
+	if n > 0 {
+		return 0, errDecompressedLogTooLarge
+	}
+	return 0, err
 }
 
 func filterLogFilesByDate(files []LogFileSnapshot, date time.Time) []LogFileSnapshot {

@@ -17,9 +17,11 @@ import (
 )
 
 type Manager struct {
-	mu        sync.Mutex
-	listeners map[endpointKey]*endpointListener
-	statuses  map[string]Status
+	mu           sync.Mutex
+	listeners    map[endpointKey]*endpointListener
+	statuses     map[string]Status
+	writerMu     sync.Mutex
+	spoolWriters map[string]*spoolWriter
 }
 
 type Status struct {
@@ -47,18 +49,26 @@ type endpointListener struct {
 	manager   *Manager
 	packet    net.PacketConn
 	listener  net.Listener
+	routeMu   sync.RWMutex
 	routes    atomic.Value
 	connMu    sync.Mutex
 	conns     map[net.Conn]struct{}
+	connSlots chan struct{}
+	connWG    sync.WaitGroup
 	closed    bool
 	closeOnce sync.Once
 	lastDrop  atomic.Int64
 }
 
+const maxTCPConnectionsPerEndpoint = 256
+
+var tcpIdleTimeout = 5 * time.Minute
+
 func NewManager() *Manager {
 	return &Manager{
-		listeners: make(map[endpointKey]*endpointListener),
-		statuses:  make(map[string]Status),
+		listeners:    make(map[endpointKey]*endpointListener),
+		statuses:     make(map[string]Status),
+		spoolWriters: make(map[string]*spoolWriter),
 	}
 }
 
@@ -124,7 +134,7 @@ func (m *Manager) ApplySources(sources []model.LogSource) error {
 			listener = created[key]
 			toStart = append(toStart, listener)
 		} else {
-			listener.routes.Store(table)
+			listener.updateRoutes(table)
 		}
 		nextListeners[key] = listener
 	}
@@ -152,12 +162,13 @@ func (m *Manager) ApplySources(sources []model.LogSource) error {
 	m.listeners = nextListeners
 	m.statuses = nextStatuses
 	m.mu.Unlock()
+	for _, listener := range removed {
+		_ = listener.Close()
+	}
+	m.reconcileSpoolWriters(ordered)
 
 	for _, listener := range toStart {
 		go listener.serve()
-	}
-	for _, listener := range removed {
-		_ = listener.Close()
 	}
 	return nil
 }
@@ -219,13 +230,15 @@ func (m *Manager) Close() {
 	for _, listener := range listeners {
 		_ = listener.Close()
 	}
+	m.closeSpoolWriters()
 }
 
 func newEndpointListener(manager *Manager, key endpointKey, table routeTable) (*endpointListener, error) {
 	listener := &endpointListener{
-		key:     key,
-		manager: manager,
-		conns:   make(map[net.Conn]struct{}),
+		key:       key,
+		manager:   manager,
+		conns:     make(map[net.Conn]struct{}),
+		connSlots: make(chan struct{}, maxTCPConnectionsPerEndpoint),
 	}
 	listener.routes.Store(table)
 	var err error
@@ -268,11 +281,23 @@ func (l *endpointListener) serveTCP() {
 		if err != nil {
 			return
 		}
+		select {
+		case l.connSlots <- struct{}{}:
+		default:
+			_ = conn.Close()
+			continue
+		}
 		if !l.track(conn) {
 			_ = conn.Close()
+			<-l.connSlots
 			return
 		}
-		go l.serveConn(conn)
+		l.connWG.Add(1)
+		go func() {
+			defer l.connWG.Done()
+			defer func() { <-l.connSlots }()
+			l.serveConn(conn)
+		}()
 	}
 }
 
@@ -283,9 +308,19 @@ func (l *endpointListener) serveConn(conn net.Conn) {
 	}()
 
 	clientIP := remoteIP(conn.RemoteAddr())
+	if _, ok := l.currentRoutes().Match(clientIP); !ok {
+		l.logUnmatched(clientIP)
+		return
+	}
 	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
-	for scanner.Scan() {
+	for {
+		if err := conn.SetReadDeadline(time.Now().Add(tcpIdleTimeout)); err != nil {
+			return
+		}
+		if !scanner.Scan() {
+			return
+		}
 		message := strings.TrimRight(scanner.Text(), "\r\n")
 		if message != "" {
 			l.routeMessage(clientIP, message)
@@ -294,17 +329,31 @@ func (l *endpointListener) serveConn(conn net.Conn) {
 }
 
 func (l *endpointListener) routeMessage(clientIP net.IP, message string) {
+	l.routeMu.RLock()
+	defer l.routeMu.RUnlock()
 	table := l.routes.Load().(routeTable)
 	source, ok := table.Match(clientIP)
 	if !ok {
 		l.logUnmatched(clientIP)
 		return
 	}
-	if err := appendMessage(source.SpoolDir, message); err != nil {
+	if err := l.manager.appendSpoolMessage(source.SpoolDir, message); err != nil {
 		l.manager.recordWriteError(source.SourceID, err)
 		return
 	}
 	l.manager.recordMessage(source.SourceID, clientIP)
+}
+
+func (l *endpointListener) currentRoutes() routeTable {
+	l.routeMu.RLock()
+	defer l.routeMu.RUnlock()
+	return l.routes.Load().(routeTable)
+}
+
+func (l *endpointListener) updateRoutes(table routeTable) {
+	l.routeMu.Lock()
+	l.routes.Store(table)
+	l.routeMu.Unlock()
 }
 
 func (l *endpointListener) logUnmatched(clientIP net.IP) {
@@ -343,11 +392,15 @@ func (l *endpointListener) Close() error {
 		if l.listener != nil {
 			closeErr = l.listener.Close()
 		}
+		connections := make([]net.Conn, 0, len(l.conns))
 		for conn := range l.conns {
-			_ = conn.Close()
-			delete(l.conns, conn)
+			connections = append(connections, conn)
 		}
 		l.connMu.Unlock()
+		for _, conn := range connections {
+			_ = conn.Close()
+		}
+		l.connWG.Wait()
 	})
 	return closeErr
 }
@@ -418,18 +471,106 @@ func endpointAddress(key endpointKey) string {
 	return net.JoinHostPort(key.Host, intToString(key.Port))
 }
 
-func appendMessage(spoolDir string, message string) error {
-	if err := os.MkdirAll(spoolDir, 0o755); err != nil {
-		return err
+type spoolWriter struct {
+	mu       sync.Mutex
+	spoolDir string
+	path     string
+	file     *os.File
+}
+
+func newSpoolWriter(spoolDir string) *spoolWriter {
+	return &spoolWriter{spoolDir: filepath.Clean(strings.TrimSpace(spoolDir))}
+}
+
+func (w *spoolWriter) Append(message string, now time.Time) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	path := filepath.Join(w.spoolDir, now.Format("2006-01-02")+".log")
+	if w.file == nil || w.path != path {
+		if w.file != nil {
+			if err := w.file.Close(); err != nil {
+				w.file = nil
+				w.path = ""
+				return err
+			}
+			w.file = nil
+			w.path = ""
+		}
+		if err := os.MkdirAll(w.spoolDir, 0o755); err != nil {
+			return err
+		}
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err != nil {
+			return err
+		}
+		w.file = file
+		w.path = path
 	}
-	path := filepath.Join(spoolDir, time.Now().Format("2006-01-02")+".log")
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	_, err = fmt.Fprintln(file, message)
+	_, err := fmt.Fprintln(w.file, message)
 	return err
+}
+
+func (w *spoolWriter) Close() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.file == nil {
+		return nil
+	}
+	err := w.file.Close()
+	w.file = nil
+	w.path = ""
+	return err
+}
+
+func (m *Manager) appendSpoolMessage(spoolDir, message string) error {
+	key := filepath.Clean(strings.TrimSpace(spoolDir))
+	m.writerMu.Lock()
+	writer := m.spoolWriters[key]
+	if writer == nil {
+		writer = newSpoolWriter(key)
+		m.spoolWriters[key] = writer
+	}
+	m.writerMu.Unlock()
+	return writer.Append(message, time.Now())
+}
+
+func (m *Manager) reconcileSpoolWriters(sources []model.LogSource) {
+	active := make(map[string]struct{})
+	for _, source := range sources {
+		if shouldReceive(source) {
+			active[filepath.Clean(strings.TrimSpace(source.SpoolDir))] = struct{}{}
+		}
+	}
+
+	m.writerMu.Lock()
+	stale := make([]*spoolWriter, 0)
+	for key, writer := range m.spoolWriters {
+		if _, keep := active[key]; keep {
+			continue
+		}
+		delete(m.spoolWriters, key)
+		stale = append(stale, writer)
+	}
+	m.writerMu.Unlock()
+
+	for _, writer := range stale {
+		_ = writer.Close()
+	}
+}
+
+func (m *Manager) closeSpoolWriters() {
+	m.writerMu.Lock()
+	writers := make([]*spoolWriter, 0, len(m.spoolWriters))
+	for key, writer := range m.spoolWriters {
+		writers = append(writers, writer)
+		delete(m.spoolWriters, key)
+	}
+	m.writerMu.Unlock()
+
+	for _, writer := range writers {
+		_ = writer.Close()
+	}
 }
 
 func shouldReceive(source model.LogSource) bool {

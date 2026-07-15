@@ -28,28 +28,22 @@ export function LoginDataFlowScene() {
             id="login-route-ingest"
             className="login-scene-path login-scene-path--main"
             pathLength="1"
-            d="M118 410 C220 410 236 278 354 278 H528 C620 278 618 400 718 400 H884 C954 400 974 298 1070 298"
+            d="M204 410 C264 410 286 278 354 278 H520 C600 278 632 400 718 400 H884 C954 400 986 298 1070 298"
           />
           <path
             data-login-path
             id="login-route-archive"
             className="login-scene-path login-scene-path--branch"
             pathLength="1"
-            d="M428 322 C428 442 532 526 718 526 H884 C968 526 984 410 1070 410"
-          />
-          <path
-            data-login-path
-            id="login-route-query"
-            className="login-scene-path login-scene-path--quiet"
-            pathLength="1"
-            d="M782 354 C820 262 916 218 1070 218"
+            d="M437 334 C437 448 548 526 718 526"
           />
         </g>
 
         <g className="login-scene-route-labels">
           <text x="236" y="374">采集</text>
+          <text x="590" y="320">入库</text>
           <text x="566" y="500">归档</text>
-          <text x="878" y="252">检索</text>
+          <text x="958" y="342">检索</text>
         </g>
 
         <g className="login-scene-nodes">
@@ -68,8 +62,8 @@ export function LoginDataFlowScene() {
             <g data-login-node-icon className="login-scene-node__icon" transform="translate(18 18)">
               <path d="M4 9h24v18H4zM10 4v5M22 4v5M10 18h12" />
             </g>
-            <text className="login-scene-node__title" x="18" y="72">RSyslog 接收</text>
-            <text className="login-scene-node__meta" x="18" y="94">UDP / TCP</text>
+            <text className="login-scene-node__title" x="18" y="72">日志接收</text>
+            <text className="login-scene-node__meta" x="18" y="94">网络日志</text>
             <circle className="login-scene-node__status" cx="148" cy="20" r="4" />
           </g>
 
@@ -80,7 +74,7 @@ export function LoginDataFlowScene() {
               <path d="M3 7v17c0 3 6 5 13 5s13-2 13-5V7M3 15c0 3 6 5 13 5s13-2 13-5" />
             </g>
             <text className="login-scene-node__title" x="18" y="72">数据存储</text>
-            <text className="login-scene-node__meta" x="18" y="94">ClickHouse</text>
+            <text className="login-scene-node__meta" x="18" y="94">日志数据</text>
           </g>
 
           <g data-login-node className="login-scene-node" transform="translate(1070 242)">
@@ -106,15 +100,14 @@ export function LoginDataFlowScene() {
         <g className="login-scene-particles" filter="url(#login-particle-glow)">
           <circle data-login-particle data-route="ingest" className="login-scene-particle" r="5" />
           <circle data-login-particle data-route="ingest" className="login-scene-particle" r="4" />
-          <circle data-login-particle data-route="archive" className="login-scene-particle login-scene-particle--muted" r="4" />
-          <circle data-login-particle data-route="query" className="login-scene-particle login-scene-particle--green" r="4" />
+          <circle data-login-particle data-route="archive" className="login-scene-particle login-scene-particle--green" r="4" />
         </g>
 
         <g className="login-scene-telemetry" transform="translate(78 642)">
-          <text className="login-scene-telemetry__label" x="0" y="0">INGEST PIPELINE</text>
+          <text className="login-scene-telemetry__label" x="0" y="0">日志处理流程</text>
           <rect className="login-scene-telemetry__rail" x="0" y="18" width="316" height="4" rx="2" />
           <rect className="login-scene-telemetry__value" x="0" y="18" width="196" height="4" rx="2" />
-          <text className="login-scene-telemetry__meta" x="0" y="48">SOURCE  ·  RECEIVE  ·  STORE  ·  QUERY</text>
+          <text className="login-scene-telemetry__meta" x="0" y="48">采集 · 接收 · 入库 · 查询</text>
         </g>
       </svg>
     </div>

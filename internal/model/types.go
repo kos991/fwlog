@@ -35,6 +35,7 @@ func (s *IngestStatus) Scan(value any) error {
 
 type LogSource struct {
 	SourceID             string    `json:"source_id"`
+	SerialNumber         string    `json:"serial_number,omitempty"`
 	LogDir               string    `json:"log_dir"`
 	LogTag               string    `json:"log_tag"`
 	Enabled              bool      `json:"enabled"`

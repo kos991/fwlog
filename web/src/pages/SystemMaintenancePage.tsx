@@ -32,6 +32,7 @@ type SystemMaintenancePageProps = {
 
 type LogSourceSetting = {
   source_id?: string;
+  serial_number?: string;
   log_tag?: string;
   log_dir?: string;
   source_type?: 'file' | 'rsyslog' | string;
@@ -126,6 +127,7 @@ function defaultSpoolDir(sourceID?: string) {
 
 function normalizeLogSourceSetting(source: LogSourceSetting, index: number): LogSourceSetting {
   const sourceID = source.source_id || `source-${index + 1}`;
+  const serialNumber = String(source.serial_number || '').trim();
   const sourceType = source.source_type === 'rsyslog' ? 'rsyslog' : 'file';
   if (sourceType === 'rsyslog') {
     const spoolDir = source.spool_dir || source.log_dir || defaultSpoolDir(sourceID);
@@ -133,6 +135,7 @@ function normalizeLogSourceSetting(source: LogSourceSetting, index: number): Log
     return {
       ...source,
       source_id: sourceID,
+      serial_number: serialNumber,
       source_type: 'rsyslog',
       listen_protocol: source.listen_protocol?.toLowerCase() === 'tcp' ? 'tcp' : 'udp',
       listen_host: source.listen_host || '0.0.0.0',
@@ -148,6 +151,7 @@ function normalizeLogSourceSetting(source: LogSourceSetting, index: number): Log
   return {
     ...source,
     source_id: sourceID,
+    serial_number: serialNumber,
     source_type: 'file',
     enabled: source.enabled !== false,
   };
@@ -213,8 +217,6 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   const [sourceSaving, setSourceSaving] = React.useState(false);
   const [upgradeRestarting, setUpgradeRestarting] = React.useState(false);
   const [upgradeFile, setUpgradeFile] = React.useState<File | null>(null);
-  const geoipPath = Form.useWatch('geoip_db_path', form);
-  const customIpPath = Form.useWatch('custom_ip_map_path', form);
   const autoScanEnabled = Form.useWatch('auto_scan_enabled', form);
   const autoScanTimes = Form.useWatch('auto_scan_times', form);
 
@@ -328,6 +330,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
     sourceForm.resetFields();
     sourceForm.setFieldsValue(source || (type === 'rsyslog' ? {
       source_id: sourceID,
+      serial_number: '',
       log_tag: '',
       source_type: 'rsyslog',
       listen_protocol: 'udp',
@@ -340,6 +343,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
       enabled: true,
     } : {
       source_id: sourceID,
+      serial_number: '',
       log_tag: '',
       log_dir: '',
       source_type: 'file',
@@ -596,7 +600,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
     <div className="page-stack">
       <section className="page-header">
         <div>
-          <span className="eyebrow">配置和维护</span>
+          <span className="eyebrow">系统管理</span>
           <h1>系统设置</h1>
         </div>
         <Space>
@@ -612,13 +616,10 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
               key: 'source',
               label: tabLabel(<FolderOpenOutlined />, '日志来源'),
               children: (
-                <section className="ops-section maintenance-card">
+                <section className="ops-section maintenance-card maintenance-panel">
                   <div className="source-list-editor">
-                    <div className="source-list-head">
-                      <div>
-                        <strong>日志来源配置</strong>
-                        <Text type="secondary">添加、启停或修改后立即应用</Text>
-                      </div>
+                    <div className="maintenance-panel-toolbar">
+                      <Text className="maintenance-panel-note" type="secondary">添加、启停或修改后立即应用</Text>
                       <Space wrap>
                         <Button icon={<PlusOutlined />} onClick={() => openSourceEditor('file')}>
                           添加文件目录源
@@ -631,7 +632,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
 
                     <div className="source-management-list">
                       <div className="source-management-row source-management-row--header">
-                        <span>来源标识</span>
+                        <span>设备序列号</span>
                         <span>显示名称</span>
                         <span>类型</span>
                         <span>发送端 / 目录</span>
@@ -651,9 +652,10 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                         const sourceError = status?.error || status?.archive_error;
                         return (
                           <div className="source-management-row" key={sourceID}>
-                            <div className="source-management-cell" data-label="来源标识">
-                              <span className="source-management-mobile-label">来源标识</span>
-                              <strong title={sourceID}>{sourceID}</strong>
+                            <div className="source-management-cell" data-label="设备序列号">
+                              <span className="source-management-mobile-label">设备序列号</span>
+                              <strong title={source.serial_number || ''}>{source.serial_number || '-'}</strong>
+                              <Text type="secondary" title={sourceID}>来源标识：{sourceID}</Text>
                             </div>
                             <div className="source-management-cell" data-label="显示名称">
                               <span className="source-management-mobile-label">显示名称</span>
@@ -732,12 +734,18 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
             },
             {
               key: 'ip',
-              label: tabLabel(<GlobalOutlined />, 'IP 库'),
+              label: tabLabel(<GlobalOutlined />, 'CIDR 别名'),
               children: (
-                <section className="ops-section maintenance-card">
-                  <div className="setting-grid">
+                <section className="ops-section maintenance-card maintenance-panel">
+                  <div className="maintenance-panel-toolbar">
+                    <Text className="maintenance-panel-note" type="secondary">管理地理位置数据、IP 映射和网段显示名称</Text>
+                    <Button icon={<ReloadOutlined />} onClick={() => void trigger('/api/ip-data/reload', 'IP 映射数据已重新加载')} loading={loading}>
+                      重新加载
+                    </Button>
+                  </div>
+                  <div className="setting-grid setting-grid--single">
                     <div className="setting-fields">
-                      <Form.Item name="custom_ip_map_path" label="自定义 IP 映射 CSV">
+                      <Form.Item name="custom_ip_map_path" label="IP 映射文件">
                         <Input prefix={<FileTextOutlined />} />
                       </Form.Item>
                       <Form.Item name="geoip_db_path" label="GeoIP 数据库">
@@ -760,7 +768,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                             </div>
                             <div className="source-row cidr-row source-row-header">
                               <span>CIDR 网段</span>
-                              <span>别名</span>
+                              <span>显示名称</span>
                               <span>启用</span>
                               <span>操作</span>
                             </div>
@@ -782,7 +790,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                                   <Switch />
                                 </Form.Item>
                                 <Popconfirm
-                                  title="删除这个网段别名？"
+                                  title="删除这个 CIDR 别名？"
                                   okText="删除"
                                   cancelText="取消"
                                   onConfirm={() => remove(field.name)}
@@ -795,25 +803,17 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                         )}
                       </Form.List>
                     </div>
-                    <aside className="setting-summary setting-summary-green">
-                      <GlobalOutlined />
-                      <Text type="secondary">当前 IP 库</Text>
-                      <strong>GeoIP + 自定义映射</strong>
-                      <code>{geoipPath || '-'}</code>
-                      <code>{customIpPath || '-'}</code>
-                      <Button icon={<ReloadOutlined />} onClick={() => void trigger('/api/ip-data/reload', 'IP 库已重新加载')} loading={loading}>
-                        重新加载
-                      </Button>
-                    </aside>
                   </div>
                 </section>
               ),
             },
             {
-              key: 'ops',
-              label: tabLabel(<WarningOutlined />, '维护'),
+              key: 'ingest',
+              label: tabLabel(<WarningOutlined />, '日志入库'),
               children: (
-                <section className="ops-section maintenance-card maintenance-ops-card">
+                <section className="ops-section maintenance-card maintenance-panel">
+                  <Text className="maintenance-panel-note" type="secondary">自动扫描和手动处理历史日志</Text>
+                  <div className="maintenance-panel-stack">
                   <div className="maintenance-plan-card maintenance-plan-card--schedule">
                     <div className="maintenance-card-head">
                       <div>
@@ -856,8 +856,8 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                   <div className="maintenance-run-card maintenance-run-card--manual">
                     <div className="maintenance-card-head">
                       <div>
-                        <span className="maintenance-card-kicker"><SyncOutlined /> 手动维护</span>
-                        <strong>入库操作</strong>
+                        <span className="maintenance-card-kicker"><SyncOutlined /> 日志导入</span>
+                        <strong>导入操作</strong>
                       </div>
                     </div>
 
@@ -939,11 +939,22 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                     </div>
                   </div>
 
+                  </div>
+                </section>
+              ),
+            },
+            {
+              key: 'upgrade',
+              label: tabLabel(<CloudDownloadOutlined />, '程序升级'),
+              children: (
+                <section className="ops-section maintenance-card maintenance-panel">
+                  <Text className="maintenance-panel-note" type="secondary">检查版本并安装本地升级包</Text>
+                  <div className="maintenance-panel-stack">
                   <div className="maintenance-run-card maintenance-run-card--upgrade">
                     <div className="maintenance-card-head">
                       <div>
-                        <span className="maintenance-card-kicker"><CloudDownloadOutlined /> 在线升级</span>
-                        <strong>版本升级</strong>
+                        <span className="maintenance-card-kicker"><CloudDownloadOutlined /> 程序更新</span>
+                        <strong>升级操作</strong>
                       </div>
                       <Tag color={upgradeView.statusTone}>
                         {upgradeRestarting ? '服务重启中' : upgradeView.stateText}
@@ -1036,14 +1047,16 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                       )}
                     </div>
                   </div>
+                  </div>
                 </section>
               ),
             },
             {
               key: 'security',
-              label: tabLabel(<SafetyCertificateOutlined />, '登录'),
+              label: tabLabel(<SafetyCertificateOutlined />, '账号安全'),
               children: (
-                <section className="ops-section maintenance-card">
+                <section className="ops-section maintenance-card maintenance-panel">
+                  <Text className="maintenance-panel-note" type="secondary">修改管理员密码并管理当前登录会话</Text>
                   <div className="setting-grid">
                     <div className="setting-fields">
                       <Form.Item name="current_password" label="当前密码" rules={[{ required: true, message: '请输入当前密码' }]}>
@@ -1102,6 +1115,12 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
       >
         <Form form={sourceForm} layout="vertical" preserve={false} className="source-editor-form">
           <div className="source-editor-grid">
+            <Form.Item
+              name="serial_number"
+              label="设备序列号"
+            >
+              <Input prefix={<TagsOutlined />} placeholder="例如：SN-FW-A-001" />
+            </Form.Item>
             <Form.Item
               name="source_id"
               label="来源标识"

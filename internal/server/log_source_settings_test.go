@@ -12,19 +12,20 @@ import (
 
 func TestNormalizeRSyslogSourceUsesArchiveDirectoryAsLogDirectory(t *testing.T) {
 	sources := normalizeLogSourcePayloads([]logSourcePayload{{
-		SourceID:   " fw-a ",
-		LogTag:     " 核心防火墙 ",
-		SourceType: "rsyslog",
-		ClientIP:   " 192.168.10.20 ",
-		SpoolDir:   "/data/fwlog/received/fw-a",
-		ArchiveDir: "/data/fwlog/archive/fw-a",
+		SourceID:     " fw-a ",
+		SerialNumber: " SN-FW-A-001 ",
+		LogTag:       " 核心防火墙 ",
+		SourceType:   "rsyslog",
+		ClientIP:     " 192.168.10.20 ",
+		SpoolDir:     "/data/fwlog/received/fw-a",
+		ArchiveDir:   "/data/fwlog/archive/fw-a",
 	}}, false)
 
 	if len(sources) != 1 {
 		t.Fatalf("sources = %#v", sources)
 	}
 	source := sources[0]
-	if source.SourceID != "fw-a" || source.LogTag != "核心防火墙" || source.ClientIP != "192.168.10.20" {
+	if source.SourceID != "fw-a" || source.SerialNumber != "SN-FW-A-001" || source.LogTag != "核心防火墙" || source.ClientIP != "192.168.10.20" {
 		t.Fatalf("normalized identity = %#v", source)
 	}
 	if source.LogDir != "/data/fwlog/archive/fw-a" || source.ArchiveDir != "/data/fwlog/archive/fw-a" {

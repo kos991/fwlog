@@ -177,6 +177,7 @@ func legacyLogSourceFromSettings(settings map[string]string, cfg Config) LogSour
 
 type logSourcePayload struct {
 	SourceID             string `json:"source_id"`
+	SerialNumber         string `json:"serial_number"`
 	LogDir               string `json:"log_dir"`
 	LogTag               string `json:"log_tag"`
 	Enabled              *bool  `json:"enabled"`
@@ -238,6 +239,7 @@ func normalizeLogSourcePayloads(payload []logSourcePayload, enabledOnly bool) []
 	sources := make([]LogSource, 0, len(payload))
 	for _, item := range payload {
 		sourceID := strings.TrimSpace(item.SourceID)
+		serialNumber := strings.TrimSpace(item.SerialNumber)
 		logDir := strings.TrimSpace(item.LogDir)
 		logTag := strings.TrimSpace(item.LogTag)
 		sourceType := normalizeLogSourceType(item.SourceType)
@@ -277,6 +279,7 @@ func normalizeLogSourcePayloads(payload []logSourcePayload, enabledOnly bool) []
 		}
 		sources = append(sources, LogSource{
 			SourceID:             sourceID,
+			SerialNumber:         serialNumber,
 			LogDir:               logDir,
 			LogTag:               logTag,
 			Enabled:              enabled,

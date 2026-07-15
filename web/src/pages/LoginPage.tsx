@@ -1,11 +1,12 @@
 import React from 'react';
-import { LockOutlined, LoginOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
-import { Button, Form, Input, Typography, message, type InputRef } from 'antd';
+import { LockOutlined, LoginOutlined } from '@ant-design/icons';
+import { Button, Form, Input, message, type InputRef } from 'antd';
 import { apiPost } from '../api';
 import { useLoginSceneMotion } from '../animations/useLoginSceneMotion';
+import { BrandLogo } from '../components/BrandLogo';
 import { LoginDataFlowScene } from '../components/LoginDataFlowScene';
 
-const { Text } = Typography;
+const loginTitle = 'NAT 日志控制台';
 
 type LoginPageProps = {
   onSuccess: () => void;
@@ -43,12 +44,15 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
       <div className="login-stage">
         <section className={hasError ? 'login-panel is-error' : 'login-panel'} aria-label="管理员登录">
           <div className="login-panel-product">
-            <span className="login-logo">
-              <SafetyCertificateOutlined />
-            </span>
+            <BrandLogo className="login-logo" />
             <div>
-              <h1>NAT 日志控制台</h1>
-              <Text type="secondary">管理员登录</Text>
+              <h1 aria-label={loginTitle}>
+                {Array.from(loginTitle).map((character, index) => (
+                  <span data-login-title-char aria-hidden="true" key={`${character}-${index}`}>
+                    {character === ' ' ? '\u00a0' : character}
+                  </span>
+                ))}
+              </h1>
             </div>
           </div>
           <Form layout="vertical" onFinish={onFinish} requiredMark={false}>

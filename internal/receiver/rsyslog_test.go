@@ -299,6 +299,89 @@ func TestManagerReloadsRoutesWithoutClosingSharedTCPConnection(t *testing.T) {
 	waitForFileContains(t, filepath.Join(secondSpool, time.Now().Format("2006-01-02")+".log"), "after reload")
 }
 
+func TestSpoolWriterReusesFileAndRotatesByDay(t *testing.T) {
+	dir := t.TempDir()
+	writer := newSpoolWriter(dir)
+	t.Cleanup(func() { _ = writer.Close() })
+
+	firstDay := time.Date(2026, 7, 14, 23, 59, 0, 0, time.Local)
+	if err := writer.Append("first", firstDay); err != nil {
+		t.Fatal(err)
+	}
+	firstFile := writer.file
+	if err := writer.Append("second", firstDay.Add(30*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if writer.file != firstFile {
+		t.Fatal("same-day append reopened the spool file")
+	}
+
+	secondDay := firstDay.Add(2 * time.Minute)
+	if err := writer.Append("third", secondDay); err != nil {
+		t.Fatal(err)
+	}
+	if writer.file == firstFile {
+		t.Fatal("next-day append did not rotate the spool file")
+	}
+	if _, err := firstFile.WriteString("closed"); err == nil {
+		t.Fatal("rotated spool file is still open")
+	}
+
+	assertFileContains(t, filepath.Join(dir, "2026-07-14.log"), "first\nsecond\n")
+	assertFileContains(t, filepath.Join(dir, "2026-07-15.log"), "third\n")
+}
+
+func TestManagerClosesUnusedSpoolWriterWhenSourcesChange(t *testing.T) {
+	port := freeUDPPort(t)
+	spoolDir := t.TempDir()
+	manager := NewManager()
+	t.Cleanup(manager.Close)
+
+	if err := manager.ApplySources([]model.LogSource{{
+		SourceID:       "rsyslog-a",
+		Enabled:        true,
+		SourceType:     "rsyslog",
+		ListenProtocol: "udp",
+		ListenHost:     "127.0.0.1",
+		ListenPort:     port,
+		SpoolDir:       spoolDir,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	conn, err := net.Dial("udp", net.JoinHostPort("127.0.0.1", intToString(port)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Write([]byte("first\nsecond")); err != nil {
+		conn.Close()
+		t.Fatal(err)
+	}
+	conn.Close()
+	waitForReceivedMessages(t, manager, "rsyslog-a", 1)
+
+	manager.writerMu.Lock()
+	writer := manager.spoolWriters[filepath.Clean(spoolDir)]
+	manager.writerMu.Unlock()
+	if writer == nil || writer.file == nil {
+		t.Fatal("manager did not retain the active spool writer")
+	}
+	file := writer.file
+
+	if err := manager.ApplySources(nil); err != nil {
+		t.Fatal(err)
+	}
+	manager.writerMu.Lock()
+	remaining := len(manager.spoolWriters)
+	manager.writerMu.Unlock()
+	if remaining != 0 {
+		t.Fatalf("unused spool writers = %d; want 0", remaining)
+	}
+	if _, err := file.WriteString("closed"); err == nil {
+		t.Fatal("unused spool file is still open")
+	}
+}
+
 func freeUDPPort(t *testing.T) int {
 	t.Helper()
 	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
@@ -331,6 +414,17 @@ func waitForFileContains(t *testing.T, path string, want string) {
 	}
 	content, _ := os.ReadFile(path)
 	t.Fatalf("%s does not contain %q, got %q", path, want, string(content))
+}
+
+func assertFileContains(t *testing.T, path string, want string) {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != want {
+		t.Fatalf("%s content = %q; want %q", path, content, want)
+	}
 }
 
 func waitForReceivedMessages(t *testing.T, manager *Manager, sourceID string, want uint64) Status {

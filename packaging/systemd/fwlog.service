@@ -19,6 +19,7 @@ Environment="CUSTOM_IP_MAP=/opt/fwlog/custom_ip_map.csv"
 Environment="GEOIP_DB=/data/index/GeoLite2-City.mmdb"
 Environment="AUTO_SCAN_ENABLED=false"
 Environment="GIN_MODE=release"
+Environment="ADMIN_PASSWORD_FILE=/etc/fwlog/admin-password"
 
 # RSyslog 接收器由应用内日志源配置启用；默认 UDP 5514，可在维护页自定义端口。
 

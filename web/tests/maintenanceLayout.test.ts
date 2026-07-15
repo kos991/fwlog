@@ -6,19 +6,46 @@ import test from 'node:test';
 const pagePath = path.resolve('src/pages/SystemMaintenancePage.tsx');
 const stylesPath = path.resolve('src/styles.css');
 
-test('maintenance page stacks schedule, manual actions, and upgrade cards vertically', () => {
+test('system settings tabs expose clear task names', () => {
   const page = fs.readFileSync(pagePath, 'utf8');
   const styles = fs.readFileSync(stylesPath, 'utf8');
 
+  for (const required of [
+    "key: 'source'",
+    "日志来源",
+    "key: 'ip'",
+    "CIDR 别名",
+    "key: 'ingest'",
+    "日志入库",
+    "key: 'upgrade'",
+    "程序升级",
+    "key: 'security'",
+    "账号安全",
+  ]) {
+    assert.match(page, new RegExp(required), `系统设置缺少页签文案：${required}`);
+  }
+  assert.match(page, /系统管理/);
+  assert.match(page, /IP 映射文件/);
+  assert.match(page, /显示名称/);
+  assert.match(page, /serial_number\?: string;/);
+  assert.match(page, /label="设备序列号"/);
+  assert.match(page, /source\.serial_number \|\| '-'/);
   assert.match(page, /maintenance-plan-card maintenance-plan-card--schedule/);
   assert.match(page, /maintenance-run-card maintenance-run-card--manual/);
   assert.match(page, /maintenance-run-card maintenance-run-card--upgrade/);
-
-  assert.match(styles, /grid-template-areas:\s*"schedule"\s*"manual"\s*"upgrade"/);
-  assert.doesNotMatch(styles, /grid-template-areas:\s*"schedule manual"/);
-  assert.match(styles, /\.maintenance-plan-card--schedule\s*\{[^}]*grid-area:\s*schedule;/s);
-  assert.match(styles, /\.maintenance-run-card--manual\s*\{[^}]*grid-area:\s*manual;/s);
-  assert.match(styles, /\.maintenance-run-card--upgrade\s*\{[^}]*grid-area:\s*upgrade;/s);
+  assert.equal((page.match(/<section className="ops-section maintenance-card maintenance-panel">/g) || []).length, 5);
+  assert.equal((page.match(/className="maintenance-panel-note"/g) || []).length, 5);
+  assert.equal((page.match(/className="maintenance-panel-stack"/g) || []).length, 2);
+  assert.doesNotMatch(page, /maintenance-panel-head/);
+  assert.match(page, /className="setting-grid setting-grid--single"/);
+  assert.doesNotMatch(page, /当前映射数据|地理位置数据 \+ 自定义映射/);
+  assert.match(styles, /\.maintenance-panel\s*\{[^}]*display:\s*grid;[^}]*gap:\s*16px;/s);
+  assert.match(styles, /\.maintenance-panel-stack\s*\{[^}]*display:\s*grid;[^}]*gap:\s*14px;/s);
+  assert.match(styles, /\.setting-grid--single\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/s);
+  assert.match(styles, /\.maintenance-panel\s*>\s*\.source-list-editor\s*\{[^}]*padding:\s*14px;[^}]*border:/s);
+  assert.match(styles, /\.maintenance-panel\s*>\s*\.setting-grid\s*>\s*\.setting-fields\s*\{[^}]*padding:\s*14px;[^}]*border:/s);
+  assert.match(styles, /\.page-stack\s*>\s*\.ant-form\s*\{[^}]*max-width:\s*100%;[^}]*overflow:\s*hidden;/s);
+  assert.match(styles, /\.maintenance-card-summary,\s*\.maintenance-action-summary\s*\{/);
 });
 
 test('maintenance page uses unified Chinese copy only', () => {
@@ -30,7 +57,7 @@ test('maintenance page uses unified Chinese copy only', () => {
   assert.doesNotMatch(page, /Auto upgrade/);
   assert.doesNotMatch(page, /自动升级/);
 
-  for (const required of ['日志来源', '全部已启用日志来源', '日期范围', '导入新增日志', '重新导入所选日期', '开始处理', '版本升级', '在线升级', '本地升级包', '选择升级包', '上传并安装']) {
+  for (const required of ['日志来源', '全部已启用日志来源', '日期范围', '导入新增日志', '重新导入所选日期', '开始处理', '程序升级', '程序更新', '本地升级包', '选择升级包', '上传并安装']) {
     assert.match(page, new RegExp(required), `维护页缺少统一文案：${required}`);
   }
 });

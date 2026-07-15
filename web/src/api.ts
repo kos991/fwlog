@@ -56,9 +56,10 @@ async function requestJSON<T>(path: string, init: RequestInit): Promise<T> {
 }
 
 let mockLogSources = [
-  { source_id: 'sangfor-main', log_tag: '深信服 NAT', log_dir: '/data/sangfor_fw_log', source_type: 'file', enabled: true },
+  { source_id: 'sangfor-main', serial_number: 'SN-SANGFOR-001', log_tag: '深信服 NAT', log_dir: '/data/sangfor_fw_log', source_type: 'file', enabled: true },
   {
     source_id: 'rsyslog-main',
+    serial_number: 'SN-RSYSLOG-001',
     log_tag: '核心防火墙',
     log_dir: '/data/fwlog/received/rsyslog-main',
     source_type: 'rsyslog',

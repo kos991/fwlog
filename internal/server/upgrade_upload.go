@@ -43,6 +43,13 @@ func packageFormatFromFilename(name string) (upgradePackageFormat, bool) {
 
 func (a *App) upgradeUploadHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !allowUnsignedUpgradeUpload() {
+			writeJSONStatus(w, http.StatusForbidden, map[string]any{
+				"error":   "unsigned_upgrade_upload_disabled",
+				"message": "手动上传升级包默认关闭；请使用带完整校验信息的在线升级",
+			})
+			return
+		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxUploadPackageBytes+1024*1024)
 		if err := r.ParseMultipartForm(maxUploadPackageBytes); err != nil {
 			writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "invalid_upload", "message": "升级包过大或上传格式无效"})
@@ -103,6 +110,11 @@ func (a *App) upgradeUploadHandler() http.Handler {
 		}
 		writeJSONStatus(w, http.StatusAccepted, UpgradeUploadResponse{UpgradeStatus: status, SHA256: hex.EncodeToString(hash.Sum(nil))})
 	})
+}
+
+func allowUnsignedUpgradeUpload() bool {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv("ALLOW_UNSIGNED_UPGRADE_UPLOAD")))
+	return value == "1" || value == "true"
 }
 
 func (a *App) startUploadedUpgrade(pkg upgradePackage, tempDir string) (UpgradeStatus, bool) {

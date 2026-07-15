@@ -56,6 +56,14 @@ fi
 exit 0
 
 %post
+if [ ! -f /etc/fwlog/admin-password ]; then
+    mkdir -p /etc/fwlog
+    chmod 700 /etc/fwlog
+    umask 077
+    od -An -N24 -tx1 /dev/urandom | tr -d '[:space:]' > /etc/fwlog/admin-password
+    chmod 600 /etc/fwlog/admin-password
+    echo "FWLog 初始管理员密码已写入 /etc/fwlog/admin-password（仅 root 可读）" >&2
+fi
 if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload || true
 %if %{include_clickhouse}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 )
@@ -292,6 +293,9 @@ func BuildVisibleRanges(start, end time.Time, states []DateIngestState) QueryVis
 }
 
 func BuildQuerySQL(req QueryRequest, visibility QueryVisibility) (string, []any, error) {
+	if err := normalizeIPFilters(&req); err != nil {
+		return "", nil, err
+	}
 	if len(visibility.QueriedRanges) == 0 {
 		return "", nil, errors.New(noVisibleRangeError)
 	}
@@ -314,19 +318,19 @@ func BuildQuerySQL(req QueryRequest, visibility QueryVisibility) (string, []any,
 		args = append(args, req.SourceID)
 	}
 	if req.IP != "" {
-		sql.WriteString(" AND (src_ip = ? OR dst_ip = ? OR nat_ip = ?)")
+		sql.WriteString(" AND (src_ip = toIPv6(?) OR dst_ip = toIPv6(?) OR nat_ip = toIPv6(?))")
 		args = append(args, req.IP, req.IP, req.IP)
 	}
 	if req.SrcIP != "" {
-		sql.WriteString(" AND src_ip = ?")
+		sql.WriteString(" AND src_ip = toIPv6(?)")
 		args = append(args, req.SrcIP)
 	}
 	if req.DstIP != "" {
-		sql.WriteString(" AND dst_ip = ?")
+		sql.WriteString(" AND dst_ip = toIPv6(?)")
 		args = append(args, req.DstIP)
 	}
 	if req.NATIP != "" {
-		sql.WriteString(" AND nat_ip = ?")
+		sql.WriteString(" AND nat_ip = toIPv6(?)")
 		args = append(args, req.NATIP)
 	}
 	if req.Port != 0 {
@@ -360,6 +364,26 @@ func BuildQuerySQL(req QueryRequest, visibility QueryVisibility) (string, []any,
 	}
 
 	return sql.String(), args, nil
+}
+
+func normalizeIPFilters(req *QueryRequest) error {
+	filters := []*string{&req.IP, &req.SrcIP, &req.DstIP, &req.NATIP}
+	for _, filter := range filters {
+		value := strings.TrimSpace(*filter)
+		if value == "" {
+			continue
+		}
+		addr, err := netip.ParseAddr(value)
+		if err != nil || addr.Zone() != "" {
+			return &QueryError{
+				Code:    "invalid_ip",
+				Message: fmt.Sprintf("IP 地址格式无效：%s", value),
+				Status:  http.StatusBadRequest,
+			}
+		}
+		*filter = addr.Unmap().String()
+	}
+	return nil
 }
 
 func protocolNumber(protocol string) string {

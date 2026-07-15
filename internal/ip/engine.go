@@ -3,7 +3,9 @@ package ip
 import (
 	"encoding/csv"
 	"net"
+	"net/netip"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/oschwald/geoip2-golang"
@@ -47,6 +49,7 @@ func (e *IPEngine) AddSegment(cidr, label string) error {
 }
 
 func (e *IPEngine) AddOverride(ip, label, location string) {
+	ip = canonicalIPString(ip)
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.overrides[ip] = IPTag{IP: ip, Label: label, Location: location, IsManual: true}
@@ -84,6 +87,7 @@ func (e *IPEngine) GetTag(ipStr string) IPTag {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
+	ipStr = canonicalIPString(ipStr)
 	if tag, ok := e.overrides[ipStr]; ok {
 		return tag
 	}
@@ -123,6 +127,15 @@ func (e *IPEngine) GetTag(ipStr string) IPTag {
 	}
 
 	return IPTag{IP: ipStr, Label: "公网 IP", Location: location}
+}
+
+func canonicalIPString(value string) string {
+	value = strings.TrimSpace(value)
+	addr, err := netip.ParseAddr(value)
+	if err != nil {
+		return value
+	}
+	return addr.Unmap().String()
 }
 
 func (e *IPEngine) matchSegment(ipStr string, ip net.IP) (IPTag, bool) {

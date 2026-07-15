@@ -41,6 +41,25 @@ func TestParseNATLineWritesDefaultsAndMetadata(t *testing.T) {
 	}
 }
 
+func TestParseNATLineParsesIPv6Addresses(t *testing.T) {
+	line := "2026 Jun 28 01:17:18 源IP:2001:db8::10 源端口:12345 目的IP:2001:db8:1::20 目的端口:443 协议:6 转换后的IP:2001:db8:2::30 转换后的端口:50000"
+
+	row, ok := ParseNATLine(line, ParseMeta{})
+	if !ok {
+		t.Fatal("IPv6 NAT line should parse")
+	}
+
+	if row.SrcIP != netip.MustParseAddr("2001:db8::10") {
+		t.Fatalf("source IPv6 = %v", row.SrcIP)
+	}
+	if row.DstIP != netip.MustParseAddr("2001:db8:1::20") {
+		t.Fatalf("destination IPv6 = %v", row.DstIP)
+	}
+	if row.NATIP != netip.MustParseAddr("2001:db8:2::30") {
+		t.Fatalf("NAT IPv6 = %v", row.NATIP)
+	}
+}
+
 func TestParseNATLineParsesSyslogTimestampWithArchiveYear(t *testing.T) {
 	line := "Jun 13 23:59:30 localhost nat: 日志类型:NAT日志, NAT类型:snat, 源IP:2.55.80.250, 源端�?37830, 目的IP:47.96.193.154, 目的端口:443, 协议:6, 转换后的IP:58.216.48.6, 转换后的端口:37830"
 

@@ -333,6 +333,29 @@ func TestAppUsesPersistedAdminPasswordHash(t *testing.T) {
 	}
 }
 
+func TestNewAppWithoutAdminPasswordDoesNotEnableKnownDefault(t *testing.T) {
+	t.Setenv("ADMIN_PASSWORD", "")
+
+	app := NewApp(LoadConfig())
+	if app.verifyPassword("admin") {
+		t.Fatal("ADMIN_PASSWORD 未设置时不能启用固定默认密码")
+	}
+}
+
+func TestNewAppLoadsAdminPasswordFromProtectedFile(t *testing.T) {
+	t.Setenv("ADMIN_PASSWORD", "")
+	passwordPath := filepath.Join(t.TempDir(), "admin-password")
+	if err := os.WriteFile(passwordPath, []byte("file-admin-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ADMIN_PASSWORD_FILE", passwordPath)
+
+	app := NewApp(LoadConfig())
+	if !app.verifyPassword("file-admin-secret") {
+		t.Fatal("应从 ADMIN_PASSWORD_FILE 读取初始管理员密码")
+	}
+}
+
 func TestAppIgnoresMalformedPersistedAdminPasswordHash(t *testing.T) {
 	app := NewApp(LoadConfig())
 
@@ -1021,5 +1044,72 @@ func TestLoginRateLimitsAfterRepeatedFailures(t *testing.T) {
 	router.ServeHTTP(res, req)
 	if res.Code != http.StatusTooManyRequests {
 		t.Fatalf("rate-limited login status = %d, want 429, body = %s", res.Code, res.Body.String())
+	}
+}
+
+func TestLoginFailuresDoNotLockOutAnotherSource(t *testing.T) {
+	app := NewApp(LoadConfig())
+	router := app.Router()
+
+	for i := 0; i < maxLoginFailures; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewBufferString(`{"password":"wrong"}`))
+		req.RemoteAddr = "192.0.2.10:40000"
+		res := httptest.NewRecorder()
+		router.ServeHTTP(res, req)
+		if res.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d status = %d, want 401", i+1, res.Code)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewBufferString(`{"password":"admin"}`))
+	req.RemoteAddr = "192.0.2.11:40001"
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("另一来源的有效登录 status = %d, want 200, body = %s", res.Code, res.Body.String())
+	}
+}
+
+func TestLoginRejectsOversizedRequestBody(t *testing.T) {
+	app := NewApp(LoadConfig())
+	req := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewBufferString(`{"password":"`+strings.Repeat("a", 16*1024)+`"}`))
+	res := httptest.NewRecorder()
+
+	app.loginHandler().ServeHTTP(res, req)
+
+	if res.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized login status = %d, want 413, body = %s", res.Code, res.Body.String())
+	}
+}
+
+func TestLoginRejectsPasswordBeyondVerificationLimit(t *testing.T) {
+	app := NewApp(LoadConfig())
+	req := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewBufferString(`{"password":"`+strings.Repeat("a", maxPasswordBytes+1)+`"}`))
+	res := httptest.NewRecorder()
+
+	app.loginHandler().ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("long password status = %d, want 400, body = %s", res.Code, res.Body.String())
+	}
+}
+
+func TestLoginRejectsWorkWhenConcurrencyBudgetIsFull(t *testing.T) {
+	app := NewApp(LoadConfig())
+	for i := 0; i < maxConcurrentLogins; i++ {
+		app.loginSem <- struct{}{}
+	}
+	t.Cleanup(func() {
+		for i := 0; i < maxConcurrentLogins; i++ {
+			<-app.loginSem
+		}
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewBufferString(`{"password":"admin"}`))
+	res := httptest.NewRecorder()
+
+	app.loginHandler().ServeHTTP(res, req)
+
+	if res.Code != http.StatusTooManyRequests {
+		t.Fatalf("busy login status = %d, want 429, body = %s", res.Code, res.Body.String())
 	}
 }

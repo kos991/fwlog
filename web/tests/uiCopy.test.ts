@@ -29,6 +29,14 @@ test('后台概览与进度页使用明确的统计和任务文案', () => {
   assert.doesNotMatch(progress, />Source</);
 });
 
+test('入库进度轮询不因响应数组引用变化而重复重启', () => {
+  const progress = fs.readFileSync(path.resolve('src/pages/IncrementalProgressPage.tsx'), 'utf8');
+
+  assert.match(progress, /const anyImporting = Boolean\(data\?\.sources\?\.some/);
+  assert.match(progress, /\}, \[load, anyImporting\]\);/);
+  assert.doesNotMatch(progress, /\}, \[load, data\?\.status, data\?\.sources\]\);/);
+});
+
 test('日志查询页使用统一的来源和结果文案', () => {
   const search = fs.readFileSync(path.resolve('src/pages/LogSearchPage.tsx'), 'utf8');
 

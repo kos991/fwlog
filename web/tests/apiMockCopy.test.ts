@@ -16,6 +16,7 @@ test('api mock uses readable Chinese log source copy', () => {
 });
 
 test('api mock includes rsyslog log source defaults', () => {
+  assert.match(source, /serial_number:\s*'SN-RSYSLOG-001'/);
   assert.match(source, /source_type:\s*'rsyslog'/);
   assert.match(source, /listen_protocol:\s*'udp'/);
   assert.match(source, /listen_port:\s*5514/);

@@ -65,12 +65,13 @@ export function IncrementalProgressPage() {
     }
   }, [includeReady]);
 
+  const anyImporting = Boolean(data?.sources?.some((source) => source.status === 'importing') || data?.status === 'importing');
+
   React.useEffect(() => {
     void load();
-    const anyImporting = data?.sources?.some((source) => source.status === 'importing') || data?.status === 'importing';
     const timer = window.setInterval(() => void load(), anyImporting ? 5000 : 30000);
     return () => window.clearInterval(timer);
-  }, [load, data?.status, data?.sources]);
+  }, [load, anyImporting]);
 
   const currentProgressView = buildIngestProgressView(data);
   const autoScanEnabled = data?.auto_scan_enabled === true;

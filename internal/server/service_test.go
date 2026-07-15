@@ -34,6 +34,35 @@ func TestSystemdServiceDefaultsAutoScanOff(t *testing.T) {
 	}
 }
 
+func TestSystemdServicesUseProtectedAdminPasswordFile(t *testing.T) {
+	for _, path := range [][]string{{"fwlog.service"}, {"packaging", "systemd", "fwlog.service"}} {
+		content := readRepoFile(t, path...)
+		if !strings.Contains(content, `Environment="ADMIN_PASSWORD_FILE=/etc/fwlog/admin-password"`) {
+			t.Fatalf("%s must configure ADMIN_PASSWORD_FILE", strings.Join(path, "/"))
+		}
+	}
+}
+
+func TestServerPackagesGenerateInitialAdminPasswordOnce(t *testing.T) {
+	buildScript := readRepoFile(t, "packaging", "build-server-packages.sh")
+	rpmSpec := readRepoFile(t, "packaging", "rpm", "fwlog.spec")
+	for path, content := range map[string]string{
+		"packaging/build-server-packages.sh": buildScript,
+		"packaging/rpm/fwlog.spec":           rpmSpec,
+	} {
+		for _, want := range []string{
+			`if [ ! -f /etc/fwlog/admin-password ]`,
+			`mkdir -p /etc/fwlog`,
+			`chmod 700 /etc/fwlog`,
+			`chmod 600 /etc/fwlog/admin-password`,
+		} {
+			if !strings.Contains(content, want) {
+				t.Fatalf("%s missing %q", path, want)
+			}
+		}
+	}
+}
+
 func TestOpenClickHouseWithRetryRetriesStartupFailures(t *testing.T) {
 	oldOpen := openClickHouse
 	oldAttempts := connectRetryAttempts
@@ -308,6 +337,21 @@ func TestReleaseDeployScriptStopsServiceBeforeReplacingBinary(t *testing.T) {
 	}
 	assertComesBefore(t, "scripts/deploy-142-from-release.sh", text, "systemctl stop fwlog", "install -m 0755 \"${work_dir}/fwlog\" /opt/fwlog/fwlog")
 	assertComesBefore(t, "scripts/deploy-142-from-release.sh", text, "install -m 0755 \"${work_dir}/fwlog\" /opt/fwlog/fwlog", "systemctl restart fwlog")
+}
+
+func TestReleaseDeployScriptVerifiesChecksumAndProtectsInitialPassword(t *testing.T) {
+	text := readRepoFile(t, "scripts", "deploy-142-from-release.sh")
+	for _, want := range []string{
+		`"${base_url}/checksums.txt"`,
+		"sha256sum -c -",
+		`ADMIN_PASSWORD_FILE=/etc/fwlog/admin-password`,
+		`install -m 0600 "${work_dir}/admin-password" /etc/fwlog/admin-password`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("deploy script missing %q", want)
+		}
+	}
+	assertComesBefore(t, "scripts/deploy-142-from-release.sh", text, "sha256sum -c -", `install -m 0755 "${work_dir}/fwlog" /opt/fwlog/fwlog`)
 }
 
 func assertWorkflowMatchesBuildFlow(t *testing.T, path string, required []string) {

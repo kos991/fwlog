@@ -2,9 +2,11 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +26,7 @@ type App struct {
 	passwordHash      string
 	sessionToken      string
 	loginLimiter      loginLimiter
+	loginSem          chan struct{}
 	importRunner      importRunnerFunc
 	imports           *ImportCoordinator
 	receiver          *receiverpkg.Manager
@@ -51,9 +54,13 @@ var (
 )
 
 func NewApp(cfg Config) *App {
-	passwordHash, err := HashPassword(loadAdminPassword())
-	if err != nil {
-		panic(err)
+	var passwordHash string
+	if password := loadAdminPassword(); password != "" {
+		var err error
+		passwordHash, err = HashPassword(password)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	logger := initLogger()
@@ -71,6 +78,7 @@ func NewApp(cfg Config) *App {
 		ipEngine:          NewIPEngine(),
 		ipStatus:          defaultIPDataStatus(cfg),
 		passwordHash:      passwordHash,
+		loginSem:          make(chan struct{}, maxConcurrentLogins),
 		imports:           NewImportCoordinator(cfg.Workers, defaultConcurrentWrites),
 		receiver:          receiverpkg.NewManager(),
 		archiver:          receiverpkg.NewArchiver(),
@@ -107,9 +115,15 @@ func (a *App) Connect(ctx context.Context) error {
 	}
 
 	a.mu.Lock()
-	a.store = store
 	a.applySavedSettingsLocked(savedSettings)
+	passwordConfigured := looksLikePasswordHash(a.passwordHash)
+	if passwordConfigured {
+		a.store = store
+	}
 	a.mu.Unlock()
+	if !passwordConfigured {
+		return errors.New("管理员密码未初始化：请设置 ADMIN_PASSWORD 后重启，或恢复已保存的管理员密码配置")
+	}
 	a.reloadIPDataFromSettings()
 	a.applyReceiverFromSettings()
 
@@ -174,12 +188,25 @@ func (a *App) openClickHouseWithRetry(ctx context.Context) (*ClickHouseStore, er
 }
 
 func loadAdminPassword() string {
-	password := strings.TrimSpace(os.Getenv("ADMIN_PASSWORD"))
-	if password == "" {
-		fmt.Fprintln(os.Stderr, "WARNING: ADMIN_PASSWORD 未设置，使用默认密码 admin，请在部署后立即修改")
-		return "admin"
+	if password := strings.TrimSpace(os.Getenv("ADMIN_PASSWORD")); password != "" {
+		return password
 	}
-	return password
+	path := strings.TrimSpace(os.Getenv("ADMIN_PASSWORD_FILE"))
+	if path == "" {
+		return ""
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		panic(fmt.Errorf("读取 ADMIN_PASSWORD_FILE: %w", err))
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
+		panic(fmt.Errorf("ADMIN_PASSWORD_FILE 权限过宽: %s（要求 0600）", info.Mode().Perm()))
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		panic(fmt.Errorf("读取 ADMIN_PASSWORD_FILE: %w", err))
+	}
+	return strings.TrimSpace(string(data))
 }
 
 func defaultSettings(cfg Config) map[string]string {

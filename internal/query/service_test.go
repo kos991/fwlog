@@ -3,6 +3,7 @@ package query
 import (
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -230,7 +231,7 @@ func TestBuildQuerySQLBuildsVisibleDatePredicatesAndParameterizedFilters(t *test
 		t.Fatalf("sql missing visible range predicate: %s", sql)
 	}
 	for _, want := range []string{
-		"(src_ip = ? OR dst_ip = ? OR nat_ip = ?)",
+		"(src_ip = toIPv6(?) OR dst_ip = toIPv6(?) OR nat_ip = toIPv6(?))",
 		"(src_port = ? OR dst_port = ? OR nat_port = ?)",
 		"source_id = ?",
 		"protocol IN (?, ?)",
@@ -268,6 +269,66 @@ func TestBuildQuerySQLBuildsVisibleDatePredicatesAndParameterizedFilters(t *test
 		if args[i] != want {
 			t.Fatalf("args[%d] = %#v, want %#v", i, args[i], want)
 		}
+	}
+}
+
+func TestBuildQuerySQLConvertsIPv4AndIPv6FiltersToIPv6(t *testing.T) {
+	visibility := QueryVisibility{QueriedRanges: []VisibleRange{{
+		LogDate:   dateOnly(2026, 7, 15),
+		StartTime: time.Date(2026, 7, 15, 0, 0, 0, 0, time.Local),
+		EndTime:   time.Date(2026, 7, 15, 23, 59, 59, 0, time.Local),
+		Status:    StatusReady,
+	}}}
+	req := QueryRequest{
+		IP:    "2001:db8::1",
+		SrcIP: "192.0.2.10",
+		DstIP: "2001:db8:1::20",
+		NATIP: "2001:db8:2::30",
+	}
+
+	sql, _, err := BuildQuerySQL(req, visibility)
+	if err != nil {
+		t.Fatalf("BuildQuerySQL returned error: %v", err)
+	}
+
+	for _, want := range []string{
+		"(src_ip = toIPv6(?) OR dst_ip = toIPv6(?) OR nat_ip = toIPv6(?))",
+		"src_ip = toIPv6(?)",
+		"dst_ip = toIPv6(?)",
+		"nat_ip = toIPv6(?)",
+	} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("dual-stack query SQL missing %q: %s", want, sql)
+		}
+	}
+}
+
+func TestBuildQuerySQLRejectsInvalidIPFilter(t *testing.T) {
+	visibility := QueryVisibility{QueriedRanges: []VisibleRange{{
+		LogDate:   dateOnly(2026, 7, 15),
+		StartTime: time.Date(2026, 7, 15, 0, 0, 0, 0, time.Local),
+		EndTime:   time.Date(2026, 7, 15, 23, 59, 59, 0, time.Local),
+		Status:    StatusReady,
+	}}}
+
+	_, _, err := BuildQuerySQL(QueryRequest{IP: "not-an-ip"}, visibility)
+	if err == nil {
+		t.Fatal("invalid IP filter should be rejected before querying ClickHouse")
+	}
+	if !strings.Contains(err.Error(), "not-an-ip") {
+		t.Fatalf("invalid IP error should identify the rejected value: %v", err)
+	}
+	var queryErr *QueryError
+	if !errors.As(err, &queryErr) || queryErr.Code != "invalid_ip" || queryErr.Status != http.StatusBadRequest {
+		t.Fatalf("invalid IP error = %#v, want structured invalid_ip error", err)
+	}
+}
+
+func TestBuildQuerySQLRejectsInvalidIPBeforeCheckingVisibility(t *testing.T) {
+	_, _, err := BuildQuerySQL(QueryRequest{SrcIP: "2001:db8::invalid"}, QueryVisibility{})
+	var queryErr *QueryError
+	if !errors.As(err, &queryErr) || queryErr.Code != "invalid_ip" {
+		t.Fatalf("invalid IP should win over empty visibility: %#v", err)
 	}
 }
 

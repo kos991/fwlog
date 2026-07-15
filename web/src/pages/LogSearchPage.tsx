@@ -6,6 +6,7 @@ import { Alert, Button, DatePicker, Descriptions, Form, Input, Select, Tag, mess
 import type { FilterDropdownProps } from 'antd/es/table/interface';
 import dayjs, { type Dayjs } from 'dayjs';
 import { apiGet, buildQueryString, type QueryVisibility } from '../api';
+import { formatIPPort, geoFallback, matchCidrAlias, type CidrAliasSetting } from '../ipAddress';
 import { ingestStatusText } from '../uiCopy';
 
 const { RangePicker } = DatePicker;
@@ -54,12 +55,6 @@ type DateState = {
   error?: string;
 };
 
-type CidrAliasSetting = {
-  cidr?: string;
-  alias?: string;
-  enabled?: boolean;
-};
-
 type SettingsResponse = {
   cidr_aliases?: CidrAliasSetting[] | string;
   log_sources?: LogSourceSetting[] | string;
@@ -99,11 +94,6 @@ type CalendarState = {
   kind: 'ready' | 'importing' | 'failed' | 'pending' | 'skipped';
   title: string;
 };
-
-function address(ip?: string, port?: number) {
-  if (!ip) return '-';
-  return `${ip}${port ? `:${port}` : ''}`;
-}
 
 function mono(value?: React.ReactNode) {
   return <span className="mono-number">{value || '-'}</span>;
@@ -153,46 +143,6 @@ function sourceDisplayName(source?: Pick<LogSourceSetting, 'source_id' | 'log_ta
   if (!source) return '-';
   if (source.log_tag && source.source_id) return `${source.log_tag}（${source.source_id}）`;
   return source.log_tag || source.source_id || '-';
-}
-
-function ipv4ToNumber(ip?: string) {
-  const parts = String(ip || '').split('.').map((part) => Number(part));
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
-    return null;
-  }
-  return (((parts[0] * 256 + parts[1]) * 256 + parts[2]) * 256 + parts[3]) >>> 0;
-}
-
-function matchCidrAlias(ip: string | undefined, aliases: CidrAliasSetting[]) {
-  const ipNumber = ipv4ToNumber(ip);
-  if (ipNumber === null) return '';
-
-  let best = '';
-  let bestPrefix = -1;
-  aliases.forEach((item) => {
-    if (item.enabled === false || !item.cidr || !item.alias) return;
-    const [base, prefixText] = item.cidr.split('/');
-    const baseNumber = ipv4ToNumber(base);
-    const prefix = Number(prefixText);
-    if (baseNumber === null || !Number.isInteger(prefix) || prefix < 0 || prefix > 32) return;
-    const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
-    if ((ipNumber & mask) === (baseNumber & mask) && prefix > bestPrefix) {
-      best = item.alias;
-      bestPrefix = prefix;
-    }
-  });
-  return best;
-}
-
-function geoFallback(ip?: string) {
-  const ipNumber = ipv4ToNumber(ip);
-  if (ipNumber === null) return '-';
-  const a = ipNumber >>> 24;
-  const b = (ipNumber >>> 16) & 255;
-  if (a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) {
-    return '内网';
-  }
-  return '未知公网';
 }
 
 function formatCount(value?: number) {
@@ -374,19 +324,19 @@ export function LogSearchPage(_props: LogSearchPageProps) {
     },
     {
       title: '源 IP / 端口', width: 180,
-      render: (_, row) => mono(address(row.src_ip, row.src_port)),
+      render: (_, row) => mono(formatIPPort(row.src_ip, row.src_port)),
       filteredValue: queryValues?.src_ip ? [queryValues.src_ip] : null,
       filterDropdown: textFilterDropdown('输入源 IP', (value) => applyColumnFilter('src_ip', value)),
     },
     {
       title: '目标 IP / 端口', width: 180,
-      render: (_, row) => mono(address(row.dst_ip, row.dst_port)),
+      render: (_, row) => mono(formatIPPort(row.dst_ip, row.dst_port)),
       filteredValue: queryValues?.dst_ip ? [queryValues.dst_ip] : null,
       filterDropdown: textFilterDropdown('输入目标 IP', (value) => applyColumnFilter('dst_ip', value)),
     },
     {
       title: 'NAT IP / 端口', width: 180,
-      render: (_, row) => mono(address(row.nat_ip, row.nat_port)),
+      render: (_, row) => mono(formatIPPort(row.nat_ip, row.nat_port)),
       filteredValue: queryValues?.nat_ip ? [queryValues.nat_ip] : null,
       filterDropdown: textFilterDropdown('输入 NAT IP', (value) => applyColumnFilter('nat_ip', value)),
     },

@@ -2,7 +2,6 @@ import {
   DashboardOutlined,
   FileSyncOutlined,
   PoweroffOutlined,
-  SafetyCertificateOutlined,
   SearchOutlined,
   SettingOutlined,
   UserOutlined,
@@ -10,6 +9,7 @@ import {
 import { ProLayout } from '@ant-design/pro-components';
 import { Button, Tooltip } from 'antd';
 import { useEffect, useState, type ReactNode } from 'react';
+import { BrandLogo } from '../components/BrandLogo';
 
 export type RouteKey = 'dashboard' | 'search' | 'progress' | 'maintenance';
 
@@ -61,7 +61,7 @@ export function AppLayout({ active, onChange, onLogout, children }: AppLayoutPro
     <ProLayout
       route={route}
       location={{ pathname: `/${active}` }}
-      logo={<span className="brand-logo"><SafetyCertificateOutlined /></span>}
+      logo={<BrandLogo className="brand-logo" />}
       title="NAT 日志控制台"
       layout="side"
       fixedHeader

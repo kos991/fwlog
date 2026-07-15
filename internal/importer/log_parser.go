@@ -86,13 +86,13 @@ func ParseNATLine(line string, meta ParseMeta) (NATLogRow, bool) {
 	if ts, ok := parseNATTimestamp(line, meta.LogDate); ok {
 		row.Timestamp = ts
 	}
-	if srcIP, ok := parseIPv4(srcIPRaw); ok {
+	if srcIP, ok := parseIP(srcIPRaw); ok {
 		row.SrcIP = srcIP
 	}
-	if dstIP, ok := parseIPv4(dstIPRaw); ok {
+	if dstIP, ok := parseIP(dstIPRaw); ok {
 		row.DstIP = dstIP
 	}
-	if natIP, ok := parseIPv4(natIPRaw); ok {
+	if natIP, ok := parseIP(natIPRaw); ok {
 		row.NATIP = natIP
 	}
 
@@ -159,17 +159,17 @@ func parseSyslogTimestamp(value string, fallbackDate time.Time) (time.Time, erro
 	return ts, nil
 }
 
-func parseIPv4(raw string) (netip.Addr, bool) {
+func parseIP(raw string) (netip.Addr, bool) {
 	if raw == "" {
 		return netip.Addr{}, false
 	}
 
 	addr, err := netip.ParseAddr(raw)
-	if err != nil || !addr.Is4() {
+	if err != nil {
 		return netip.Addr{}, false
 	}
 
-	return addr, true
+	return addr.Unmap(), true
 }
 
 func normalizeProtocol(raw string) string {

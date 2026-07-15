@@ -325,10 +325,12 @@ func TestExecuteSystemUpgradeInstallsUpgradePackage(t *testing.T) {
 			"assets":[
 				{"name":"fwlog_linux_amd64","browser_download_url":"https://downloads.test/fwlog_linux_amd64"},
 				{"name":"fwlog-upgrade-v2.1.0.x86_64.rpm","browser_download_url":"https://downloads.test/fwlog-upgrade.rpm"},
-				{"name":"fwlog-upgrade_2.1.0_amd64.deb","browser_download_url":"https://downloads.test/fwlog-upgrade.deb"}
+				{"name":"fwlog-upgrade_2.1.0_amd64.deb","browser_download_url":"https://downloads.test/fwlog-upgrade.deb"},
+				{"name":"checksums.txt","browser_download_url":"https://downloads.test/checksums.txt"}
 			]
 		}`,
 		"https://downloads.test/fwlog-upgrade.deb": "package-bytes",
+		"https://downloads.test/checksums.txt":     "9d7ec3059a3be4a437e8028d9a498f2fd4adfa7183af52ecc712704ee1dc8260  fwlog-upgrade_2.1.0_amd64.deb\n",
 	})
 	defer restoreHTTP()
 	originalUpgradeTempRoot := upgradeTempRoot
@@ -427,6 +429,22 @@ func TestExecuteSystemUpgradeVerifiesChecksumUsingReleaseAssetName(t *testing.T)
 
 	if err := executeSystemUpgrade(context.Background(), upgradeTarget{Version: "v2.0.15"}, &UpgradeStatus{}); err != nil {
 		t.Fatalf("execute upgrade should match checksum by release asset name: %v", err)
+	}
+}
+
+func TestVerifyPackageChecksumRejectsReleaseWithoutChecksums(t *testing.T) {
+	packagePath := filepath.Join(t.TempDir(), "fwlog-upgrade_2.0.15_amd64.deb")
+	if err := os.WriteFile(packagePath, []byte("package-bytes"), 0o600); err != nil {
+		t.Fatalf("write package: %v", err)
+	}
+
+	err := verifyPackageChecksum(context.Background(), githubRelease{}, upgradePackage{
+		Format: upgradePackageDEB,
+		Name:   filepath.Base(packagePath),
+		Path:   packagePath,
+	})
+	if err == nil {
+		t.Fatal("缺少 checksums.txt 时必须拒绝升级包")
 	}
 }
 
