@@ -13,7 +13,7 @@ func TestDateStatePointQueryOrdersByUpdatedAt(t *testing.T) {
 	if !strings.Contains(sql, "ORDER BY updated_at DESC") || !strings.Contains(sql, "LIMIT 1") {
 		t.Fatalf("point query must read newest state: %s", sql)
 	}
-	if !strings.Contains(sql, "multiIf(status = 'failed', 4, status IN ('ready', 'succeeded'), 3") {
+	if !strings.Contains(sql, "multiIf(status = 'failed', 4, status IN ('ready', 'succeeded', 'no_data'), 3") {
 		t.Fatalf("point query must prefer terminal states when timestamps tie: %s", sql)
 	}
 	if strings.Contains(sql, "FINAL") {
@@ -74,7 +74,7 @@ func TestFileStatePointQueryReadsNewestState(t *testing.T) {
 	if strings.Contains(sql, "FINAL") {
 		t.Fatalf("file point query must not use FINAL: %s", sql)
 	}
-	if !strings.Contains(sql, "multiIf(status = 'failed', 4, status IN ('ready', 'succeeded'), 3") {
+	if !strings.Contains(sql, "multiIf(status = 'failed', 4, status IN ('ready', 'succeeded', 'no_data'), 3") {
 		t.Fatalf("file point query must prefer terminal states when timestamps tie: %s", sql)
 	}
 }
@@ -109,7 +109,7 @@ func TestDateStateListQueryDoesNotShadowUpdatedAtColumn(t *testing.T) {
 
 func TestDateStateListQueryQualifiesStatusVersionColumns(t *testing.T) {
 	sql := DateStateListQuery()
-	for _, want := range []string{"ingest_dates.updated_at", "ingest_dates.status = 'failed'", "ingest_dates.status IN ('ready', 'succeeded')"} {
+	for _, want := range []string{"ingest_dates.updated_at", "ingest_dates.status = 'failed'", "ingest_dates.status IN ('ready', 'succeeded', 'no_data')"} {
 		if !strings.Contains(sql, want) {
 			t.Fatalf("list query must qualify state version column %q to avoid alias expansion: %s", want, sql)
 		}
@@ -151,6 +151,27 @@ func TestIngestStateMigrationRepairsCompletedImportingStates(t *testing.T) {
 	}
 	if strings.Contains(statements, "MODIFY COLUMN updated_at") {
 		t.Fatalf("migration must not alter a ReplacingMergeTree version column in place: %s", statements)
+	}
+}
+
+func TestIngestStateMigrationReclassifiesZeroRowTerminalRecords(t *testing.T) {
+	statements := IngestStateMigrationSQL()
+	if len(statements) < 3 {
+		t.Fatalf("migration statements = %d, want date and file no-data repairs", len(statements))
+	}
+	for index, table := range []string{"ingest_dates", "ingest_files"} {
+		statement := statements[index+1]
+		for _, want := range []string{
+			"INSERT INTO " + table,
+			"'no_data'",
+			"IN ('ready', 'succeeded')",
+			"argMax(rows_imported",
+			"= 0",
+		} {
+			if !strings.Contains(statement, want) {
+				t.Fatalf("%s no-data migration missing %q: %s", table, want, statement)
+			}
+		}
 	}
 }
 

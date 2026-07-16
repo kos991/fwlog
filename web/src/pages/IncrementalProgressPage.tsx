@@ -45,7 +45,7 @@ function formatLogDate(value?: string) {
 
 function progressStatus(status?: string) {
   if (status === 'failed') return 'exception';
-  if (status === 'ready') return 'success';
+  if (status === 'ready' || status === 'no_data') return 'success';
   return 'active';
 }
 
@@ -160,7 +160,7 @@ export function IncrementalProgressPage() {
               <div className="progress-list-row" key={`${row.source_id || 'default'}-${row.log_date}`}>
                 <strong>{row.source_id || 'default'}</strong>
                 <strong>{formatLogDate(row.log_date)}</strong>
-                <Tag color={row.status === 'failed' ? 'error' : row.status === 'ready' ? 'success' : 'processing'}>{ingestStatusText(row.status)}</Tag>
+                <Tag color={row.status === 'failed' ? 'error' : row.status === 'ready' ? 'success' : row.status === 'no_data' ? 'warning' : 'processing'}>{ingestStatusText(row.status)}</Tag>
                 <span className="mono-number">{row.files_done ?? 0}/{row.files_total ?? 0}</span>
                 <span className="mono-number">{formatCount(row.rows_imported)}</span>
                 <div className="progress-inline">

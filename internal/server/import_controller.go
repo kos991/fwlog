@@ -399,7 +399,7 @@ func importSourceDate(ctx context.Context, store *ClickHouseStore, source LogSou
 		if err != nil {
 			return nil, nil, err
 		}
-		if found && state.Status == StatusReady {
+		if found && isCompletedImportStatus(state.Status) {
 			return nil, []string{formatDate(date)}, nil
 		}
 	}
@@ -451,7 +451,7 @@ func importArchivedDatesWithGate(ctx context.Context, store *ClickHouseStore, so
 			if err != nil {
 				return imported, skipped, err
 			}
-			if found && state.Status == StatusReady {
+			if found && isCompletedImportStatus(state.Status) {
 				skipped = append(skipped, formatDate(date))
 				continue
 			}
@@ -464,4 +464,8 @@ func importArchivedDatesWithGate(ctx context.Context, store *ClickHouseStore, so
 	}
 
 	return imported, skipped, nil
+}
+
+func isCompletedImportStatus(status IngestStatus) bool {
+	return status == StatusReady || status == StatusNoData
 }

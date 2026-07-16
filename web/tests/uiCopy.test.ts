@@ -13,6 +13,7 @@ test('统一入库状态使用清晰一致的中文', () => {
   assert.equal(ingestStatusText('ready'), '已完成');
   assert.equal(ingestStatusText('succeeded'), '已完成');
   assert.equal(ingestStatusText('failed'), '处理失败');
+  assert.equal(ingestStatusText('no_data'), '无有效日志');
   assert.equal(ingestStatusText('custom'), 'custom');
 });
 

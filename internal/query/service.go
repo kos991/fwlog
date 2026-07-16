@@ -279,7 +279,7 @@ func BuildVisibleRanges(start, end time.Time, states []DateIngestState) QueryVis
 			}
 		case StatusPending, StatusFailed:
 			appendSkippedDate(&visibility, day, state.Status, notReadyReason)
-		case StatusIdle, StatusScanning, StatusSucceeded, "":
+		case StatusIdle, StatusScanning, StatusSucceeded, StatusNoData, "":
 			appendSkippedDate(&visibility, day, state.Status, notQueryableReason)
 		default:
 			appendSkippedDate(&visibility, day, state.Status, notQueryableReason)

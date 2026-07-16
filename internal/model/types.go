@@ -13,6 +13,7 @@ const (
 	StatusScanning  IngestStatus = "scanning"
 	StatusImporting IngestStatus = "importing"
 	StatusReady     IngestStatus = "ready"
+	StatusNoData    IngestStatus = "no_data"
 	StatusFailed    IngestStatus = "failed"
 	StatusSucceeded IngestStatus = "succeeded"
 )

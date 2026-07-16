@@ -8,6 +8,7 @@ import (
 func TestBuildIngestProgressShowsProblemDatesByDefault(t *testing.T) {
 	states := []DateIngestState{
 		{LogDate: dateOnly(2026, 6, 28), Status: StatusReady},
+		{LogDate: dateOnly(2026, 6, 27), Status: StatusNoData},
 		{LogDate: dateOnly(2026, 6, 29), Status: StatusImporting},
 		{LogDate: dateOnly(2026, 6, 30), Status: StatusPending},
 		{LogDate: dateOnly(2026, 7, 1), Status: StatusFailed},
@@ -19,8 +20,8 @@ func TestBuildIngestProgressShowsProblemDatesByDefault(t *testing.T) {
 		t.Fatalf("default list should hide ready dates, got %#v", progress.Dates)
 	}
 	for _, date := range progress.Dates {
-		if date.Status == StatusReady {
-			t.Fatalf("ready date should be hidden by default: %#v", progress.Dates)
+		if date.Status == StatusReady || date.Status == StatusNoData {
+			t.Fatalf("terminal date should be hidden by default: %#v", progress.Dates)
 		}
 	}
 }

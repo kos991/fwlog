@@ -1,6 +1,7 @@
 package importer
 
 import (
+	"compress/gzip"
 	"context"
 	"errors"
 	"net/netip"
@@ -14,6 +15,83 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2/lib/column"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
+
+func TestImportDateMarksEmptyArchiveAsNoData(t *testing.T) {
+	dir := t.TempDir()
+	logDate := time.Date(2026, 7, 15, 0, 0, 0, 0, time.Local)
+	logFile := filepath.Join(dir, "edge-fw.log-20260715.gz")
+
+	handle, err := os.Create(logFile)
+	if err != nil {
+		t.Fatalf("create empty gzip: %v", err)
+	}
+	zipWriter := gzip.NewWriter(handle)
+	if err := zipWriter.Close(); err != nil {
+		t.Fatalf("close empty gzip: %v", err)
+	}
+	if err := handle.Close(); err != nil {
+		t.Fatalf("close archive: %v", err)
+	}
+	modTime := logDate.Add(12 * time.Hour)
+	if err := os.Chtimes(logFile, modTime, modTime); err != nil {
+		t.Fatalf("set mod time: %v", err)
+	}
+
+	states := &fakeImportStateRecorder{}
+	importer := &Importer{
+		store:  &ClickHouseStore{},
+		writer: &fakeClickHouseWriter{batch: &fakeBatch{}},
+		states: states,
+		now:    func() time.Time { return logDate.Add(24 * time.Hour) },
+		sleep:  func(time.Duration) {},
+	}
+
+	err = importer.ImportDate(context.Background(), LogSource{SourceID: "fw-a", LogTag: "edge", LogDir: dir}, logDate)
+	if err != nil {
+		t.Fatalf("ImportDate returned error: %v", err)
+	}
+	lastDate := states.dateStates[len(states.dateStates)-1]
+	if lastDate.Status != StatusNoData || lastDate.RowsImported != 0 || lastDate.ProgressPct != 100 {
+		t.Fatalf("empty date terminal state = %#v", lastDate)
+	}
+	lastFile := states.fileStates[len(states.fileStates)-1]
+	if lastFile.Status != StatusNoData || lastFile.RowsImported != 0 || lastFile.ProgressPct != 100 {
+		t.Fatalf("empty file terminal state = %#v", lastFile)
+	}
+}
+
+func TestImportDateFailsWhenNonEmptyArchiveHasNoRecognizedLogs(t *testing.T) {
+	dir := t.TempDir()
+	logDate := time.Date(2026, 7, 15, 0, 0, 0, 0, time.Local)
+	logFile := filepath.Join(dir, "edge-fw.log-20260715")
+	if err := os.WriteFile(logFile, []byte("this is not a supported NAT log\n"), 0o644); err != nil {
+		t.Fatalf("write unsupported log: %v", err)
+	}
+	modTime := logDate.Add(12 * time.Hour)
+	if err := os.Chtimes(logFile, modTime, modTime); err != nil {
+		t.Fatalf("set mod time: %v", err)
+	}
+
+	states := &fakeImportStateRecorder{}
+	importer := &Importer{
+		store:  &ClickHouseStore{},
+		writer: &fakeClickHouseWriter{batch: &fakeBatch{}},
+		states: states,
+		now:    func() time.Time { return logDate.Add(24 * time.Hour) },
+		sleep:  func(time.Duration) {},
+	}
+
+	err := importer.ImportDate(context.Background(), LogSource{SourceID: "fw-a", LogTag: "edge", LogDir: dir}, logDate)
+	if err == nil || !strings.Contains(err.Error(), "没有可识别的日志") {
+		t.Fatalf("ImportDate error = %v, want unrecognized log error", err)
+	}
+	if got := states.fileStates[len(states.fileStates)-1].Status; got != StatusFailed {
+		t.Fatalf("file status = %s, want failed", got)
+	}
+	if got := states.dateStates[len(states.dateStates)-1].Status; got != StatusFailed {
+		t.Fatalf("date status = %s, want failed", got)
+	}
+}
 
 func TestImportDateSuccessDropsSourceDatePartitionSleepsAndMarksReady(t *testing.T) {
 	dir := t.TempDir()

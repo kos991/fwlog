@@ -56,13 +56,16 @@ export function buildIngestProgressView(ingest?: IngestProgressInput | null): In
   const isStarting = ingest?.status === 'importing' && percent === 0 && filesTotal > 0;
   const isFinalizing = ingest?.status === 'importing' && rawPercent >= 99 && filesTotal > 0;
   const isComplete = ingest?.status === 'ready' || ingest?.status === 'succeeded';
+  const hasNoData = ingest?.status === 'no_data';
   const displayPercent = isStarting ? (rawPercent > 0 ? 1 : 2) : percent;
-  const percentText = isFinalizing ? '收尾中' : rawPercent > 0 && rawPercent < 1 ? '<1%' : isStarting ? '处理中' : `${percent}%`;
+  const percentText = hasNoData ? '无数据' : isFinalizing ? '收尾中' : rawPercent > 0 && rawPercent < 1 ? '<1%' : isStarting ? '处理中' : `${percent}%`;
   const currentFileText = ingest?.current_file || '等待当前文件';
 
   let detailText = '暂无入库任务';
   if (ingest?.status === 'failed') {
     detailText = '入库失败，请查看维护操作';
+  } else if (hasNoData) {
+    detailText = '文件中没有可入库的日志';
   } else if (isComplete) {
     detailText = `已完成 ${formatCount(filesDone)} 个文件，共入库 ${formatCount(rowsImported)} 行`;
   } else if (percent === 0 && filesTotal > 0) {

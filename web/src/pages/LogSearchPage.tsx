@@ -389,6 +389,11 @@ export function LogSearchPage(_props: LogSearchPageProps) {
           kind: 'ready',
           title: `${sourceText}：已完成，可查询 ${formatCount(item.rows_imported)} 行`,
         };
+      } else if (item.status === 'no_data') {
+        next = {
+          kind: 'skipped',
+          title: `${sourceText}：无有效日志`,
+        };
       } else if (item.status === 'importing') {
         const pct = Math.round(item.progress_pct ?? 0);
         next = {

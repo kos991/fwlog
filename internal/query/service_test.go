@@ -121,13 +121,14 @@ func TestBuildVisibleRangesMatchesLogDateByCalendarDateAcrossLocations(t *testin
 
 func TestBuildVisibleRangesSkipsNonQueryableStatuses(t *testing.T) {
 	start := dateOnly(2026, 6, 28)
-	end := endOfDay(2026, 7, 2)
+	end := endOfDay(2026, 7, 3)
 	states := []DateIngestState{
 		{LogDate: dateOnly(2026, 6, 28), Status: StatusIdle},
 		{LogDate: dateOnly(2026, 6, 29), Status: StatusScanning},
 		{LogDate: dateOnly(2026, 6, 30), Status: StatusSucceeded},
 		{LogDate: dateOnly(2026, 7, 1), Status: ""},
 		{LogDate: dateOnly(2026, 7, 2), Status: IngestStatus("mystery")},
+		{LogDate: dateOnly(2026, 7, 3), Status: StatusNoData},
 	}
 
 	visibility := BuildVisibleRanges(start, end, states)
@@ -138,7 +139,7 @@ func TestBuildVisibleRangesSkipsNonQueryableStatuses(t *testing.T) {
 	if len(visibility.QueriedRanges) != 0 {
 		t.Fatalf("queried ranges = %#v", visibility.QueriedRanges)
 	}
-	if len(visibility.SkippedDates) != 5 {
+	if len(visibility.SkippedDates) != 6 {
 		t.Fatalf("skipped dates = %#v", visibility.SkippedDates)
 	}
 	for i, want := range []struct {
@@ -151,6 +152,7 @@ func TestBuildVisibleRangesSkipsNonQueryableStatuses(t *testing.T) {
 		{dateOnly(2026, 6, 30), StatusSucceeded, notQueryableReason},
 		{dateOnly(2026, 7, 1), "", notQueryableReason},
 		{dateOnly(2026, 7, 2), IngestStatus("mystery"), notQueryableReason},
+		{dateOnly(2026, 7, 3), StatusNoData, notQueryableReason},
 	} {
 		got := visibility.SkippedDates[i]
 		if !got.LogDate.Equal(want.logDate) || got.Status != want.status || got.Reason != want.reason {

@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-const ingestStatusPrioritySQL = "multiIf(status = 'failed', 4, status IN ('ready', 'succeeded'), 3, status = 'importing', 1, 0)"
-const ingestDateStatusPrioritySQL = "multiIf(ingest_dates.status = 'failed', 4, ingest_dates.status IN ('ready', 'succeeded'), 3, ingest_dates.status = 'importing', 1, 0)"
+const ingestStatusPrioritySQL = "multiIf(status = 'failed', 4, status IN ('ready', 'succeeded', 'no_data'), 3, status = 'importing', 1, 0)"
+const ingestDateStatusPrioritySQL = "multiIf(ingest_dates.status = 'failed', 4, ingest_dates.status IN ('ready', 'succeeded', 'no_data'), 3, ingest_dates.status = 'importing', 1, 0)"
 const ingestDateStateVersionSQL = "tuple(ingest_dates.updated_at, " + ingestDateStatusPrioritySQL + ")"
 
 func (s *ClickHouseStore) WriteDateState(ctx context.Context, state DateIngestState) error {
@@ -211,5 +211,54 @@ HAVING maxIf(updated_at, status = 'importing' AND progress_pct >= 100
         AND files_total > 0 AND files_done >= files_total) = max(updated_at)
     AND maxIf(updated_at, status = 'importing' AND progress_pct >= 100
         AND files_total > 0 AND files_done >= files_total) > maxIf(updated_at, status = 'failed')`, ingestDateStateVersionSQL),
+		fmt.Sprintf(`INSERT INTO ingest_dates (
+    source_id, log_tag, log_date, status, files_total, files_done, rows_imported,
+    bytes_total, bytes_done, current_file, progress_pct, max_visible_timestamp,
+    retry_count, next_retry_at, error, updated_at
+)
+SELECT
+    source_id,
+    argMax(log_tag, %[1]s),
+    log_date,
+    'no_data',
+    argMax(files_total, %[1]s),
+    argMax(files_done, %[1]s),
+    0,
+    argMax(bytes_total, %[1]s),
+    argMax(bytes_done, %[1]s),
+    argMax(current_file, %[1]s),
+    100,
+    toDateTime(0),
+    0,
+    toDateTime(0),
+    '',
+    addSeconds(max(updated_at), 1)
+FROM ingest_dates
+GROUP BY source_id, log_date
+HAVING argMax(status, %[1]s) IN ('ready', 'succeeded')
+    AND argMax(rows_imported, %[1]s) = 0
+    AND argMax(files_total, %[1]s) > 0`, ingestDateStateVersionSQL),
+		fmt.Sprintf(`INSERT INTO ingest_files (
+    path, source_id, log_tag, log_date, status, rows_imported, bytes_total,
+    bytes_done, progress_pct, retry_count, next_retry_at, error, updated_at
+)
+SELECT
+    path,
+    argMax(source_id, %[1]s),
+    argMax(log_tag, %[1]s),
+    argMax(log_date, %[1]s),
+    'no_data',
+    0,
+    argMax(bytes_total, %[1]s),
+    argMax(bytes_done, %[1]s),
+    100,
+    0,
+    toDateTime(0),
+    '',
+    addSeconds(max(updated_at), 1)
+FROM ingest_files
+GROUP BY path
+HAVING argMax(status, %[1]s) IN ('ready', 'succeeded')
+    AND argMax(rows_imported, %[1]s) = 0`, ingestStatusPrioritySQL),
 	}
 }

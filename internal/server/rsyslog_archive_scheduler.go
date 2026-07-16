@@ -153,7 +153,7 @@ func (a *App) configuredRSyslogSources() []LogSource {
 func archiveReadyMap(states []DateIngestState) map[receiver.ArchiveReadyKey]bool {
 	ready := make(map[receiver.ArchiveReadyKey]bool)
 	for _, state := range states {
-		if state.Status != StatusReady {
+		if state.Status != StatusReady && state.Status != StatusNoData {
 			continue
 		}
 		ready[receiver.ArchiveReadyKey{

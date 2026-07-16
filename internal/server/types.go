@@ -44,6 +44,7 @@ const (
 	StatusScanning  = model.StatusScanning
 	StatusImporting = model.StatusImporting
 	StatusReady     = model.StatusReady
+	StatusNoData    = model.StatusNoData
 	StatusFailed    = model.StatusFailed
 	StatusSucceeded = model.StatusSucceeded
 )

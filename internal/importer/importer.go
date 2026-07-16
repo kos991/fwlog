@@ -191,7 +191,7 @@ func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.T
 			return err
 		}
 
-		rowsImported, err := i.importFile(ctx, source, date, file)
+		result, err := i.importFile(ctx, source, date, file)
 		if err != nil {
 			if markErr := i.markFileFailed(ctx, source, date, file, fileUpdatedAt, err); markErr != nil {
 				return errors.Join(err, markErr)
@@ -201,17 +201,31 @@ func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.T
 			}
 			return err
 		}
+		if result.RowsImported == 0 && result.NonEmptyLines > 0 {
+			parseErr := fmt.Errorf("文件 %s 中没有可识别的日志", filepath.Base(file.Path))
+			if markErr := i.markFileFailed(ctx, source, date, file, fileUpdatedAt, parseErr); markErr != nil {
+				return errors.Join(parseErr, markErr)
+			}
+			if markErr := i.markDateFailed(ctx, source, date, dateUpdatedAt, filesDone, parseErr); markErr != nil {
+				return errors.Join(parseErr, markErr)
+			}
+			return parseErr
+		}
 
 		filesDone++
-		totalRows += rowsImported
+		totalRows += result.RowsImported
 		bytesDone += uint64(file.Size)
+		fileStatus := StatusReady
+		if result.NonEmptyLines == 0 {
+			fileStatus = StatusNoData
+		}
 		if err := i.writeFileState(ctx, FileIngestState{
 			Path:         file.Path,
 			SourceID:     source.SourceID,
 			LogTag:       source.LogTag,
 			LogDate:      date,
-			Status:       StatusReady,
-			RowsImported: rowsImported,
+			Status:       fileStatus,
+			RowsImported: result.RowsImported,
 			BytesTotal:   uint64(file.Size),
 			BytesDone:    uint64(file.Size),
 			ProgressPct:  100,
@@ -241,11 +255,15 @@ func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.T
 		}
 	}
 
+	dateStatus := StatusReady
+	if totalRows == 0 {
+		dateStatus = StatusNoData
+	}
 	return i.writeDateState(ctx, DateIngestState{
 		SourceID:     source.SourceID,
 		LogTag:       source.LogTag,
 		LogDate:      date,
-		Status:       StatusReady,
+		Status:       dateStatus,
 		FilesTotal:   uint64(len(targetFiles)),
 		FilesDone:    filesDone,
 		RowsImported: totalRows,
@@ -269,13 +287,19 @@ func dropLogSourceDatePartitionSQL(sourceID string, date time.Time) string {
 	return fmt.Sprintf("ALTER TABLE nat_logs DROP PARTITION ('%s', '%s')", sourceID, date.Format("2006-01-02"))
 }
 
-func (i *Importer) importFile(ctx context.Context, source LogSource, date time.Time, file LogFileSnapshot) (uint64, error) {
+type fileImportResult struct {
+	RowsImported  uint64
+	NonEmptyLines uint64
+}
+
+func (i *Importer) importFile(ctx context.Context, source LogSource, date time.Time, file LogFileSnapshot) (fileImportResult, error) {
+	var result fileImportResult
 	if err := ctx.Err(); err != nil {
-		return 0, err
+		return result, err
 	}
 	handle, err := os.Open(file.Path)
 	if err != nil {
-		return 0, err
+		return result, err
 	}
 	defer handle.Close()
 
@@ -285,7 +309,7 @@ func (i *Importer) importFile(ctx context.Context, source LogSource, date time.T
 	}
 	reader, closeReader, err := openLogReader(handle, file.Path, maxDecompressedBytes)
 	if err != nil {
-		return 0, err
+		return result, err
 	}
 	if closeReader != nil {
 		defer closeReader()
@@ -301,14 +325,16 @@ func (i *Importer) importFile(ctx context.Context, source LogSource, date time.T
 	scanner.Buffer(buffer, 10*1024*1024)
 
 	rows := make([]NATLogRow, 0, batchSize)
-	var rowsImported uint64
 	var offset uint64
 	batchID := fmt.Sprintf("%s-%s", source.SourceID, date.Format("20060102"))
 	for scanner.Scan() {
 		if err := ctx.Err(); err != nil {
-			return rowsImported, err
+			return result, err
 		}
 		line := scanner.Text()
+		if strings.TrimSpace(line) != "" {
+			result.NonEmptyLines++
+		}
 		meta := ParseMeta{
 			SourceID:     source.SourceID,
 			LogTag:       source.LogTag,
@@ -327,24 +353,24 @@ func (i *Importer) importFile(ctx context.Context, source LogSource, date time.T
 			continue
 		}
 		if err := i.AppendBatch(ctx, rows); err != nil {
-			return rowsImported, err
+			return result, err
 		}
-		rowsImported += uint64(len(rows))
+		result.RowsImported += uint64(len(rows))
 		rows = rows[:0]
 	}
 
 	if err := scanner.Err(); err != nil {
-		return rowsImported, err
+		return result, err
 	}
 
 	if len(rows) > 0 {
 		if err := i.AppendBatch(ctx, rows); err != nil {
-			return rowsImported, err
+			return result, err
 		}
-		rowsImported += uint64(len(rows))
+		result.RowsImported += uint64(len(rows))
 	}
 
-	return rowsImported, nil
+	return result, nil
 }
 
 func openLogReader(handle *os.File, path string, maxDecompressedBytes int64) (io.Reader, func() error, error) {

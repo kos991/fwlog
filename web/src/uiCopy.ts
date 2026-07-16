@@ -6,6 +6,7 @@ const INGEST_STATUS_TEXT: Record<string, string> = {
   ready: '已完成',
   succeeded: '已完成',
   failed: '处理失败',
+  no_data: '无有效日志',
   skipped: '未处理',
 };
 

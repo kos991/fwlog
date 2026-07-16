@@ -160,7 +160,7 @@ func BuildIngestProgress(states []DateIngestState, includeReady bool, metricArgs
 	}
 
 	for _, state := range states {
-		if !includeReady && state.Status == StatusReady {
+		if !includeReady && (state.Status == StatusReady || state.Status == StatusNoData) {
 			continue
 		}
 		response.Dates = append(response.Dates, state)

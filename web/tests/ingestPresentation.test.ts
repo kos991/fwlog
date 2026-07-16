@@ -67,3 +67,14 @@ const completedView = buildIngestProgressView({
 
 assert.equal(completedView.percentText, '100%');
 assert.equal(completedView.detailText, '已完成 2 个文件，共入库 3,197,207 行');
+
+const noDataView = buildIngestProgressView({
+  status: 'no_data',
+  files_total: 1,
+  files_done: 1,
+  rows_imported: 0,
+  progress_pct: 100,
+});
+
+assert.equal(noDataView.percentText, '无数据');
+assert.equal(noDataView.detailText, '文件中没有可入库的日志');
