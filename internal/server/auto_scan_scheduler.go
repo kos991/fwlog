@@ -42,7 +42,9 @@ func (a *App) runDueAutoScan(ctx context.Context, now time.Time) bool {
 
 	a.logger.Info("auto scan triggered", "scheduled_at", scheduledAt.Format("2006-01-02 15:04:05"))
 
-	if !a.startBackgroundImport(false, time.Time{}) {
+	archiveBefore := autoScanArchiveBefore(settings, now)
+	result := a.startBackgroundImportSources(false, importTargetDateRange{}, a.currentLogSources(), archiveBefore)
+	if len(result.Accepted) == 0 {
 		a.logger.Warn("auto scan skipped: import already running")
 		return false
 	}
@@ -67,4 +69,9 @@ func (a *App) settingsSnapshot() map[string]string {
 
 func dueAutoScanTime(settings map[string]string, now time.Time) (time.Time, bool) {
 	return importer.DueAutoScanTime(settings, now, autoScanDueWindow)
+}
+
+func autoScanArchiveBefore(settings map[string]string, now time.Time) time.Time {
+	localNow := now.In(importer.AutoScanLocation(settings))
+	return time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, localNow.Location())
 }

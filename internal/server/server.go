@@ -43,7 +43,7 @@ type App struct {
 	rsyslogArchiveMu  sync.Mutex
 }
 
-type importRunnerFunc func(context.Context, *ClickHouseStore, LogSource, bool) ([]string, []string, error)
+type importRunnerFunc func(context.Context, *ClickHouseStore, LogSource, bool, time.Time) ([]string, []string, error)
 
 const adminPasswordHashSettingKey = "admin_password_hash"
 

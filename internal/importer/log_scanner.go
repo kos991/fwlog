@@ -47,6 +47,14 @@ func ExtractLogDate(name string) (time.Time, bool) {
 }
 
 func ScanArchivedLogFiles(root string, now time.Time) ([]LogFileSnapshot, error) {
+	return scanArchivedLogFiles(root, now, time.Time{})
+}
+
+func ScanArchivedLogFilesBefore(root string, now, beforeDate time.Time) ([]LogFileSnapshot, error) {
+	return scanArchivedLogFiles(root, now, beforeDate)
+}
+
+func scanArchivedLogFiles(root string, now, beforeDate time.Time) ([]LogFileSnapshot, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return nil, err
@@ -73,6 +81,9 @@ func ScanArchivedLogFiles(root string, now time.Time) ([]LogFileSnapshot, error)
 		if !ok {
 			continue
 		}
+		if !beforeDate.IsZero() && !calendarDateBefore(logDate, beforeDate) {
+			continue
+		}
 
 		files = append(files, LogFileSnapshot{
 			Path:    filepath.Join(root, entry.Name()),
@@ -91,4 +102,12 @@ func ScanArchivedLogFiles(root string, now time.Time) ([]LogFileSnapshot, error)
 	})
 
 	return files, nil
+}
+
+func calendarDateBefore(value, cutoff time.Time) bool {
+	valueYear, valueMonth, valueDay := value.Date()
+	cutoffYear, cutoffMonth, cutoffDay := cutoff.Date()
+	valueKey := valueYear*10000 + int(valueMonth)*100 + valueDay
+	cutoffKey := cutoffYear*10000 + int(cutoffMonth)*100 + cutoffDay
+	return valueKey < cutoffKey
 }

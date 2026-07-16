@@ -37,7 +37,7 @@ func (a *App) importHandler(rebuild bool) http.Handler {
 			"sources_count", len(sources),
 		)
 
-		result := a.startBackgroundImportSources(rebuild, targetDate, sources)
+		result := a.startBackgroundImportSources(rebuild, targetDate, sources, time.Time{})
 
 		a.logger.Info("import request processed",
 			"accepted", result.Accepted,
@@ -315,11 +315,7 @@ func normalizeListenProtocol(protocol string) string {
 
 const maxImportDuration = 2 * time.Hour
 
-func (a *App) startBackgroundImport(rebuild bool, targetDate time.Time) bool {
-	return len(a.startBackgroundImportSources(rebuild, singleImportTargetDate(targetDate), a.currentLogSources()).Accepted) > 0
-}
-
-func (a *App) startBackgroundImportSources(rebuild bool, targetDate importTargetDateRange, sources []LogSource) ImportStartResult {
+func (a *App) startBackgroundImportSources(rebuild bool, targetDate importTargetDateRange, sources []LogSource, archiveBefore time.Time) ImportStartResult {
 	store := a.currentStore()
 	if store == nil || len(sources) == 0 {
 		return ImportStartResult{}
@@ -341,9 +337,9 @@ func (a *App) startBackgroundImportSources(rebuild bool, targetDate importTarget
 
 		if targetDate.IsZero() {
 			if a.importRunner != nil {
-				imported, skipped, err = a.importRunner(ctx, store, source, rebuild)
+				imported, skipped, err = a.importRunner(ctx, store, source, rebuild, archiveBefore)
 			} else {
-				imported, skipped, err = importArchivedDatesWithGate(ctx, store, source, rebuild, a.imports)
+				imported, skipped, err = importArchivedDatesBefore(ctx, store, source, rebuild, archiveBefore, a.imports)
 			}
 		} else {
 			imported, skipped, err = importSourceDates(ctx, store, source, rebuild, targetDate, a.importRunner, a.imports)
@@ -376,7 +372,7 @@ func importSourceDates(ctx context.Context, store *ClickHouseStore, source LogSo
 		if runner == nil {
 			return importArchivedDatesWithGate(ctx, store, source, rebuild, gate)
 		}
-		return runner(ctx, store, source, rebuild)
+		return runner(ctx, store, source, rebuild, time.Time{})
 	}
 
 	imported := make([]string, 0)
@@ -423,7 +419,12 @@ func importArchivedDates(ctx context.Context, store *ClickHouseStore, source Log
 }
 
 func importArchivedDatesWithGate(ctx context.Context, store *ClickHouseStore, source LogSource, rebuild bool, gate batchWriteGate) ([]string, []string, error) {
-	files, err := importerpkg.ScanArchivedLogFiles(source.LogDir, time.Now())
+	return importArchivedDatesBefore(ctx, store, source, rebuild, time.Time{}, gate)
+}
+
+func importArchivedDatesBefore(ctx context.Context, store *ClickHouseStore, source LogSource, rebuild bool, beforeDate time.Time, gate batchWriteGate) ([]string, []string, error) {
+	now := time.Now()
+	files, err := importerpkg.ScanArchivedLogFilesBefore(source.LogDir, now, beforeDate)
 	if err != nil {
 		return nil, nil, err
 	}

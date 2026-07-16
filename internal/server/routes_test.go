@@ -510,7 +510,7 @@ func TestRouterSettingsSaveDoesNotStartImportForEnabledLogSources(t *testing.T) 
 	app.mu.Unlock()
 
 	started := make(chan struct{}, 1)
-	app.importRunner = func(_ context.Context, _ *ClickHouseStore, _ LogSource, _ bool) ([]string, []string, error) {
+	app.importRunner = func(_ context.Context, _ *ClickHouseStore, _ LogSource, _ bool, _ time.Time) ([]string, []string, error) {
 		started <- struct{}{}
 		return []string{"2026-07-01"}, nil, nil
 	}
@@ -597,7 +597,7 @@ func TestRouterSyncUsesAllEnabledLogSources(t *testing.T) {
 	})
 
 	importedSources := make(chan string, 2)
-	app.importRunner = func(_ context.Context, _ *ClickHouseStore, source LogSource, _ bool) ([]string, []string, error) {
+	app.importRunner = func(_ context.Context, _ *ClickHouseStore, source LogSource, _ bool, _ time.Time) ([]string, []string, error) {
 		importedSources <- source.SourceID
 		return []string{"2026-07-01"}, nil, nil
 	}
@@ -649,7 +649,7 @@ func TestRouterSyncReturnsInProgressWhenBackgroundImportIsRunning(t *testing.T) 
 	started := make(chan struct{})
 	release := make(chan struct{})
 	runs := 0
-	app.importRunner = func(_ context.Context, _ *ClickHouseStore, _ LogSource, _ bool) ([]string, []string, error) {
+	app.importRunner = func(_ context.Context, _ *ClickHouseStore, _ LogSource, _ bool, _ time.Time) ([]string, []string, error) {
 		runs++
 		if runs == 1 {
 			close(started)
@@ -704,7 +704,7 @@ func TestRouterSyncSelectsOneSourceAndReportsBusy(t *testing.T) {
 	}})
 	started := make(chan string, 1)
 	release := make(chan struct{})
-	app.importRunner = func(_ context.Context, _ *ClickHouseStore, source LogSource, _ bool) ([]string, []string, error) {
+	app.importRunner = func(_ context.Context, _ *ClickHouseStore, source LogSource, _ bool, _ time.Time) ([]string, []string, error) {
 		started <- source.SourceID
 		<-release
 		return nil, nil, nil

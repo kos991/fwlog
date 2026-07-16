@@ -113,6 +113,39 @@ func TestScanArchivedLogFilesReturnsOnlyStableArchives(t *testing.T) {
 	}
 }
 
+func TestScanArchivedLogFilesBeforeExcludesCurrentAndFutureLogDates(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, 7, 7, 1, 0, 30, 0, time.Local)
+	stable := now.Add(-10 * time.Minute)
+
+	writeFileWithMTime(t, dir, "sangfor.log-20260706.gz", stable)
+	writeFileWithMTime(t, dir, "sangfor.log-20260707.gz", stable)
+	writeFileWithMTime(t, dir, "sangfor.log-20260708.gz", stable)
+	writeFileWithMTime(t, dir, "10.10.10.1_2026-07-06.log-20260707.gz", stable)
+
+	files, err := ScanArchivedLogFilesBefore(dir, now, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := make([]string, 0, len(files))
+	for _, file := range files {
+		got = append(got, file.Name)
+	}
+	want := []string{
+		"10.10.10.1_2026-07-06.log-20260707.gz",
+		"sangfor.log-20260706.gz",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("files = %#v, want %#v", got, want)
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("files = %#v, want %#v", got, want)
+		}
+	}
+}
+
 func writeFileWithMTime(t *testing.T, dir, name string, modTime time.Time) {
 	t.Helper()
 

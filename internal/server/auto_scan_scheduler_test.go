@@ -22,7 +22,9 @@ func TestRunDueAutoScanStartsImportAtConfiguredTime(t *testing.T) {
 	})
 
 	started := make(chan struct{}, 1)
-	app.importRunner = func(_ context.Context, _ *ClickHouseStore, _ LogSource, _ bool) ([]string, []string, error) {
+	var archiveBefore time.Time
+	app.importRunner = func(_ context.Context, _ *ClickHouseStore, _ LogSource, _ bool, before time.Time) ([]string, []string, error) {
+		archiveBefore = before
 		started <- struct{}{}
 		return nil, nil, nil
 	}
@@ -44,6 +46,9 @@ func TestRunDueAutoScanStartsImportAtConfiguredTime(t *testing.T) {
 	if got := app.getSettings()["last_auto_scan_at"]; got != "2026-07-07 01:00:00" {
 		t.Fatalf("last_auto_scan_at = %q, want scheduled time", got)
 	}
+	if archiveBefore.Format("2006-01-02 15:04:05") != "2026-07-07 00:00:00" {
+		t.Fatalf("archive cutoff = %v, want current day start", archiveBefore)
+	}
 }
 
 func TestRunDueAutoScanDoesNotStartTwiceForSameScheduledTime(t *testing.T) {
@@ -60,7 +65,7 @@ func TestRunDueAutoScanDoesNotStartTwiceForSameScheduledTime(t *testing.T) {
 	})
 
 	called := false
-	app.importRunner = func(_ context.Context, _ *ClickHouseStore, _ LogSource, _ bool) ([]string, []string, error) {
+	app.importRunner = func(_ context.Context, _ *ClickHouseStore, _ LogSource, _ bool, _ time.Time) ([]string, []string, error) {
 		called = true
 		return nil, nil, nil
 	}
@@ -89,7 +94,7 @@ func TestRunDueAutoScanIgnoresDisabledPlan(t *testing.T) {
 	})
 
 	called := false
-	app.importRunner = func(_ context.Context, _ *ClickHouseStore, _ LogSource, _ bool) ([]string, []string, error) {
+	app.importRunner = func(_ context.Context, _ *ClickHouseStore, _ LogSource, _ bool, _ time.Time) ([]string, []string, error) {
 		called = true
 		return nil, nil, nil
 	}
