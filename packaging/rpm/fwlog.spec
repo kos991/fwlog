@@ -72,30 +72,35 @@ if command -v systemctl >/dev/null 2>&1; then
     systemctl enable fwlog.service || true
 %endif
     if [ -d /run/systemd/system ]; then
-%if %{include_clickhouse}
-        systemctl restart fwlog-clickhouse.service
-        client="/opt/fwlog/clickhouse/bin/clickhouse"
-        for i in $(seq 1 60); do
-            "$client" client --query "SELECT 1" >/dev/null 2>&1 && break
-            sleep 1
-        done
-        if ! "$client" client --query "SELECT 1" >/dev/null 2>&1; then
-            echo "ClickHouse did not become ready after package installation" >&2
-            exit 1
+        systemctl stop fwlog.service
+        embedded_clickhouse=false
+        if systemctl cat fwlog-clickhouse.service >/dev/null 2>&1; then
+            embedded_clickhouse=true
         fi
-%else
-        client=""
-        for candidate in /usr/bin/clickhouse-client /usr/bin/clickhouse /opt/fwlog/clickhouse/bin/clickhouse; do
-            if [ -x "$candidate" ]; then client="$candidate"; break; fi
-        done
-%endif
+        if [ "$embedded_clickhouse" = "true" ]; then
+            systemctl start fwlog-clickhouse.service
+            client="/opt/fwlog/clickhouse/bin/clickhouse"
+            for i in $(seq 1 60); do
+                "$client" client --query "SELECT 1" >/dev/null 2>&1 && break
+                sleep 1
+            done
+            if ! "$client" client --query "SELECT 1" >/dev/null 2>&1; then
+                echo "ClickHouse did not become ready after package installation" >&2
+                exit 1
+            fi
+        else
+            client=""
+            for candidate in /usr/bin/clickhouse-client /usr/bin/clickhouse /opt/fwlog/clickhouse/bin/clickhouse; do
+                if [ -x "$candidate" ]; then client="$candidate"; break; fi
+            done
+        fi
         backup="/data/fwlog/backups/app_settings-before-package.tsv"
         if [ -s "$backup" ] && [ -x "$client" ]; then
             if ! "$client" client --query "INSERT INTO app_settings (key, value, updated_at) FORMAT TabSeparated" < "$backup" >/dev/null 2>&1; then
                 echo "app_settings 鎭㈠澶辫触锛屽浠芥枃浠朵繚鐣欏湪 $backup" >&2
             fi
         fi
-        systemctl restart fwlog.service
+        systemctl start fwlog.service
     fi
 fi
 

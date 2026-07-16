@@ -281,8 +281,13 @@ if command -v systemctl >/dev/null 2>&1; then
         systemctl enable fwlog.service || true
     fi
     if [ -d /run/systemd/system ]; then
-        if [ "$include_clickhouse" = "true" ]; then
-            systemctl restart fwlog-clickhouse.service
+        systemctl stop fwlog.service
+        embedded_clickhouse=false
+        if [ "$include_clickhouse" = "true" ] || systemctl cat fwlog-clickhouse.service >/dev/null 2>&1; then
+            embedded_clickhouse=true
+        fi
+        if [ "\$embedded_clickhouse" = "true" ]; then
+            systemctl start fwlog-clickhouse.service
             client="/opt/fwlog/clickhouse/bin/clickhouse"
             i=0
             while [ "\$i" -lt 60 ]; do
@@ -305,7 +310,7 @@ if command -v systemctl >/dev/null 2>&1; then
                 echo "app_settings 鎭㈠澶辫触锛屽浠芥枃浠朵繚鐣欏湪 \$backup" >&2
             fi
         fi
-        systemctl restart fwlog.service
+        systemctl start fwlog.service
     fi
 fi
 exit 0

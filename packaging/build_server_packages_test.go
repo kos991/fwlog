@@ -250,6 +250,64 @@ func TestPackageInstallScriptsPropagateServiceRestartFailure(t *testing.T) {
 	}
 }
 
+func TestPackageInstallScriptsStartEmbeddedDatabaseBeforeApplication(t *testing.T) {
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	buildScript, err := os.ReadFile(filepath.Join(repoRoot, "packaging", "build-server-packages.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	debPostinst := between(t, string(buildScript), `cat > "$debroot/DEBIAN/postinst"`, "\nEOF")
+	assertEmbeddedDatabaseStartupOrder(t, "DEB postinst", debPostinst)
+
+	rpmSpec, err := os.ReadFile(filepath.Join(repoRoot, "packaging", "rpm", "fwlog.spec"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rpmPost := between(t, string(rpmSpec), "%post\n", "\n%preun")
+	assertEmbeddedDatabaseStartupOrder(t, "RPM post", rpmPost)
+}
+
+func assertEmbeddedDatabaseStartupOrder(t *testing.T, name, script string) {
+	t.Helper()
+	stopApp := strings.Index(script, "systemctl stop fwlog.service")
+	detectEmbedded := strings.Index(script, "systemctl cat fwlog-clickhouse.service")
+	startDatabase := strings.Index(script, "systemctl start fwlog-clickhouse.service")
+	waitDatabase := strings.Index(script, `client --query "SELECT 1"`)
+	startApp := strings.Index(script, "systemctl start fwlog.service")
+
+	for action, index := range map[string]int{
+		"停止应用":     stopApp,
+		"检测嵌入式数据库": detectEmbedded,
+		"启动嵌入式数据库": startDatabase,
+		"等待数据库就绪":  waitDatabase,
+		"启动应用":     startApp,
+	} {
+		if index < 0 {
+			t.Fatalf("%s 缺少%s步骤", name, action)
+		}
+	}
+	if !(stopApp < startDatabase && detectEmbedded < startDatabase && startDatabase < waitDatabase && waitDatabase < startApp) {
+		t.Fatalf("%s 启动顺序错误", name)
+	}
+}
+
+func between(t *testing.T, text, startMarker, endMarker string) string {
+	t.Helper()
+	start := strings.Index(text, startMarker)
+	if start < 0 {
+		t.Fatalf("找不到起始标记 %q", startMarker)
+	}
+	end := strings.Index(text[start+len(startMarker):], endMarker)
+	if end < 0 {
+		t.Fatalf("找不到结束标记 %q", endMarker)
+	}
+	return text[start : start+len(startMarker)+end]
+}
+
 func assertDebMaintainerScriptsParse(t *testing.T, controlDir string) {
 	t.Helper()
 	for _, name := range []string{"preinst", "postinst", "prerm", "postrm"} {
