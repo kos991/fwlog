@@ -49,3 +49,8 @@ test('dashboard labels geo ranking as destination geography', () => {
   assert.match(source, /\{ label: '目标地区', value: 'country' \}/);
   assert.match(source, /按目标 IP 归属地统计/);
 });
+
+test('processor percentage is clamped to a valid utilization range', () => {
+  assert.match(source, /function formatPercent[\s\S]*const percent = clampMetric\(value\);/);
+  assert.match(source, /return `\$\{percent\.toFixed\(percent >= 10 \? 0 : 1\)\}%`;/);
+});

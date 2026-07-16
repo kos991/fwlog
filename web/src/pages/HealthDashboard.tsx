@@ -135,7 +135,8 @@ function formatBytes(bytes?: number) {
 
 function formatPercent(value?: number) {
   if (value === undefined || Number.isNaN(value)) return '-';
-  return `${value.toFixed(value >= 10 ? 0 : 1)}%`;
+  const percent = clampMetric(value);
+  return `${percent.toFixed(percent >= 10 ? 0 : 1)}%`;
 }
 
 function healthTone(status?: string) {
