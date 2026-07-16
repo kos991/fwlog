@@ -84,8 +84,14 @@ func (s *ClickHouseStore) migrateNatLogsDualStackSchema(ctx context.Context) err
 	if err != nil {
 		return fmt.Errorf("inspect migration replacement: %w", err)
 	}
-	if backupExists || replacementExists {
-		return fmt.Errorf("incomplete nat_logs dual-stack migration detected; keep %s and %s for manual recovery", natLogsBackupTable, natLogsReplacementTable)
+	recoverySQL, err := natLogsMigrationRecoverySQL(backupExists, replacementExists)
+	if err != nil {
+		return err
+	}
+	if recoverySQL != "" {
+		if err := s.conn.Exec(ctx, recoverySQL); err != nil {
+			return fmt.Errorf("clean interrupted dual-stack migration: %w", err)
+		}
 	}
 
 	statements := natLogsMigrationSQLForSource(addressType == "IPv4")
@@ -102,6 +108,16 @@ func (s *ClickHouseStore) migrateNatLogsDualStackSchema(ctx context.Context) err
 		return fmt.Errorf("swap dual-stack nat_logs tables: %w", err)
 	}
 	return nil
+}
+
+func natLogsMigrationRecoverySQL(backupExists, replacementExists bool) (string, error) {
+	if !backupExists && replacementExists {
+		return "DROP TABLE " + natLogsReplacementTable, nil
+	}
+	if backupExists {
+		return "", fmt.Errorf("incomplete nat_logs dual-stack migration detected; keep %s and %s for manual recovery", natLogsBackupTable, natLogsReplacementTable)
+	}
+	return "", nil
 }
 
 func (s *ClickHouseStore) natLogsAddressType(ctx context.Context) (string, error) {

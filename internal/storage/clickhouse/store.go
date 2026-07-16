@@ -43,7 +43,20 @@ const (
 )
 
 func OpenClickHouse(ctx context.Context, cfg Config) (*ClickHouseStore, error) {
-	conn, err := clickhouse.Open(&clickhouse.Options{
+	conn, err := clickhouse.Open(clickHouseOptions(cfg))
+	if err != nil {
+		return nil, err
+	}
+
+	if err := conn.Ping(ctx); err != nil {
+		return nil, err
+	}
+
+	return &ClickHouseStore{conn: conn}, nil
+}
+
+func clickHouseOptions(cfg Config) *clickhouse.Options {
+	return &clickhouse.Options{
 		Addr: []string{cfg.ClickHouseAddr},
 		Auth: clickhouse.Auth{
 			Database: cfg.ClickHouseDatabase,
@@ -58,17 +71,8 @@ func OpenClickHouse(ctx context.Context, cfg Config) (*ClickHouseStore, error) {
 			"max_execution_time": 15,
 			"max_rows_to_read":   100000000,
 		},
-		ReadTimeout: 30 * time.Second,
-	})
-	if err != nil {
-		return nil, err
+		ReadTimeout: 30 * time.Minute,
 	}
-
-	if err := conn.Ping(ctx); err != nil {
-		return nil, err
-	}
-
-	return &ClickHouseStore{conn: conn}, nil
 }
 
 func (s *ClickHouseStore) EnsureTables(ctx context.Context) error {

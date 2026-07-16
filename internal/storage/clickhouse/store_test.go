@@ -7,6 +7,13 @@ import (
 	"time"
 )
 
+func TestClickHouseReadTimeoutAllowsLongSchemaMigrations(t *testing.T) {
+	options := clickHouseOptions(Config{})
+	if options.ReadTimeout < 30*time.Minute {
+		t.Fatalf("ClickHouse ReadTimeout = %s, want at least 30m for large schema migrations", options.ReadTimeout)
+	}
+}
+
 func TestClickHouseDDLContainsCoreTables(t *testing.T) {
 	sql := strings.Join(ClickHouseDDL(), "\n")
 
@@ -97,6 +104,33 @@ func TestNatLogsMigrationSQLDisablesInteractiveQueryLimits(t *testing.T) {
 		if !strings.Contains(copySQL, want) {
 			t.Fatalf("migration copy SQL must override %q: %s", want, copySQL)
 		}
+	}
+}
+
+func TestNatLogsMigrationRecoveryDropsOnlyIncompleteReplacement(t *testing.T) {
+	tests := []struct {
+		name              string
+		backupExists      bool
+		replacementExists bool
+		wantSQL           string
+		wantErr           bool
+	}{
+		{name: "clean state"},
+		{name: "copy interrupted before swap", replacementExists: true, wantSQL: "DROP TABLE nat_logs_dual_stack"},
+		{name: "backup exists", backupExists: true, wantErr: true},
+		{name: "ambiguous tables", backupExists: true, replacementExists: true, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sql, err := natLogsMigrationRecoverySQL(tt.backupExists, tt.replacementExists)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if sql != tt.wantSQL {
+				t.Fatalf("sql = %q, want %q", sql, tt.wantSQL)
+			}
+		})
 	}
 }
 
