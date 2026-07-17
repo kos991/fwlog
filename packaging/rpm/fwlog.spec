@@ -35,14 +35,20 @@ if [ "$1" -ge 1 ]; then
 %if %{include_clickhouse}
     client="/opt/fwlog/clickhouse/bin/clickhouse"
 %else
-    for candidate in /usr/bin/clickhouse-client /usr/bin/clickhouse /opt/fwlog/clickhouse/bin/clickhouse; do
+    for candidate in /opt/fwlog/clickhouse/bin/clickhouse /opt/nat-query/clickhouse/bin/clickhouse /usr/bin/clickhouse /usr/bin/clickhouse-client; do
         if [ -x "$candidate" ]; then client="$candidate"; break; fi
     done
 %endif
+    clickhouse_query() {
+        case "$client" in
+            */clickhouse-client) "$client" --query "$1" ;;
+            *) "$client" client --query "$1" ;;
+        esac
+    }
     mkdir -p "$(dirname "$backup")"
     chmod 700 "$(dirname "$backup")" || true
     if [ -x "$client" ]; then
-        if "$client" client --query "SELECT key, value, now() FROM app_settings FINAL FORMAT TabSeparated" > "$backup.tmp" 2>/tmp/fwlog-pre-backup.err; then
+        if clickhouse_query "SELECT key, value, now() FROM app_settings FINAL FORMAT TabSeparated" > "$backup.tmp" 2>/tmp/fwlog-pre-backup.err; then
             mv "$backup.tmp" "$backup"
             chmod 600 "$backup"
         else
@@ -65,6 +71,12 @@ if [ ! -f /etc/fwlog/admin-password ]; then
     echo "FWLog 初始管理员密码已写入 /etc/fwlog/admin-password（仅 root 可读）" >&2
 fi
 if command -v systemctl >/dev/null 2>&1; then
+    clickhouse_query() {
+        case "$client" in
+            */clickhouse-client) "$client" --query "$1" ;;
+            *) "$client" client --query "$1" ;;
+        esac
+    }
     systemctl daemon-reload || true
 %if %{include_clickhouse}
     systemctl enable fwlog-clickhouse.service fwlog.service || true
@@ -79,24 +91,31 @@ if command -v systemctl >/dev/null 2>&1; then
         fi
         if [ "$embedded_clickhouse" = "true" ]; then
             systemctl start fwlog-clickhouse.service
-            client="/opt/fwlog/clickhouse/bin/clickhouse"
+            client=""
+            for candidate in /opt/fwlog/clickhouse/bin/clickhouse /opt/nat-query/clickhouse/bin/clickhouse; do
+                if [ -x "$candidate" ]; then client="$candidate"; break; fi
+            done
+            if [ -z "$client" ]; then
+                echo "ClickHouse client not found after starting fwlog-clickhouse.service" >&2
+                exit 1
+            fi
             for i in $(seq 1 60); do
-                "$client" client --query "SELECT 1" >/dev/null 2>&1 && break
+                clickhouse_query "SELECT 1" >/dev/null 2>&1 && break
                 sleep 1
             done
-            if ! "$client" client --query "SELECT 1" >/dev/null 2>&1; then
+            if ! clickhouse_query "SELECT 1" >/dev/null 2>&1; then
                 echo "ClickHouse did not become ready after package installation" >&2
                 exit 1
             fi
         else
             client=""
-            for candidate in /usr/bin/clickhouse-client /usr/bin/clickhouse /opt/fwlog/clickhouse/bin/clickhouse; do
+            for candidate in /opt/fwlog/clickhouse/bin/clickhouse /opt/nat-query/clickhouse/bin/clickhouse /usr/bin/clickhouse /usr/bin/clickhouse-client; do
                 if [ -x "$candidate" ]; then client="$candidate"; break; fi
             done
         fi
         backup="/data/fwlog/backups/app_settings-before-package.tsv"
         if [ -s "$backup" ] && [ -x "$client" ]; then
-            if ! "$client" client --query "INSERT INTO app_settings (key, value, updated_at) FORMAT TabSeparated" < "$backup" >/dev/null 2>&1; then
+            if ! clickhouse_query "INSERT INTO app_settings (key, value, updated_at) FORMAT TabSeparated" < "$backup" >/dev/null 2>&1; then
                 echo "app_settings 鎭㈠澶辫触锛屽浠芥枃浠朵繚鐣欏湪 $backup" >&2
             fi
         fi

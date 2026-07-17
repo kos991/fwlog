@@ -267,8 +267,31 @@ func TestPackageInstallScriptsStartEmbeddedDatabaseBeforeApplication(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	rpmPost := between(t, string(rpmSpec), "%post\n", "\n%preun")
+	rpmText := strings.ReplaceAll(string(rpmSpec), "\r\n", "\n")
+	rpmPost := between(t, rpmText, "%post\n", "\n%preun")
 	assertEmbeddedDatabaseStartupOrder(t, "RPM post", rpmPost)
+}
+
+func TestPackageInstallScriptsDiscoverLegacyEmbeddedDatabaseForBackup(t *testing.T) {
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	buildScript, err := os.ReadFile(filepath.Join(repoRoot, "packaging", "build-server-packages.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	debPreinst := between(t, string(buildScript), `cat > "$debroot/DEBIAN/preinst"`, "\nEOF")
+	assertLegacyDatabaseClient(t, "DEB preinst", debPreinst)
+
+	rpmSpec, err := os.ReadFile(filepath.Join(repoRoot, "packaging", "rpm", "fwlog.spec"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rpmText := strings.ReplaceAll(string(rpmSpec), "\r\n", "\n")
+	rpmPre := between(t, rpmText, "%pre\n", "\n%post")
+	assertLegacyDatabaseClient(t, "RPM pre", rpmPre)
 }
 
 func assertEmbeddedDatabaseStartupOrder(t *testing.T, name, script string) {
@@ -276,8 +299,9 @@ func assertEmbeddedDatabaseStartupOrder(t *testing.T, name, script string) {
 	stopApp := strings.Index(script, "systemctl stop fwlog.service")
 	detectEmbedded := strings.Index(script, "systemctl cat fwlog-clickhouse.service")
 	startDatabase := strings.Index(script, "systemctl start fwlog-clickhouse.service")
-	waitDatabase := strings.Index(script, `client --query "SELECT 1"`)
+	waitDatabase := strings.Index(script, `clickhouse_query "SELECT 1"`)
 	startApp := strings.Index(script, "systemctl start fwlog.service")
+	legacyClient := strings.Index(script, "/opt/nat-query/clickhouse/bin/clickhouse")
 
 	for action, index := range map[string]int{
 		"停止应用":     stopApp,
@@ -285,13 +309,21 @@ func assertEmbeddedDatabaseStartupOrder(t *testing.T, name, script string) {
 		"启动嵌入式数据库": startDatabase,
 		"等待数据库就绪":  waitDatabase,
 		"启动应用":     startApp,
+		"发现旧版数据库":  legacyClient,
 	} {
 		if index < 0 {
 			t.Fatalf("%s 缺少%s步骤", name, action)
 		}
 	}
-	if !(stopApp < startDatabase && detectEmbedded < startDatabase && startDatabase < waitDatabase && waitDatabase < startApp) {
+	if !(stopApp < startDatabase && detectEmbedded < startDatabase && startDatabase < legacyClient && legacyClient < waitDatabase && waitDatabase < startApp) {
 		t.Fatalf("%s 启动顺序错误", name)
+	}
+}
+
+func assertLegacyDatabaseClient(t *testing.T, name, script string) {
+	t.Helper()
+	if !strings.Contains(script, "/opt/nat-query/clickhouse/bin/clickhouse") {
+		t.Fatalf("%s 未发现旧版内置数据库客户端", name)
 	}
 }
 
