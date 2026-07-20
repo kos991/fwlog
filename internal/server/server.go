@@ -31,6 +31,7 @@ type App struct {
 	imports           *ImportCoordinator
 	receiver          *receiverpkg.Manager
 	querySem          chan struct{}
+	dashboardCache    *rankingCache
 	upgradeMu         sync.Mutex
 	upgradeStatus     UpgradeStatus
 	upgradeRunner     upgradeRunnerFunc
@@ -84,6 +85,7 @@ func NewApp(cfg Config) *App {
 		archiver:          receiverpkg.NewArchiver(),
 		rsyslogArchiveNow: time.Now,
 		querySem:          make(chan struct{}, 4),
+		dashboardCache:    newRankingCache(dashboardRankingCacheTTL),
 		upgradeStatus:     defaultUpgradeStatus(),
 		versionInfo:       versionInfo,
 		logger:            logger,

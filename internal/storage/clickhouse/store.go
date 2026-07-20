@@ -87,7 +87,15 @@ func (s *ClickHouseStore) EnsureTables(ctx context.Context) error {
 		}
 	}
 
-	return s.migrateNatLogsDualStackSchema(ctx)
+	if err := s.migrateNatLogsDualStackSchema(ctx); err != nil {
+		return err
+	}
+	for _, statement := range DashboardAggregateDDL() {
+		if err := s.conn.Exec(ctx, statement); err != nil {
+			return fmt.Errorf("ensure dashboard aggregate tables: %w", err)
+		}
+	}
+	return nil
 }
 
 func (s *ClickHouseStore) ListDateStates(ctx context.Context, since time.Time) ([]DateIngestState, error) {
@@ -283,30 +291,12 @@ func usesCursorPagination(options QueryPageOptions) bool {
 }
 
 func (s *ClickHouseStore) DashboardMetrics(ctx context.Context, distributionSince time.Time, includeDistributions bool, sourceID ...string) (DashboardMetrics, error) {
-	var metrics DashboardMetrics
 	distributionSourceID := ""
 	if len(sourceID) > 0 {
 		distributionSourceID = strings.TrimSpace(sourceID[0])
 	}
 
-	var err error
-	metrics.ClickHouseDiskUsedBytes, err = s.clickHouseDiskUsedBytes(ctx)
-	if err != nil {
-		return DashboardMetrics{}, err
-	}
-	metrics.SystemHealth.Database, err = s.databaseHealth(ctx, metrics.ClickHouseDiskUsedBytes)
-	if err != nil {
-		return DashboardMetrics{}, err
-	}
-	metrics.TodayRows, err = s.countRowsForDate(ctx, time.Now())
-	if err != nil {
-		return DashboardMetrics{}, err
-	}
-	metrics.YesterdayRows, err = s.countRowsForDate(ctx, time.Now().AddDate(0, 0, -1))
-	if err != nil {
-		return DashboardMetrics{}, err
-	}
-	metrics.LogTrend, err = s.dailyLogTrend(ctx, time.Now())
+	metrics, err := s.DashboardSummaryMetrics(ctx)
 	if err != nil {
 		return DashboardMetrics{}, err
 	}
@@ -315,22 +305,14 @@ func (s *ClickHouseStore) DashboardMetrics(ctx context.Context, distributionSinc
 		return metrics, nil
 	}
 
-	metrics.TopSourceIPs, err = s.distribution(ctx, "src_ip", distributionSince, distributionSourceID)
+	ranking, err := s.DashboardRankingMetrics(ctx, distributionSince, distributionSourceID)
 	if err != nil {
 		return DashboardMetrics{}, err
 	}
-	metrics.TopDestinationIPs, err = s.distribution(ctx, "dst_ip", distributionSince, distributionSourceID)
-	if err != nil {
-		return DashboardMetrics{}, err
-	}
-	metrics.DestinationSubnets, err = s.destinationSubnetDistribution(ctx, distributionSince, distributionSourceID)
-	if err != nil {
-		return DashboardMetrics{}, err
-	}
-	metrics.LogTagDistribution, err = s.distribution(ctx, "log_tag", distributionSince, distributionSourceID)
-	if err != nil {
-		return DashboardMetrics{}, err
-	}
+	metrics.TopSourceIPs = ranking.TopSourceIPs
+	metrics.TopDestinationIPs = ranking.TopDestinationIPs
+	metrics.DestinationSubnets = ranking.DestinationSubnets
+	metrics.LogTagDistribution = ranking.LogTagDistribution
 
 	return metrics, nil
 }
@@ -360,7 +342,7 @@ func (s *ClickHouseStore) databaseHealth(ctx context.Context, diskUsedBytes uint
 	if err := s.conn.QueryRow(ctx, "SELECT count() FROM system.parts WHERE active AND database = currentDatabase()").Scan(&health.ActiveParts); err != nil {
 		return DatabaseHealth{}, err
 	}
-	if err := s.conn.QueryRow(ctx, "SELECT count() FROM nat_logs").Scan(&health.TotalRows); err != nil {
+	if err := s.conn.QueryRow(ctx, DashboardTotalRowsSQL()).Scan(&health.TotalRows); err != nil {
 		return DatabaseHealth{}, err
 	}
 
@@ -376,21 +358,21 @@ func ClickHouseDiskUsageSQL() string {
 FROM system.parts
 WHERE active
   AND database = currentDatabase()
-  AND table IN ('nat_logs', 'ingest_dates', 'ingest_files', 'app_settings', 'log_sources')`
+  AND table IN ('nat_logs', 'dashboard_daily_totals', 'dashboard_daily_ip_counts', 'ingest_dates', 'ingest_files', 'app_settings', 'log_sources')`
 }
 
 func (s *ClickHouseStore) countRowsForDate(ctx context.Context, date time.Time) (uint64, error) {
 	var count uint64
-	err := s.conn.QueryRow(ctx, "SELECT count() FROM nat_logs WHERE log_date = ?", startOfDay(date)).Scan(&count)
+	err := s.conn.QueryRow(ctx, DashboardRowsForDateSQL(), startOfDay(date)).Scan(&count)
 	return count, err
 }
 
 func ClickHouseLogTrendSQL() string {
-	return `SELECT log_date, source_id, log_tag, count()
-FROM nat_logs
+	return `SELECT log_date, source_id, log_tag, sum(rows)
+FROM dashboard_daily_totals
 WHERE log_date >= ? AND log_date <= ?
 GROUP BY log_date, source_id, log_tag
-ORDER BY log_date, source_id`
+ORDER BY log_date, source_id SETTINGS max_threads = 2`
 }
 
 func (s *ClickHouseStore) dailyLogTrend(ctx context.Context, now time.Time) ([]LogTrendPoint, error) {
@@ -472,43 +454,12 @@ func (s *ClickHouseStore) destinationSubnetDistribution(ctx context.Context, sin
 }
 
 func destinationSubnetDistributionSQL(since time.Time, sourceID string) (string, []any) {
-	where, args := distributionWhere(since, sourceID)
-	sql := `SELECT cutIPv6(dst_ip, 8, 1) AS name, count() AS value
-FROM nat_logs` + where + `
-GROUP BY name
-ORDER BY value DESC`
+	sql, args, _ := dashboardRankingSQL("dst_subnet", since, sourceID)
 	return sql, args
 }
 
 func distributionSQL(column string, since time.Time, sourceID string) (string, []any, error) {
-	switch column {
-	case "src_ip", "dst_ip", "nat_ip", "log_tag":
-	default:
-		return "", nil, fmt.Errorf("unsupported distribution column %q", column)
-	}
-
-	where, args := distributionWhere(since, sourceID)
-	sql := fmt.Sprintf("SELECT toString(%s) AS name, count() AS value FROM nat_logs%s GROUP BY %s ORDER BY value DESC LIMIT 10", column, where, column)
-	return sql, args, nil
-}
-
-func distributionWhere(since time.Time, sourceID string) (string, []any) {
-	args := make([]any, 0, 2)
-	conditions := make([]string, 0, 2)
-	if !since.IsZero() {
-		conditions = append(conditions, "log_date >= ?")
-		args = append(args, startOfDay(since))
-	}
-	if sourceID = strings.TrimSpace(sourceID); sourceID != "" {
-		conditions = append(conditions, "source_id = ?")
-		args = append(args, sourceID)
-	}
-
-	where := ""
-	if len(conditions) > 0 {
-		where = " WHERE " + strings.Join(conditions, " AND ")
-	}
-	return where, args
+	return dashboardRankingSQL(column, since, sourceID)
 }
 
 func ipString(ip net.IP) string {

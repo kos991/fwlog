@@ -1,5 +1,5 @@
-export async function apiGet<T>(path: string): Promise<T> {
-  return requestJSON<T>(path, { method: 'GET' });
+export async function apiGet<T>(path: string, options?: Pick<RequestInit, 'signal'>): Promise<T> {
+  return requestJSON<T>(path, { method: 'GET', signal: options?.signal });
 }
 
 export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
@@ -32,6 +32,9 @@ async function requestJSON<T>(path: string, init: RequestInit): Promise<T> {
 
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), 30000);
+  const externalSignal = init.signal;
+  const abortExternal = () => controller.abort();
+  externalSignal?.addEventListener('abort', abortExternal, { once: true });
   try {
     const response = await fetch(`${apiBaseURL}${path}`, {
       ...init,
@@ -52,6 +55,7 @@ async function requestJSON<T>(path: string, init: RequestInit): Promise<T> {
     return (await response.json()) as T;
   } finally {
     window.clearTimeout(timeoutId);
+    externalSignal?.removeEventListener('abort', abortExternal);
   }
 }
 

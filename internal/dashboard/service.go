@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -14,6 +13,12 @@ type HealthDashboardResponse struct {
 	LogTrend        []LogTrendPoint `json:"log_trend"`
 	IPDistribution  IPDistribution  `json:"ip_distribution"`
 	GeoDistribution GeoDistribution `json:"geo_distribution"`
+	Cache           *DashboardCache `json:"cache,omitempty"`
+}
+
+type DashboardCache struct {
+	Stale    bool      `json:"stale"`
+	LoadedAt time.Time `json:"loaded_at"`
 }
 
 type DataHealth struct {
@@ -325,7 +330,7 @@ func aggregateGeoDestinations(destinations []DistributionItem, engine *IPEngine)
 		return countries, regions
 	}
 
-	workers := min(runtime.GOMAXPROCS(0), 8, len(destinations))
+	workers := min(2, len(destinations))
 	chunkSize := (len(destinations) + workers - 1) / workers
 	partials := make(chan geoDistributionTotals, workers)
 	for worker := 0; worker < workers; worker++ {

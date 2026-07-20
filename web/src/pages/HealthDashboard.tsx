@@ -101,6 +101,10 @@ type HealthDashboardResponse = {
     geoip_loaded: boolean;
     geoip_status: string;
   };
+  cache?: {
+    stale: boolean;
+    loaded_at: string;
+  };
 };
 
 type HealthDashboardProps = {
@@ -550,8 +554,16 @@ function mergeDashboardPayload(
   previous: HealthDashboardResponse | null,
   next: HealthDashboardResponse,
 ): HealthDashboardResponse {
-  if (!previous || hasDistributionPayload(next)) {
+  if (!previous) {
     return next;
+  }
+  if (hasDistributionPayload(next)) {
+    return {
+      ...previous,
+      ip_distribution: next.ip_distribution,
+      geo_distribution: next.geo_distribution,
+      cache: next.cache,
+    };
   }
   return {
     ...next,
@@ -565,45 +577,71 @@ export function HealthDashboard(_props: HealthDashboardProps) {
   const [data, setData] = React.useState<HealthDashboardResponse | null>(null);
   const [rankingKey, setRankingKey] = React.useState<RankingKey>('source');
   const [selectedTrendSource, setSelectedTrendSource] = React.useState(allTrendSourcesValue);
+  const summaryAbortRef = React.useRef<AbortController | null>(null);
+  const rankingsAbortRef = React.useRef<AbortController | null>(null);
 
   const loadSummary = React.useCallback(async () => {
+    summaryAbortRef.current?.abort();
+    const controller = new AbortController();
+    summaryAbortRef.current = controller;
     try {
       setLoading(true);
       const payload = await apiGet<HealthDashboardResponse>(
-        '/api/health-dashboard?range=all&include_distributions=false',
+        '/api/health-dashboard/summary?range=all',
+        { signal: controller.signal },
       );
       setData((previous) => mergeDashboardPayload(previous, payload));
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '加载数据概览失败');
+      if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        message.error(error instanceof Error ? error.message : '加载数据概览失败');
+      }
     } finally {
       setLoading(false);
     }
   }, []);
 
   const loadRankings = React.useCallback(async () => {
+    rankingsAbortRef.current?.abort();
+    const controller = new AbortController();
+    rankingsAbortRef.current = controller;
     try {
       const payload = await apiGet<HealthDashboardResponse>(
-        `/api/health-dashboard${buildQueryString({
-          range: 'all',
+        `/api/health-dashboard/rankings${buildQueryString({
           metrics_range: '30d',
-          include_distributions: true,
           source_id: selectedTrendSource === allTrendSourcesValue ? undefined : selectedTrendSource,
         })}`,
+        { signal: controller.signal },
       );
-      setData(payload);
+      setData((previous) => mergeDashboardPayload(previous, payload));
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '加载流量排行失败');
+      if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        message.error(error instanceof Error ? error.message : '加载流量排行失败');
+      }
     }
   }, [selectedTrendSource]);
 
   React.useEffect(() => {
-    void loadSummary();
-    void loadRankings();
-    const rankingTimer = window.setInterval(() => void loadRankings(), 300000);
+    let disposed = false;
+    void (async () => {
+      await loadSummary();
+      if (!disposed) {
+        await loadRankings();
+      }
+    })();
     return () => {
-      window.clearInterval(rankingTimer);
+      disposed = true;
+      summaryAbortRef.current?.abort();
+      rankingsAbortRef.current?.abort();
     };
-  }, [loadSummary, loadRankings]);
+  }, []);
+
+  React.useEffect(() => {
+    const rankingTimer = window.setInterval(() => void loadRankings(), 300000);
+    if (data) {
+      void loadRankings();
+    }
+    return () => window.clearInterval(rankingTimer);
+  }, [loadRankings]);
 
   React.useEffect(() => {
     const summaryTimer = window.setInterval(
