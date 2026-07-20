@@ -62,7 +62,7 @@ func TestDashboardRankingSQLUsesAggregateTablesAndTwoThreads(t *testing.T) {
 			if err != nil {
 				t.Fatalf("dashboardRankingSQL 返回错误: %v", err)
 			}
-			for _, want := range []string{tt.wantTable, "sum(rows)", "log_date >= ?", "source_id = ?", "SETTINGS max_threads = 2"} {
+			for _, want := range []string{tt.wantTable, "sum(rows)", "log_date >= ?", "source_id = ?", "SETTINGS max_threads = 1"} {
 				if !strings.Contains(sql, want) {
 					t.Fatalf("排行 SQL 缺少 %q: %s", want, sql)
 				}

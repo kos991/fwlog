@@ -82,9 +82,9 @@ SELECT log_date, source_id, log_tag, 'dst_ip', dst_ip, count()
 FROM nat_logs WHERE source_id = '$source' AND log_date = '$log_date'
 GROUP BY log_date, source_id, log_tag, dst_ip
 UNION ALL
-SELECT log_date, source_id, log_tag, 'dst_subnet', cutIPv6(dst_ip, 8, 1), count()
+SELECT log_date, source_id, log_tag, 'dst_subnet', toIPv6(cutIPv6(dst_ip, 8, 1)), count()
 FROM nat_logs WHERE source_id = '$source' AND log_date = '$log_date'
-GROUP BY log_date, source_id, log_tag, cutIPv6(dst_ip, 8, 1)
+GROUP BY log_date, source_id, log_tag, toIPv6(cutIPv6(dst_ip, 8, 1))
 SETTINGS max_threads = 1;"
 
     local counts raw totals src dst subnet
@@ -93,7 +93,7 @@ toString((SELECT count() FROM nat_logs WHERE source_id = '$source' AND log_date 
 toString((SELECT sum(rows) FROM dashboard_daily_totals_staging WHERE source_id = '$source' AND log_date = '$log_date')),
 toString((SELECT sum(rows) FROM dashboard_daily_ip_counts_staging WHERE source_id = '$source' AND log_date = '$log_date' AND dimension = 'src_ip')),
 toString((SELECT sum(rows) FROM dashboard_daily_ip_counts_staging WHERE source_id = '$source' AND log_date = '$log_date' AND dimension = 'dst_ip')),
-toString((SELECT sum(rows) FROM dashboard_daily_ip_counts_staging WHERE source_id = '$source' AND log_date = '$log_date' AND dimension = 'dst_subnet')
+toString((SELECT sum(rows) FROM dashboard_daily_ip_counts_staging WHERE source_id = '$source' AND log_date = '$log_date' AND dimension = 'dst_subnet'))
 FORMAT TSV")"
     IFS=$'\t' read -r raw totals src dst subnet <<<"$counts"
     if [[ "$raw" != "$totals" || "$raw" != "$src" || "$raw" != "$dst" || "$raw" != "$subnet" ]]; then
@@ -126,11 +126,11 @@ SELECT log_date, source_id, log_tag, 'src_ip' AS dimension, src_ip AS address, c
 CREATE MATERIALIZED VIEW dashboard_daily_dst_ip_mv TO dashboard_daily_ip_counts AS
 SELECT log_date, source_id, log_tag, 'dst_ip' AS dimension, dst_ip AS address, count() AS rows FROM nat_logs GROUP BY log_date, source_id, log_tag, dimension, address;
 CREATE MATERIALIZED VIEW dashboard_daily_dst_subnet_mv TO dashboard_daily_ip_counts AS
-SELECT log_date, source_id, log_tag, 'dst_subnet' AS dimension, cutIPv6(dst_ip, 8, 1) AS address, count() AS rows FROM nat_logs GROUP BY log_date, source_id, log_tag, dimension, address;"
+SELECT log_date, source_id, log_tag, 'dst_subnet' AS dimension, toIPv6(cutIPv6(dst_ip, 8, 1)) AS address, count() AS rows FROM nat_logs GROUP BY log_date, source_id, log_tag, dimension, address;"
 }
 
 switch_tables() {
-    systemctl stop fwlog.service
+    systemctl --job-mode=ignore-dependencies stop fwlog.service
     service_stopped=1
     refresh_changed_pairs
     local raw totals
