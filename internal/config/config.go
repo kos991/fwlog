@@ -11,7 +11,7 @@ const (
 	defaultLogTag      = "\u6df1\u4fe1\u670d NAT"
 	defaultExportDir   = "/data/export"
 	defaultPort        = 8080
-	defaultWorkers     = 4
+	defaultWorkers     = 1
 	defaultAutoScanSec = 3600
 )
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"path/filepath"
 	"sort"
@@ -43,6 +44,13 @@ func (a *App) importHandler(rebuild bool) http.Handler {
 			"accepted", result.Accepted,
 			"busy", result.Busy,
 		)
+		if rebuild && len(result.Accepted) == 0 && len(result.Busy) > 0 {
+			writeJSONStatus(w, http.StatusConflict, map[string]any{
+				"error": "import_source_busy", "status": string(StatusImporting), "message": "所选日志来源正在执行入库任务，请稍后重试", "rebuild": rebuild,
+				"accepted_sources": result.Accepted, "busy_sources": result.Busy,
+			})
+			return
+		}
 
 		writeJSONStatus(w, http.StatusAccepted, map[string]any{
 			"status": string(StatusImporting), "message": "入库任务已开始", "rebuild": rebuild,
@@ -375,17 +383,9 @@ func importSourceDates(ctx context.Context, store *ClickHouseStore, source LogSo
 		return runner(ctx, store, source, rebuild, time.Time{})
 	}
 
-	imported := make([]string, 0)
-	skipped := make([]string, 0)
-	for _, date := range targetDate.Dates() {
-		dateImported, dateSkipped, err := importSourceDate(ctx, store, source, rebuild, date, gate)
-		if err != nil {
-			return imported, skipped, err
-		}
-		imported = append(imported, dateImported...)
-		skipped = append(skipped, dateSkipped...)
-	}
-	return imported, skipped, nil
+	return runImportDates(targetDate.Dates(), func(date time.Time) ([]string, []string, error) {
+		return importSourceDate(ctx, store, source, rebuild, date, gate)
+	})
 }
 
 func importSourceDate(ctx context.Context, store *ClickHouseStore, source LogSource, rebuild bool, targetDate time.Time, gate batchWriteGate) ([]string, []string, error) {
@@ -444,27 +444,39 @@ func importArchivedDatesBefore(ctx context.Context, store *ClickHouseStore, sour
 
 	imp := importerpkg.NewImporter(store, gate)
 
-	imported := make([]string, 0, len(dates))
-	skipped := make([]string, 0)
-	for _, date := range dates {
+	return runImportDates(dates, func(date time.Time) ([]string, []string, error) {
 		if !rebuild {
 			state, found, err := store.LatestDateState(ctx, source.SourceID, date)
 			if err != nil {
-				return imported, skipped, err
+				return nil, nil, err
 			}
 			if found && isCompletedImportStatus(state.Status) {
-				skipped = append(skipped, formatDate(date))
-				continue
+				return nil, []string{formatDate(date)}, nil
 			}
 		}
 
 		if err := imp.ImportDate(ctx, source, date); err != nil {
-			return imported, skipped, err
+			return nil, nil, err
 		}
-		imported = append(imported, formatDate(date))
-	}
+		return []string{formatDate(date)}, nil, nil
+	})
+}
 
-	return imported, skipped, nil
+type importDateFunc func(time.Time) ([]string, []string, error)
+
+func runImportDates(dates []time.Time, importDate importDateFunc) ([]string, []string, error) {
+	imported := make([]string, 0, len(dates))
+	skipped := make([]string, 0)
+	dateErrors := make([]error, 0)
+	for _, date := range dates {
+		dateImported, dateSkipped, err := importDate(date)
+		imported = append(imported, dateImported...)
+		skipped = append(skipped, dateSkipped...)
+		if err != nil {
+			dateErrors = append(dateErrors, fmt.Errorf("%s: %w", formatDate(date), err))
+		}
+	}
+	return imported, skipped, errors.Join(dateErrors...)
 }
 
 func isCompletedImportStatus(status IngestStatus) bool {
