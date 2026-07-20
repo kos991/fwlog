@@ -43,17 +43,36 @@ func (a *App) runDueAutoScan(ctx context.Context, now time.Time) bool {
 	a.logger.Info("auto scan triggered", "scheduled_at", scheduledAt.Format("2006-01-02 15:04:05"))
 
 	archiveBefore := autoScanArchiveBefore(settings, now)
-	result := a.startBackgroundImportSources(false, importTargetDateRange{}, a.currentLogSources(), archiveBefore)
+	sources := a.currentLogSources()
+	result := a.startBackgroundImportSources(false, importTargetDateRange{}, sources, archiveBefore)
 	if len(result.Accepted) == 0 {
 		a.logger.Warn("auto scan skipped: import already running")
 		return false
 	}
 
+	go a.recordCompletedAutoScan(ctx, scheduledAt, len(result.Accepted) == len(sources), result.Done)
+	return true
+}
+
+func (a *App) recordCompletedAutoScan(ctx context.Context, scheduledAt time.Time, allSourcesAccepted bool, done <-chan struct{}) {
+	if done != nil {
+		select {
+		case <-ctx.Done():
+			return
+		case <-done:
+		}
+	}
+	if !allSourcesAccepted {
+		a.logger.Warn("auto scan not recorded: some sources were already running")
+		return
+	}
+
 	value := formatDateTime(scheduledAt)
 	payload := map[string]any{"last_auto_scan_at": value}
 	a.updateSettings(payload)
-	_ = a.saveSettings(ctx, payload)
-	return true
+	if err := a.saveSettings(ctx, payload); err != nil {
+		a.logger.Error("save completed auto scan time failed", "scheduled_at", value, "error", err)
+	}
 }
 
 func (a *App) settingsSnapshot() map[string]string {

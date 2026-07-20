@@ -55,6 +55,7 @@ WorkingDirectory=/opt/fwlog
 Environment="LOG_DIR=/data/sangfor_fw_log"
 Environment="LOG_TAG=娣变俊鏈?NAT"
 Environment="PORT=8080"
+Environment="WORKERS=1"
 Environment="CLICKHOUSE_ADDR=127.0.0.1:9000"
 Environment="CLICKHOUSE_DATABASE=default"
 Environment="CUSTOM_IP_MAP=/opt/fwlog/custom_ip_map.csv"
@@ -71,7 +72,7 @@ StartLimitBurst=3
 LimitNOFILE=65536
 LimitNPROC=4096
 LimitMEMLOCK=infinity
-Nice=-5
+Nice=5
 IOSchedulingClass=best-effort
 IOSchedulingPriority=2
 NoNewPrivileges=true

@@ -28,6 +28,9 @@ func TestLoadConfigUsesClickHouseDefaults(t *testing.T) {
 	if cfg.ExportDir() != "/data/export" {
 		t.Fatalf("ExportDir = %q", cfg.ExportDir())
 	}
+	if cfg.Workers != 1 {
+		t.Fatalf("Workers = %d, want CPU-safe default 1", cfg.Workers)
+	}
 }
 
 func TestLoadConfigReadsRuntimeSettingsFromEnvironment(t *testing.T) {
@@ -91,9 +94,21 @@ func TestTask1FilesNoLongerReferenceDuckDB(t *testing.T) {
 	assertFileExcludes(t, "fwlog.service", "DB_FILE=", "nat_logs.duckdb")
 	assertFileIncludes(t, "fwlog.service",
 		`Environment="LOG_TAG=`,
+		`Environment="WORKERS=1"`,
 		`Environment="CLICKHOUSE_ADDR=127.0.0.1:9000"`,
 		`Environment="CLICKHOUSE_DATABASE=default"`,
+		`Nice=5`,
 	)
+}
+
+func TestDeploymentTemplatesUseCPUSafeImportDefaults(t *testing.T) {
+	for _, path := range []string{
+		"fwlog.service",
+		filepath.Join("packaging", "systemd", "fwlog.service"),
+		filepath.Join("scripts", "deploy-142-from-release.sh"),
+	} {
+		assertFileIncludes(t, path, `Environment="WORKERS=1"`, `Nice=5`)
+	}
 }
 
 func assertFileExcludes(t *testing.T, path string, disallowed ...string) {

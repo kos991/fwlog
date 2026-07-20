@@ -93,6 +93,49 @@ func TestImportDateFailsWhenNonEmptyArchiveHasNoRecognizedLogs(t *testing.T) {
 	}
 }
 
+func TestImportDateSkipsUnrecognizedArchiveWhenDateAlsoHasNATLogs(t *testing.T) {
+	dir := t.TempDir()
+	logDate := time.Date(2026, 7, 16, 0, 0, 0, 0, time.Local)
+	natPath := filepath.Join(dir, "a-nat.log-20260716")
+	apPath := filepath.Join(dir, "z-ap.log-20260716")
+	natLine := "2026 Jul 16 12:00:01 " + natLabelSrcIP + " 10.0.0.1 " + natLabelDstIP + " 10.0.0.2 " + natLabelProtocol + " TCP"
+	apLine := "Jul 16 19:24:56 AP:e05f.b9ea.78be: %LINK-3-UPDOWN: Interface Dot11Radio0, changed state to down"
+	for path, content := range map[string]string{natPath: natLine, apPath: apLine} {
+		if err := os.WriteFile(path, []byte(content+"\n"), 0o644); err != nil {
+			t.Fatalf("write archive: %v", err)
+		}
+		if err := os.Chtimes(path, logDate.Add(12*time.Hour), logDate.Add(12*time.Hour)); err != nil {
+			t.Fatalf("set mod time: %v", err)
+		}
+	}
+
+	states := &fakeImportStateRecorder{}
+	importer := &Importer{
+		store:  &ClickHouseStore{},
+		writer: &fakeClickHouseWriter{batch: &fakeBatch{}},
+		states: states,
+		now:    func() time.Time { return logDate.Add(24 * time.Hour) },
+		sleep:  func(time.Duration) {},
+	}
+
+	if err := importer.ImportDate(context.Background(), LogSource{SourceID: "fw-a", LogTag: "edge", LogDir: dir}, logDate); err != nil {
+		t.Fatalf("mixed archive import returned error: %v", err)
+	}
+	lastDate := states.dateStates[len(states.dateStates)-1]
+	if lastDate.Status != StatusReady || lastDate.RowsImported != 1 || lastDate.FilesDone != 2 {
+		t.Fatalf("mixed archive date state = %#v", lastDate)
+	}
+	var apState FileIngestState
+	for _, state := range states.fileStates {
+		if state.Path == apPath {
+			apState = state
+		}
+	}
+	if apState.Status != StatusNoData || apState.ProgressPct != 100 {
+		t.Fatalf("AP archive state = %#v, want no_data", apState)
+	}
+}
+
 func TestImportDateSuccessDropsSourceDatePartitionSleepsAndMarksReady(t *testing.T) {
 	dir := t.TempDir()
 	logDate := time.Date(2026, 7, 2, 0, 0, 0, 0, time.Local)
@@ -354,9 +397,10 @@ func TestImportDateWithoutFilesMarksDateFailed(t *testing.T) {
 	logDate := time.Date(2026, 7, 2, 0, 0, 0, 0, time.Local)
 	now := logDate.Add(24 * time.Hour)
 	states := &fakeImportStateRecorder{}
+	writer := &fakeClickHouseWriter{batch: &fakeBatch{}}
 	importer := &Importer{
 		store:  &ClickHouseStore{},
-		writer: &fakeClickHouseWriter{batch: &fakeBatch{}},
+		writer: writer,
 		states: states,
 		now: func() time.Time {
 			return now
@@ -377,6 +421,9 @@ func TestImportDateWithoutFilesMarksDateFailed(t *testing.T) {
 	lastDate := states.dateStates[len(states.dateStates)-1]
 	if lastDate.Status != StatusFailed {
 		t.Fatalf("last date status = %s, want failed", lastDate.Status)
+	}
+	if len(writer.execCalls) != 0 {
+		t.Fatalf("missing archive must not delete existing partition: %#v", writer.execCalls)
 	}
 }
 
@@ -451,6 +498,44 @@ func TestImportDateFailureIncrementsExistingRetryCounts(t *testing.T) {
 	}
 	if got := lastFile.NextRetryAt.Sub(now); got != 15*time.Minute {
 		t.Fatalf("file retry backoff = %s, want 15m", got)
+	}
+}
+
+func TestImportDateRebuildAdvancesPastNewerFailedState(t *testing.T) {
+	dir := t.TempDir()
+	logDate := time.Date(2026, 7, 2, 0, 0, 0, 0, time.Local)
+	logFile := filepath.Join(dir, "edge-fw.log-20260702")
+	line := "2026 Jul 2 12:00:01 " + natLabelSrcIP + " 10.0.0.1 " + natLabelSrcPort + " 1234 " + natLabelDstIP + " 10.0.0.2 " + natLabelDstPort + " 80 " + natLabelProtocol + " TCP"
+	if err := os.WriteFile(logFile, []byte(line+"\n"), 0o644); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+	if err := os.Chtimes(logFile, logDate.Add(12*time.Hour), logDate.Add(12*time.Hour)); err != nil {
+		t.Fatalf("set mod time: %v", err)
+	}
+
+	failedAt := logDate.Add(24*time.Hour + 2*time.Second)
+	states := &fakeImportStateRecorder{
+		latestDate: DateIngestState{Status: StatusFailed, UpdatedAt: failedAt},
+		dateFound:  true,
+	}
+	importer := &Importer{
+		store:     &ClickHouseStore{},
+		writer:    &fakeClickHouseWriter{batch: &fakeBatch{}},
+		states:    states,
+		now:       func() time.Time { return logDate.Add(24 * time.Hour) },
+		sleep:     func(time.Duration) {},
+		batchSize: 1,
+	}
+
+	if err := importer.ImportDate(context.Background(), LogSource{SourceID: "fw-a", LogTag: "edge", LogDir: dir}, logDate); err != nil {
+		t.Fatalf("ImportDate returned error: %v", err)
+	}
+	lastDate := states.dateStates[len(states.dateStates)-1]
+	if lastDate.Status != StatusReady {
+		t.Fatalf("last date status = %s, want ready", lastDate.Status)
+	}
+	if !lastDate.UpdatedAt.After(failedAt) {
+		t.Fatalf("rebuild timestamp = %v, must be after previous failed state %v", lastDate.UpdatedAt, failedAt)
 	}
 }
 

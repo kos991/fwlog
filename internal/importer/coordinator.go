@@ -8,13 +8,14 @@ import (
 )
 
 const (
-	defaultConcurrentSources = 2
+	defaultConcurrentSources = 1
 	defaultConcurrentWrites  = 1
 )
 
 type ImportStartResult struct {
-	Accepted []string `json:"accepted_sources"`
-	Busy     []string `json:"busy_sources"`
+	Accepted []string        `json:"accepted_sources"`
+	Busy     []string        `json:"busy_sources"`
+	Done     <-chan struct{} `json:"-"`
 }
 
 type sourceWorkerFunc func(context.Context, LogSource) error
@@ -41,7 +42,8 @@ func NewImportCoordinator(maxSources, maxWrites int) *ImportCoordinator {
 }
 
 func (c *ImportCoordinator) Start(ctx context.Context, sources []LogSource, worker sourceWorkerFunc) ImportStartResult {
-	result := ImportStartResult{Accepted: make([]string, 0, len(sources)), Busy: make([]string, 0)}
+	done := make(chan struct{})
+	result := ImportStartResult{Accepted: make([]string, 0, len(sources)), Busy: make([]string, 0), Done: done}
 	c.mu.Lock()
 	accepted := make([]LogSource, 0, len(sources))
 	for _, source := range sources {
@@ -54,9 +56,18 @@ func (c *ImportCoordinator) Start(ctx context.Context, sources []LogSource, work
 		result.Accepted = append(result.Accepted, source.SourceID)
 	}
 	c.mu.Unlock()
+	var workers sync.WaitGroup
+	workers.Add(len(accepted))
 	for _, source := range accepted {
-		go c.runSource(ctx, source, worker)
+		go func(source LogSource) {
+			defer workers.Done()
+			c.runSource(ctx, source, worker)
+		}(source)
 	}
+	go func() {
+		workers.Wait()
+		close(done)
+	}()
 	return result
 }
 

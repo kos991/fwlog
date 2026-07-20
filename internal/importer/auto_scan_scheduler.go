@@ -21,7 +21,7 @@ func DueAutoScanTime(settings map[string]string, now time.Time, dueWindow time.D
 	return dueDailyAutoScanTime(settings, localNow, loc, dueWindow)
 }
 
-func dueDailyAutoScanTime(settings map[string]string, localNow time.Time, loc *time.Location, dueWindow time.Duration) (time.Time, bool) {
+func dueDailyAutoScanTime(settings map[string]string, localNow time.Time, loc *time.Location, _ time.Duration) (time.Time, bool) {
 	times := parseAutoScanTimes(settings["auto_scan_times"])
 	if len(times) == 0 {
 		return time.Time{}, false
@@ -29,15 +29,13 @@ func dueDailyAutoScanTime(settings map[string]string, localNow time.Time, loc *t
 	sort.Strings(times)
 
 	last := ParseAutoScanDateTime(settings["last_auto_scan_at"], loc)
-	for _, item := range times {
+	for index := len(times) - 1; index >= 0; index-- {
+		item := times[index]
 		scheduledAt, ok := dailyScanTime(localNow, item, loc)
 		if !ok || scheduledAt.After(localNow) {
 			continue
 		}
-		if localNow.Sub(scheduledAt) > dueWindow {
-			continue
-		}
-		if !last.IsZero() && last.Equal(scheduledAt) {
+		if !last.IsZero() && !last.Before(scheduledAt) {
 			continue
 		}
 		return scheduledAt, true
@@ -45,7 +43,7 @@ func dueDailyAutoScanTime(settings map[string]string, localNow time.Time, loc *t
 	return time.Time{}, false
 }
 
-func dueIntervalAutoScanTime(settings map[string]string, localNow time.Time, loc *time.Location, dueWindow time.Duration) (time.Time, bool) {
+func dueIntervalAutoScanTime(settings map[string]string, localNow time.Time, loc *time.Location, _ time.Duration) (time.Time, bool) {
 	seconds, err := parseAutoScanIntervalSeconds(settings["auto_scan_interval_sec"])
 	if err != nil || seconds <= 0 {
 		return time.Time{}, false
@@ -61,9 +59,6 @@ func dueIntervalAutoScanTime(settings map[string]string, localNow time.Time, loc
 	elapsed := localNow.Sub(anchor)
 	steps := int64(elapsed / interval)
 	scheduledAt := anchor.Add(time.Duration(steps) * interval)
-	if localNow.Sub(scheduledAt) > dueWindow {
-		return time.Time{}, false
-	}
 	last := ParseAutoScanDateTime(settings["last_auto_scan_at"], loc)
 	if !last.IsZero() && !last.Before(scheduledAt) {
 		return time.Time{}, false

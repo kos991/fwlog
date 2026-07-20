@@ -116,11 +116,10 @@ func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.T
 	}
 
 	now := i.nowOrDefault()()
-	if err := writer.Exec(ctx, dropLogSourceDatePartitionSQL(source.SourceID, date)); err != nil {
+	now, err = i.dateStateTimestampAfterLatest(ctx, source.SourceID, date, now)
+	if err != nil {
 		return err
 	}
-	i.sleepOrDefault()(time.Second)
-
 	files, err := ScanArchivedLogFiles(source.LogDir, now)
 	if err != nil {
 		return err
@@ -134,6 +133,11 @@ func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.T
 		}
 		return failErr
 	}
+
+	if err := writer.Exec(ctx, dropLogSourceDatePartitionSQL(source.SourceID, date)); err != nil {
+		return err
+	}
+	i.sleepOrDefault()(time.Second)
 
 	var totalBytes uint64
 	for _, file := range targetFiles {
@@ -156,6 +160,11 @@ func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.T
 	var totalRows uint64
 	var filesDone uint64
 	var bytesDone uint64
+	type unrecognizedArchive struct {
+		file      LogFileSnapshot
+		updatedAt time.Time
+	}
+	unrecognized := make([]unrecognizedArchive, 0)
 
 	for _, file := range targetFiles {
 		progressUpdatedAt := i.nowOrDefault()()
@@ -179,6 +188,10 @@ func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.T
 			dateUpdatedAt = progressUpdatedAt
 		}
 		fileUpdatedAt := i.nowOrDefault()()
+		fileUpdatedAt, err = i.fileStateTimestampAfterLatest(ctx, file.Path, fileUpdatedAt)
+		if err != nil {
+			return err
+		}
 		if err := i.writeFileState(ctx, FileIngestState{
 			Path:       file.Path,
 			SourceID:   source.SourceID,
@@ -201,24 +214,16 @@ func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.T
 			}
 			return err
 		}
-		if result.RowsImported == 0 && result.NonEmptyLines > 0 {
-			parseErr := fmt.Errorf("文件 %s 中没有可识别的日志", filepath.Base(file.Path))
-			if markErr := i.markFileFailed(ctx, source, date, file, fileUpdatedAt, parseErr); markErr != nil {
-				return errors.Join(parseErr, markErr)
-			}
-			if markErr := i.markDateFailed(ctx, source, date, dateUpdatedAt, filesDone, parseErr); markErr != nil {
-				return errors.Join(parseErr, markErr)
-			}
-			return parseErr
-		}
+		unrecognizedFile := result.RowsImported == 0 && result.NonEmptyLines > 0
 
 		filesDone++
 		totalRows += result.RowsImported
 		bytesDone += uint64(file.Size)
 		fileStatus := StatusReady
-		if result.NonEmptyLines == 0 {
+		if result.NonEmptyLines == 0 || unrecognizedFile {
 			fileStatus = StatusNoData
 		}
+		fileTerminalAt := terminalStateTimestamp(fileUpdatedAt, i.nowOrDefault()())
 		if err := i.writeFileState(ctx, FileIngestState{
 			Path:         file.Path,
 			SourceID:     source.SourceID,
@@ -229,9 +234,12 @@ func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.T
 			BytesTotal:   uint64(file.Size),
 			BytesDone:    uint64(file.Size),
 			ProgressPct:  100,
-			UpdatedAt:    terminalStateTimestamp(fileUpdatedAt, i.nowOrDefault()()),
+			UpdatedAt:    fileTerminalAt,
 		}); err != nil {
 			return err
+		}
+		if unrecognizedFile {
+			unrecognized = append(unrecognized, unrecognizedArchive{file: file, updatedAt: fileTerminalAt})
 		}
 		progressUpdatedAt = i.nowOrDefault()()
 		if err := i.writeDateState(ctx, DateIngestState{
@@ -253,6 +261,18 @@ func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.T
 		if progressUpdatedAt.After(dateUpdatedAt) {
 			dateUpdatedAt = progressUpdatedAt
 		}
+	}
+	if totalRows == 0 && len(unrecognized) > 0 {
+		parseErr := fmt.Errorf("文件 %s 中没有可识别的日志", filepath.Base(unrecognized[0].file.Path))
+		for _, archive := range unrecognized {
+			if markErr := i.markFileFailed(ctx, source, date, archive.file, archive.updatedAt, parseErr); markErr != nil {
+				return errors.Join(parseErr, markErr)
+			}
+		}
+		if markErr := i.markDateFailed(ctx, source, date, dateUpdatedAt, filesDone, parseErr); markErr != nil {
+			return errors.Join(parseErr, markErr)
+		}
+		return parseErr
 	}
 
 	dateStatus := StatusReady
@@ -545,6 +565,30 @@ func (i *Importer) stateReader() (ingestStateReader, bool) {
 		return i.store, true
 	}
 	return nil, false
+}
+
+func (i *Importer) dateStateTimestampAfterLatest(ctx context.Context, sourceID string, date, candidate time.Time) (time.Time, error) {
+	reader, ok := i.stateReader()
+	if !ok {
+		return candidate, nil
+	}
+	state, found, err := reader.LatestDateState(ctx, sourceID, date)
+	if err != nil || !found {
+		return candidate, err
+	}
+	return terminalStateTimestamp(state.UpdatedAt, candidate), nil
+}
+
+func (i *Importer) fileStateTimestampAfterLatest(ctx context.Context, path string, candidate time.Time) (time.Time, error) {
+	reader, ok := i.stateReader()
+	if !ok {
+		return candidate, nil
+	}
+	state, found, err := reader.LatestFileState(ctx, path)
+	if err != nil || !found {
+		return candidate, err
+	}
+	return terminalStateTimestamp(state.UpdatedAt, candidate), nil
 }
 
 func (i *Importer) stateWriterOrDefault() (ingestStateWriter, error) {

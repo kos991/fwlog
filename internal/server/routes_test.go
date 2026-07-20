@@ -733,6 +733,46 @@ func TestRouterSyncSelectsOneSourceAndReportsBusy(t *testing.T) {
 	close(release)
 }
 
+func TestRouterRebuildReportsBusySourceAsConflict(t *testing.T) {
+	app := NewApp(LoadConfig())
+	app.mu.Lock()
+	app.store = &ClickHouseStore{}
+	app.mu.Unlock()
+	app.updateSettings(map[string]any{"log_sources": []any{
+		map[string]any{"source_id": "fw-a", "log_dir": "/data/a", "enabled": true},
+	}})
+	started := make(chan struct{})
+	release := make(chan struct{})
+	app.importRunner = func(_ context.Context, _ *ClickHouseStore, _ LogSource, _ bool, _ time.Time) ([]string, []string, error) {
+		close(started)
+		<-release
+		return nil, nil, nil
+	}
+	router := app.Router()
+	cookie := loginForTest(t, router)
+
+	first := httptest.NewRequest(http.MethodPost, "/api/sync?source_id=fw-a", nil)
+	first.AddCookie(cookie)
+	firstRes := httptest.NewRecorder()
+	router.ServeHTTP(firstRes, first)
+	if firstRes.Code != http.StatusAccepted {
+		t.Fatalf("first response = %d %s", firstRes.Code, firstRes.Body.String())
+	}
+	<-started
+	defer close(release)
+
+	rebuild := httptest.NewRequest(http.MethodPost, "/api/rebuild?source_id=fw-a&date=2026-07-02", nil)
+	rebuild.AddCookie(cookie)
+	rebuildRes := httptest.NewRecorder()
+	router.ServeHTTP(rebuildRes, rebuild)
+	if rebuildRes.Code != http.StatusConflict {
+		t.Fatalf("busy rebuild status = %d, want 409; body = %s", rebuildRes.Code, rebuildRes.Body.String())
+	}
+	if !strings.Contains(rebuildRes.Body.String(), "import_source_busy") || !strings.Contains(rebuildRes.Body.String(), "busy_sources") {
+		t.Fatalf("busy rebuild response = %s", rebuildRes.Body.String())
+	}
+}
+
 func TestRouterSyncRejectsUnknownSource(t *testing.T) {
 	app := NewApp(LoadConfig())
 	app.mu.Lock()
