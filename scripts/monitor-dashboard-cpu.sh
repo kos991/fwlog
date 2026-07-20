@@ -45,4 +45,3 @@ for ((second = 0; second < duration; second++)); do
     previous_fwlog="$fwlog"; previous_clickhouse="$clickhouse"
 done
 echo "$output"
-

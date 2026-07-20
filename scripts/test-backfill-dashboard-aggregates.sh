@@ -16,4 +16,3 @@ for required in \
     grep -Fq "$required" "$script" || { echo "回填脚本缺少: $required" >&2; exit 1; }
 done
 echo "回填脚本静态检查通过"
-
