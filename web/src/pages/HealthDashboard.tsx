@@ -101,6 +101,10 @@ type HealthDashboardResponse = {
     geoip_loaded: boolean;
     geoip_status: string;
   };
+  cache?: {
+    stale: boolean;
+    loaded_at: string;
+  };
 };
 
 type HealthDashboardProps = {
@@ -550,8 +554,16 @@ function mergeDashboardPayload(
   previous: HealthDashboardResponse | null,
   next: HealthDashboardResponse,
 ): HealthDashboardResponse {
-  if (!previous || hasDistributionPayload(next)) {
+  if (!previous) {
     return next;
+  }
+  if (hasDistributionPayload(next)) {
+    return {
+      ...previous,
+      ip_distribution: next.ip_distribution,
+      geo_distribution: next.geo_distribution,
+      cache: next.cache,
+    };
   }
   return {
     ...next,

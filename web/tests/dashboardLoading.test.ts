@@ -11,6 +11,6 @@ test('仪表盘按顺序加载概览和排行并取消旧请求', () => {
   assert.match(source, /AbortController/);
   assert.match(source, /await loadSummary\(\)/);
   assert.match(source, /await loadRankings\(\)/);
+  assert.match(source, /\.\.\.previous,\s*ip_distribution/);
   assert.doesNotMatch(source, /include_distributions/);
 });
-
