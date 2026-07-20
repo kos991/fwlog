@@ -11,11 +11,19 @@ func NewQueryHandler(service serverhandlers.QueryServicer) http.Handler {
 	return serverhandlers.NewQueryHandler(service)
 }
 
-func NewHealthDashboardHandler(service serverhandlers.DashboardServicer) http.Handler {
+func NewHealthDashboardHandler(service serverhandlers.HealthDashboardServicer) http.Handler {
 	return serverhandlers.NewHealthDashboardHandler(service)
 }
 
-func NewIngestProgressHandler(service serverhandlers.DashboardServicer) http.Handler {
+func NewDashboardSummaryHandler(service serverhandlers.DashboardSummaryServicer) http.Handler {
+	return serverhandlers.NewDashboardSummaryHandler(service)
+}
+
+func NewDashboardRankingsHandler(service serverhandlers.DashboardRankingsServicer) http.Handler {
+	return serverhandlers.NewDashboardRankingsHandler(service)
+}
+
+func NewIngestProgressHandler(service serverhandlers.IngestProgressServicer) http.Handler {
 	return serverhandlers.NewIngestProgressHandler(service)
 }
 

@@ -116,8 +116,10 @@ func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.T
 	}
 
 	now := i.nowOrDefault()()
-	if err := writer.Exec(ctx, dropLogSourceDatePartitionSQL(source.SourceID, date)); err != nil {
-		return err
+	for _, statement := range dropLogSourceDatePartitionsSQL(source.SourceID, date) {
+		if err := writer.Exec(ctx, statement); err != nil {
+			return fmt.Errorf("clear rebuild partition: %w", err)
+		}
 	}
 	i.sleepOrDefault()(time.Second)
 
@@ -283,8 +285,20 @@ func terminalStateTimestamp(previous, current time.Time) time.Time {
 }
 
 func dropLogSourceDatePartitionSQL(sourceID string, date time.Time) string {
+	return dropSourceDatePartitionSQL("nat_logs", sourceID, date)
+}
+
+func dropLogSourceDatePartitionsSQL(sourceID string, date time.Time) []string {
+	return []string{
+		dropSourceDatePartitionSQL("nat_logs", sourceID, date),
+		dropSourceDatePartitionSQL("dashboard_daily_totals", sourceID, date),
+		dropSourceDatePartitionSQL("dashboard_daily_ip_counts", sourceID, date),
+	}
+}
+
+func dropSourceDatePartitionSQL(table, sourceID string, date time.Time) string {
 	sourceID = strings.ReplaceAll(sourceID, "'", "''")
-	return fmt.Sprintf("ALTER TABLE nat_logs DROP PARTITION ('%s', '%s')", sourceID, date.Format("2006-01-02"))
+	return fmt.Sprintf("ALTER TABLE %s DROP PARTITION ('%s', '%s')", table, sourceID, date.Format("2006-01-02"))
 }
 
 type fileImportResult struct {

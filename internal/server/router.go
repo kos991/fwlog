@@ -12,12 +12,16 @@ func (a *App) Router() http.Handler {
 
 	queryHandler := NewQueryHandler(appQueryService{app: a})
 	dashboardHandler := NewHealthDashboardHandler(appDashboardService{app: a})
+	dashboardSummaryHandler := NewDashboardSummaryHandler(appDashboardService{app: a})
+	dashboardRankingsHandler := NewDashboardRankingsHandler(appDashboardService{app: a})
 	progressHandler := NewIngestProgressHandler(appDashboardService{app: a})
 	passwordHandler := NewPasswordHandler(appSecurityService{app: a})
 	ipReloadHandler := NewIPDataReloadHandler(appSecurityService{app: a})
 
 	mux.Handle("/api/query", methodHandler(http.MethodGet, a.requireAuth(queryHandler)))
 	mux.Handle("/api/health-dashboard", methodHandler(http.MethodGet, a.requireAuth(dashboardHandler)))
+	mux.Handle("/api/health-dashboard/summary", methodHandler(http.MethodGet, a.requireAuth(dashboardSummaryHandler)))
+	mux.Handle("/api/health-dashboard/rankings", methodHandler(http.MethodGet, a.requireAuth(dashboardRankingsHandler)))
 	mux.Handle("/api/ingest-progress", methodHandler(http.MethodGet, a.requireAuth(progressHandler)))
 	mux.Handle("/api/password", methodHandler(http.MethodPost, a.requireAuth(passwordHandler)))
 	mux.Handle("/api/ip-data/reload", methodHandler(http.MethodPost, a.requireAuth(ipReloadHandler)))

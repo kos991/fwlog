@@ -156,24 +156,24 @@ func TestDistributionSQLFiltersByLogDate(t *testing.T) {
 		t.Fatalf("distributionSQL returned error: %v", err)
 	}
 
-	if !strings.Contains(sql, "WHERE log_date >= ?") {
+	if !strings.Contains(sql, "log_date >= ?") {
 		t.Fatalf("distribution SQL should filter by log_date: %s", sql)
 	}
 	if !strings.Contains(sql, "source_id = ?") {
 		t.Fatalf("distribution SQL should filter by source_id: %s", sql)
 	}
-	if !strings.Contains(sql, "GROUP BY src_ip") || !strings.Contains(sql, "LIMIT 10") {
+	if !strings.Contains(sql, "GROUP BY toString(address)") || !strings.Contains(sql, "LIMIT 10") {
 		t.Fatalf("distribution SQL missing ranking clauses: %s", sql)
 	}
-	if len(args) != 2 {
+	if len(args) != 3 || args[0] != "src_ip" {
 		t.Fatalf("args = %#v, want since and source args", args)
 	}
-	got, ok := args[0].(time.Time)
+	got, ok := args[1].(time.Time)
 	if !ok || !got.Equal(startOfDay(since)) {
-		t.Fatalf("since arg = %#v, want start of day %v", args[0], startOfDay(since))
+		t.Fatalf("since arg = %#v, want start of day %v", args[1], startOfDay(since))
 	}
-	if args[1] != "fw-a" {
-		t.Fatalf("source arg = %#v, want fw-a", args[1])
+	if args[2] != "fw-a" {
+		t.Fatalf("source arg = %#v, want fw-a", args[2])
 	}
 }
 
@@ -190,8 +190,9 @@ func TestDestinationSubnetDistributionSQLCoversAllTraffic(t *testing.T) {
 	for _, want := range []string{
 		"log_date >= ?",
 		"source_id = ?",
-		"cutIPv6(dst_ip, 8, 1)",
-		"GROUP BY name",
+		"dashboard_daily_ip_counts",
+		"dimension = ?",
+		"sum(rows)",
 	} {
 		if !strings.Contains(sql, want) {
 			t.Fatalf("destination subnet SQL missing %q: %s", want, sql)
@@ -200,7 +201,7 @@ func TestDestinationSubnetDistributionSQLCoversAllTraffic(t *testing.T) {
 	if strings.Contains(sql, "LIMIT 10") {
 		t.Fatalf("destination subnet SQL must cover all traffic: %s", sql)
 	}
-	if len(args) != 2 || args[1] != "fw-a" {
+	if len(args) != 3 || args[0] != "dst_subnet" || args[2] != "fw-a" {
 		t.Fatalf("destination subnet args = %#v", args)
 	}
 }
@@ -208,8 +209,8 @@ func TestDestinationSubnetDistributionSQLCoversAllTraffic(t *testing.T) {
 func TestDestinationSubnetDistributionSQLUsesIPv4Slash24AndIPv6Slash64(t *testing.T) {
 	sql, _ := destinationSubnetDistributionSQL(time.Time{}, "")
 
-	if !strings.Contains(sql, "cutIPv6(dst_ip, 8, 1)") {
-		t.Fatalf("destination subnet SQL must group IPv6 by /64 and mapped IPv4 by /24: %s", sql)
+	if strings.Contains(sql, "FROM nat_logs") {
+		t.Fatalf("destination subnet SQL must use the pre-aggregated subnet dimension: %s", sql)
 	}
 }
 
@@ -315,7 +316,8 @@ func TestLogTrendSQLUsesDailyBucketsForRecentDates(t *testing.T) {
 	sql := ClickHouseLogTrendSQL()
 
 	for _, want := range []string{
-		"SELECT log_date, source_id, log_tag, count()",
+		"SELECT log_date, source_id, log_tag, sum(rows)",
+		"FROM dashboard_daily_totals",
 		"WHERE log_date >= ? AND log_date <= ?",
 		"GROUP BY log_date, source_id, log_tag",
 		"ORDER BY log_date, source_id",

@@ -30,6 +30,8 @@ func TestRouterRegistersAPIRoutes(t *testing.T) {
 	}{
 		{method: http.MethodGet, path: "/api/query"},
 		{method: http.MethodGet, path: "/api/health-dashboard"},
+		{method: http.MethodGet, path: "/api/health-dashboard/summary"},
+		{method: http.MethodGet, path: "/api/health-dashboard/rankings"},
 		{method: http.MethodGet, path: "/api/ingest-progress"},
 		{method: http.MethodGet, path: "/api/session"},
 		{method: http.MethodPost, path: "/api/login"},
@@ -968,6 +970,8 @@ func TestProtectedAPIsRejectUnauthenticatedRequests(t *testing.T) {
 	}{
 		{method: http.MethodGet, path: "/api/query"},
 		{method: http.MethodGet, path: "/api/health-dashboard"},
+		{method: http.MethodGet, path: "/api/health-dashboard/summary"},
+		{method: http.MethodGet, path: "/api/health-dashboard/rankings"},
 		{method: http.MethodGet, path: "/api/ingest-progress"},
 		{method: http.MethodPost, path: "/api/password", body: `{"current_password":"a","new_password":"b"}`},
 		{method: http.MethodPost, path: "/api/ip-data/reload"},

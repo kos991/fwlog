@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -18,30 +19,66 @@ type appDashboardService struct {
 }
 
 func (s appDashboardService) HealthDashboard(r *http.Request) (HealthDashboardResponse, error) {
+	summary, err := s.DashboardSummary(r)
+	if err != nil {
+		return HealthDashboardResponse{}, err
+	}
+	rankings, err := s.DashboardRankings(r)
+	if err != nil {
+		return HealthDashboardResponse{}, err
+	}
+	summary.IPDistribution = rankings.IPDistribution
+	summary.GeoDistribution = rankings.GeoDistribution
+	summary.Cache = rankings.Cache
+	return summary, nil
+}
+
+func (s appDashboardService) DashboardSummary(r *http.Request) (HealthDashboardResponse, error) {
 	store := s.appStore()
 	if store == nil {
 		return dashboard.BuildHealthDashboard(nil, DashboardMetrics{}), nil
 	}
-
 	ctx, cancel := context.WithTimeout(r.Context(), dashboardTimeout)
 	defer cancel()
-
 	states, err := store.ListDateStates(ctx, dashboardSince(r))
 	if err != nil {
 		return HealthDashboardResponse{}, err
 	}
+	metrics, err := store.DashboardSummaryMetrics(ctx)
+	if err != nil {
+		return HealthDashboardResponse{}, err
+	}
+	metrics = s.withAutoScanPlan(metrics)
+	metrics.SystemHealth = health.CollectSystemHealth(metrics.SystemHealth.Database)
+	return dashboard.BuildHealthDashboard(states, metrics), nil
+}
 
-	metrics, err := store.DashboardMetrics(ctx, dashboardMetricsSince(r), parseBoolQuery(r, "include_distributions", true), strings.TrimSpace(r.URL.Query().Get("source_id")))
+func (s appDashboardService) DashboardRankings(r *http.Request) (HealthDashboardResponse, error) {
+	store := s.appStore()
+	if store == nil {
+		return dashboard.BuildHealthDashboard(nil, DashboardMetrics{}), nil
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), dashboardTimeout)
+	defer cancel()
+	since := dashboardMetricsSince(r)
+	sourceID := strings.TrimSpace(r.URL.Query().Get("source_id"))
+	key := fmt.Sprintf("%s|%s", r.URL.Query().Get("metrics_range"), sourceID)
+	if key == "|" {
+		key = fmt.Sprintf("%s|%s", since.Format("2006-01-02"), sourceID)
+	}
+	cache := s.app.dashboardCache
+	metrics, cacheState, err := cache.Get(ctx, key, func(loadCtx context.Context) (DashboardMetrics, error) {
+		return store.DashboardRankingMetrics(loadCtx, since, sourceID)
+	})
 	if err != nil {
 		return HealthDashboardResponse{}, err
 	}
 	metrics.GeoIPLoaded = s.geoIPLoaded()
 	metrics.GeoIPStatus = s.geoIPStatus()
 	metrics = s.withGeoDistributions(metrics)
-	metrics = s.withAutoScanPlan(metrics)
-	metrics.SystemHealth = health.CollectSystemHealth(metrics.SystemHealth.Database)
-
-	return dashboard.BuildHealthDashboard(states, metrics), nil
+	response := dashboard.BuildHealthDashboard(nil, metrics)
+	response.Cache = &dashboard.DashboardCache{Stale: cacheState.Stale, LoadedAt: cacheState.LoadedAt}
+	return response, nil
 }
 
 func (s appDashboardService) IngestProgress(r *http.Request) (IngestProgressResponse, error) {
