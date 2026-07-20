@@ -10,7 +10,7 @@ import (
 const (
 	dashboardTotalsTable  = "dashboard_daily_totals"
 	dashboardIPTable      = "dashboard_daily_ip_counts"
-	dashboardQuerySetting = " SETTINGS max_threads = 2"
+	dashboardQuerySetting = " SETTINGS max_threads = 1"
 )
 
 // DashboardAggregateDDL creates the aggregate targets and the views that keep
@@ -56,7 +56,7 @@ FROM nat_logs
 GROUP BY log_date, source_id, log_tag, dimension, address`,
 		`CREATE MATERIALIZED VIEW IF NOT EXISTS dashboard_daily_dst_subnet_mv
 TO dashboard_daily_ip_counts AS
-SELECT log_date, source_id, log_tag, 'dst_subnet' AS dimension, cutIPv6(dst_ip, 8, 1) AS address, count() AS rows
+SELECT log_date, source_id, log_tag, 'dst_subnet' AS dimension, toIPv6(cutIPv6(dst_ip, 8, 1)) AS address, count() AS rows
 FROM nat_logs
 GROUP BY log_date, source_id, log_tag, dimension, address`,
 	}

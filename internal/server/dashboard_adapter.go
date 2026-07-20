@@ -68,14 +68,17 @@ func (s appDashboardService) DashboardRankings(r *http.Request) (HealthDashboard
 	}
 	cache := s.app.dashboardCache
 	metrics, cacheState, err := cache.Get(ctx, key, func(loadCtx context.Context) (DashboardMetrics, error) {
-		return store.DashboardRankingMetrics(loadCtx, since, sourceID)
+		loaded, loadErr := store.DashboardRankingMetrics(loadCtx, since, sourceID)
+		if loadErr != nil {
+			return DashboardMetrics{}, loadErr
+		}
+		loaded.GeoIPLoaded = s.geoIPLoaded()
+		loaded.GeoIPStatus = s.geoIPStatus()
+		return s.withGeoDistributions(loaded), nil
 	})
 	if err != nil {
 		return HealthDashboardResponse{}, err
 	}
-	metrics.GeoIPLoaded = s.geoIPLoaded()
-	metrics.GeoIPStatus = s.geoIPStatus()
-	metrics = s.withGeoDistributions(metrics)
 	response := dashboard.BuildHealthDashboard(nil, metrics)
 	response.Cache = &dashboard.DashboardCache{Stale: cacheState.Stale, LoadedAt: cacheState.LoadedAt}
 	return response, nil

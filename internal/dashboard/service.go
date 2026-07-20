@@ -330,7 +330,7 @@ func aggregateGeoDestinations(destinations []DistributionItem, engine *IPEngine)
 		return countries, regions
 	}
 
-	workers := min(2, len(destinations))
+	workers := min(1, len(destinations))
 	chunkSize := (len(destinations) + workers - 1) / workers
 	partials := make(chan geoDistributionTotals, workers)
 	for worker := 0; worker < workers; worker++ {

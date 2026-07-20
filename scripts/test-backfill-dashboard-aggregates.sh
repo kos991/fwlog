@@ -9,11 +9,10 @@ for required in \
     'SETTINGS max_threads = 1' \
     'ALTER TABLE dashboard_daily_totals_staging DROP PARTITION' \
     'refresh_changed_pairs' \
-    'systemctl stop fwlog.service' \
+    'systemctl --job-mode=ignore-dependencies stop fwlog.service' \
     'RENAME TABLE' \
     'throwIf(' \
     'trap restart_on_error ERR'; do
     grep -Fq "$required" "$script" || { echo "回填脚本缺少: $required" >&2; exit 1; }
 done
 echo "回填脚本静态检查通过"
-
