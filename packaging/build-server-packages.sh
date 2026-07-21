@@ -186,6 +186,7 @@ stage_rootfs() {
         "$rootfs/data/export"
 
     install -m 0755 "$binary_path" "$rootfs/opt/fwlog/fwlog"
+    install -m 0755 "$repo_root/scripts/backfill-dashboard-aggregates.sh" "$rootfs/opt/fwlog/backfill-dashboard-aggregates.sh"
     printf 'VERSION=v%s\n' "$pkg_version" > "$rootfs/opt/fwlog/VERSION"
     local service_unit="$repo_root/fwlog.service"
     if [[ "$include_clickhouse" != "true" ]]; then
@@ -296,7 +297,6 @@ if command -v systemctl >/dev/null 2>&1; then
         systemctl enable fwlog.service || true
     fi
     if [ -d /run/systemd/system ]; then
-        systemctl stop fwlog.service
         embedded_clickhouse=false
         if [ "$include_clickhouse" = "true" ] || systemctl cat fwlog-clickhouse.service >/dev/null 2>&1; then
             embedded_clickhouse=true
@@ -334,6 +334,17 @@ if command -v systemctl >/dev/null 2>&1; then
             if ! clickhouse_query "INSERT INTO app_settings (key, value, updated_at) FORMAT TabSeparated" < "\$backup" >/dev/null 2>&1; then
                 echo "app_settings 鎭㈠澶辫触锛屽浠芥枃浠朵繚鐣欏湪 \$backup" >&2
             fi
+        fi
+        if [ -x "\$client" ]; then
+            has_nat_logs="\$(clickhouse_query "SELECT count() FROM system.tables WHERE database = currentDatabase() AND name = 'nat_logs' FORMAT TSV")"
+            if [ "\$has_nat_logs" = "1" ]; then
+                BACKFILL_CHECKPOINT=/data/fwlog/backups/dashboard-backfill-checkpoint.tsv \
+                    bash /opt/fwlog/backfill-dashboard-aggregates.sh
+            else
+                systemctl --job-mode=ignore-dependencies stop fwlog.service || true
+            fi
+        else
+            systemctl --job-mode=ignore-dependencies stop fwlog.service || true
         fi
         systemctl start fwlog.service
     fi

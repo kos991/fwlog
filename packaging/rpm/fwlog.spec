@@ -84,7 +84,6 @@ if command -v systemctl >/dev/null 2>&1; then
     systemctl enable fwlog.service || true
 %endif
     if [ -d /run/systemd/system ]; then
-        systemctl stop fwlog.service
         embedded_clickhouse=false
         if systemctl cat fwlog-clickhouse.service >/dev/null 2>&1; then
             embedded_clickhouse=true
@@ -119,6 +118,17 @@ if command -v systemctl >/dev/null 2>&1; then
                 echo "app_settings 鎭㈠澶辫触锛屽浠芥枃浠朵繚鐣欏湪 $backup" >&2
             fi
         fi
+        if [ -x "$client" ]; then
+            has_nat_logs="$(clickhouse_query "SELECT count() FROM system.tables WHERE database = currentDatabase() AND name = 'nat_logs' FORMAT TSV")"
+            if [ "$has_nat_logs" = "1" ]; then
+                BACKFILL_CHECKPOINT=/data/fwlog/backups/dashboard-backfill-checkpoint.tsv \
+                    bash /opt/fwlog/backfill-dashboard-aggregates.sh
+            else
+                systemctl --job-mode=ignore-dependencies stop fwlog.service || true
+            fi
+        else
+            systemctl --job-mode=ignore-dependencies stop fwlog.service || true
+        fi
         systemctl start fwlog.service
     fi
 fi
@@ -142,6 +152,7 @@ fi
 %files
 %dir /opt/fwlog
 /opt/fwlog/fwlog
+/opt/fwlog/backfill-dashboard-aggregates.sh
 /opt/fwlog/VERSION
 %if %{include_clickhouse}
 /opt/fwlog/RUNTIME_VERSION
