@@ -122,7 +122,8 @@ if command -v systemctl >/dev/null 2>&1; then
             has_nat_logs="$(clickhouse_query "SELECT count() FROM system.tables WHERE database = currentDatabase() AND name = 'nat_logs' FORMAT TSV")"
             if [ "$has_nat_logs" = "1" ]; then
                 BACKFILL_CHECKPOINT=/data/fwlog/backups/dashboard-backfill-checkpoint.tsv \
-                    bash /opt/fwlog/backfill-dashboard-aggregates.sh
+                    bash /opt/fwlog/backfill-dashboard-aggregates.sh \
+                    >> /data/fwlog/backups/dashboard-backfill.log 2>&1
             else
                 systemctl --job-mode=ignore-dependencies stop fwlog.service || true
             fi

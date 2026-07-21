@@ -314,6 +314,9 @@ func assertDashboardBackfillBeforeStart(t *testing.T, name, script string) {
 	if !strings.Contains(script, "SELECT count() FROM system.tables") {
 		t.Fatalf("%s 必须仅在 nat_logs 已存在时执行升级回填", name)
 	}
+	if !strings.Contains(script, "/data/fwlog/backups/dashboard-backfill.log 2>&1") {
+		t.Fatalf("%s 必须把回填输出移出在线升级的 systemd-run 管道", name)
+	}
 }
 
 func TestPackageInstallScriptsDiscoverLegacyEmbeddedDatabaseForBackup(t *testing.T) {
