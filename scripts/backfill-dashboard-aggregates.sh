@@ -11,7 +11,7 @@ find_client() {
         printf '%s\n' "$CLICKHOUSE_CLIENT"
         return
     fi
-    for candidate in /opt/fwlog/clickhouse/bin/clickhouse /usr/bin/clickhouse /usr/bin/clickhouse-client; do
+    for candidate in /opt/fwlog/clickhouse/bin/clickhouse /opt/nat-query/clickhouse/bin/clickhouse /usr/bin/clickhouse /usr/bin/clickhouse-client; do
         if [[ -x "$candidate" ]]; then
             printf '%s\n' "$candidate"
             return
@@ -19,6 +19,14 @@ find_client() {
     done
     echo "未找到 ClickHouse 客户端" >&2
     return 1
+}
+
+validate_source_id() {
+    local source="$1"
+    if [[ -z "$source" || "$source" == *"'"* || "$source" == *"\\"* || "$source" == *$'\n'* || "$source" == *$'\r'* || "$source" == *$'\t'* ]]; then
+        echo "非法来源标识: $source" >&2
+        return 1
+    fi
 }
 
 client="$(find_client)"
@@ -62,7 +70,7 @@ ORDER BY (dimension, log_date, source_id, address, log_tag);"
 backfill_pair() {
     local source="$1"
     local log_date="$2"
-    [[ "$source" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "非法来源标识: $source" >&2; return 1; }
+    validate_source_id "$source"
     [[ "$log_date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || { echo "非法日期: $log_date" >&2; return 1; }
 
     ch "ALTER TABLE dashboard_daily_totals_staging DROP PARTITION ('$source', '$log_date');
