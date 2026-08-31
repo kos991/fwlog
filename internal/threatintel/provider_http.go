@@ -30,7 +30,13 @@ var providerCredentialFields = map[string]struct{}{
 	"client_secret": {},
 }
 
+type providerHTTPErrorClassifier func(status int, raw json.RawMessage) (ErrorCode, string, bool)
+
 func doProviderJSON(client *http.Client, request *http.Request) (json.RawMessage, error) {
+	return doProviderJSONWithErrorClassifier(client, request, nil)
+}
+
+func doProviderJSONWithErrorClassifier(client *http.Client, request *http.Request, classifier providerHTTPErrorClassifier) (json.RawMessage, error) {
 	if client == nil {
 		client = http.DefaultClient
 	}
@@ -49,22 +55,39 @@ func doProviderJSON(client *http.Client, request *http.Request) (json.RawMessage
 	defer response.Body.Close()
 
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		if classifier != nil {
+			raw, err := readProviderResponseBody(response.Body)
+			if err != nil {
+				return nil, err
+			}
+			if code, message, ok := classifier(response.StatusCode, raw); ok {
+				return nil, newServiceError(code, message, fmt.Errorf("provider status %d", response.StatusCode))
+			}
+		}
 		code, message := classifyProviderHTTPStatus(response.StatusCode)
 		return nil, newServiceError(code, message, fmt.Errorf("provider status %d", response.StatusCode))
 	}
 
-	raw, err := io.ReadAll(io.LimitReader(response.Body, maxProviderJSONResponseBytes+1))
+	raw, err := readProviderResponseBody(response.Body)
 	if err != nil {
-		return nil, newServiceError(ErrorInvalidResponse, "情报服务返回数据读取失败", errors.New("provider response read failed"))
-	}
-	if len(raw) > maxProviderJSONResponseBytes {
-		return nil, newServiceError(ErrorInvalidResponse, "情报服务返回数据过大", errors.New("provider response exceeds size limit"))
+		return nil, err
 	}
 	cleaned, err := sanitizeProviderRawResponse(raw)
 	if err != nil {
 		return nil, err
 	}
 	return cleaned, nil
+}
+
+func readProviderResponseBody(body io.Reader) ([]byte, error) {
+	raw, err := io.ReadAll(io.LimitReader(body, maxProviderJSONResponseBytes+1))
+	if err != nil {
+		return nil, newServiceError(ErrorInvalidResponse, "情报服务返回数据读取失败", errors.New("provider response read failed"))
+	}
+	if len(raw) > maxProviderJSONResponseBytes {
+		return nil, newServiceError(ErrorInvalidResponse, "情报服务返回数据过大", errors.New("provider response exceeds size limit"))
+	}
+	return raw, nil
 }
 
 func classifyProviderHTTPStatus(status int) (ErrorCode, string) {

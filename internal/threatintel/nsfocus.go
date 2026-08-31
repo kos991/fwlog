@@ -60,7 +60,9 @@ func (a nsFocusAdapter) Analyze(ctx context.Context, credential, ip string) (Res
 	request.Header.Set("Accept", nsfocusAccept)
 	request.Header.Set("X-Ns-Nti-Key", credential)
 
-	raw, err := doProviderJSON(a.client, request)
+	raw, err := doProviderJSONWithErrorClassifier(a.client, request, func(_ int, raw json.RawMessage) (ErrorCode, string, bool) {
+		return classifyNSFocusBusinessError(raw)
+	})
 	if err != nil {
 		return Result{}, err
 	}
@@ -179,7 +181,11 @@ func mapNSFocusResponse(ip string, raw json.RawMessage, now time.Time) (Result, 
 }
 
 func classifyNSFocusBusinessError(raw json.RawMessage) (ErrorCode, string, bool) {
-	body := strings.ToLower(string(raw))
+	var response nsfocusErrorResponse
+	if err := json.Unmarshal(raw, &response); err != nil {
+		return "", "", false
+	}
+	body := strings.ToLower(strings.Join(response.texts(), " "))
 	switch {
 	case strings.Contains(body, "invalid nti key"):
 		return ErrorInvalidCredential, "绿盟 NTI 凭据无效", true
@@ -194,6 +200,35 @@ func classifyNSFocusBusinessError(raw json.RawMessage) (ErrorCode, string, bool)
 	default:
 		return "", "", false
 	}
+}
+
+type nsfocusErrorResponse struct {
+	Message json.RawMessage `json:"message"`
+	Detail  json.RawMessage `json:"detail"`
+	Error   json.RawMessage `json:"error"`
+}
+
+func (r nsfocusErrorResponse) texts() []string {
+	texts := make([]string, 0, 3)
+	for _, field := range []json.RawMessage{r.Message, r.Detail, r.Error} {
+		texts = append(texts, nsfocusErrorFieldTexts(field)...)
+	}
+	return texts
+}
+
+func nsfocusErrorFieldTexts(raw json.RawMessage) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return []string{text}
+	}
+	var nested nsfocusErrorResponse
+	if err := json.Unmarshal(raw, &nested); err != nil {
+		return nil
+	}
+	return nested.texts()
 }
 
 func nsfocusRisk(level int) string {

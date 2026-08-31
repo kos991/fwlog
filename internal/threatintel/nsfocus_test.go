@@ -119,26 +119,32 @@ func TestNSFocusAdapterRejectsIPv6BeforeHTTP(t *testing.T) {
 func TestNSFocusAdapterMapsBusinessErrors(t *testing.T) {
 	tests := []struct {
 		name        string
+		status      int
 		body        string
 		wantCode    ErrorCode
 		wantMessage string
 	}{
-		{"invalid key", `{"message":"Invalid NTI key","detail":"upstream-secret"}`, ErrorInvalidCredential, "绿盟 NTI 凭据无效"},
-		{"forbidden", `{"error":"Forbidden","detail":"upstream-secret"}`, ErrorInvalidCredential, "绿盟 NTI 访问被拒绝，请检查凭据和授权范围"},
-		{"over limit", `{"message":"Over limit","detail":"upstream-secret"}`, ErrorQuotaExhausted, "绿盟 NTI 查询额度已用尽"},
-		{"authorization expired", `{"message":"Authorization expired","detail":"upstream-secret"}`, ErrorInvalidCredential, "绿盟 NTI 授权已过期，请更新凭据"},
-		{"ip mismatch", `{"message":"Authorization IP mismatch","detail":"upstream-secret"}`, ErrorInvalidCredential, "绿盟 NTI 授权 IP 不匹配，请检查白名单配置"},
+		{"invalid key", http.StatusUnauthorized, `{"message":"Invalid NTI key","detail":"response-secret"}`, ErrorInvalidCredential, "绿盟 NTI 凭据无效"},
+		{"forbidden", http.StatusForbidden, `{"error":"Forbidden","detail":"response-secret"}`, ErrorInvalidCredential, "绿盟 NTI 访问被拒绝，请检查凭据和授权范围"},
+		{"over limit", http.StatusTooManyRequests, `{"message":"Over limit","detail":"response-secret"}`, ErrorQuotaExhausted, "绿盟 NTI 查询额度已用尽"},
+		{"authorization expired", http.StatusUnauthorized, `{"error":{"message":"Authorization expired","detail":"response-secret"}}`, ErrorInvalidCredential, "绿盟 NTI 授权已过期，请更新凭据"},
+		{"ip mismatch", http.StatusForbidden, `{"message":"Authorization failed","detail":"Authorization IP is not allowed by whitelist","trace":"response-secret"}`, ErrorInvalidCredential, "绿盟 NTI 授权 IP 不匹配，请检查白名单配置"},
 	}
 
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if got := r.Header.Get("X-Ns-Nti-Key"); got != "credential-secret" {
+					t.Fatalf("X-Ns-Nti-Key = %q, want credential", got)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tt.status)
 				io.WriteString(w, tt.body)
 			}))
 			defer server.Close()
 
-			_, err := NewNSFocusAdapter(server.Client(), server.URL, func() time.Time { return time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC) }).Analyze(context.Background(), "test-key", "8.8.8.8")
+			_, err := NewNSFocusAdapter(server.Client(), server.URL, func() time.Time { return time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC) }).Analyze(context.Background(), "credential-secret", "8.8.8.8")
 			if err == nil {
 				t.Fatal("business error should fail")
 			}
@@ -149,11 +155,31 @@ func TestNSFocusAdapterMapsBusinessErrors(t *testing.T) {
 				t.Fatalf("error = %q, want %q", err.Error(), tt.wantMessage)
 			}
 			for current := err; current != nil; current = errors.Unwrap(current) {
-				if strings.Contains(current.Error(), "upstream-secret") || strings.Contains(current.Error(), tt.body) {
-					t.Fatalf("error chain leaked upstream body: %q", current.Error())
+				if strings.Contains(current.Error(), "credential-secret") || strings.Contains(current.Error(), "response-secret") || strings.Contains(current.Error(), tt.body) {
+					t.Fatalf("error chain leaked credential or upstream body: %q", current.Error())
 				}
 			}
 		})
+	}
+}
+
+func TestNSFocusAdapterDoesNotClassifyObjectFieldsAsBusinessErrors(t *testing.T) {
+	fixedNow := time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"count":1,"objects":[{"revoked":false,"valid_until":"2026-09-30T00:00:00Z","confidence":75,"threat_level":5,"categories":["forbidden"],"threat_types":["over limit"],"act_types":["Invalid NTI key"],"tags":["Authorization expired","IP mismatch"]}]}`)
+	}))
+	defer server.Close()
+
+	result, err := NewNSFocusAdapter(server.Client(), server.URL, func() time.Time { return fixedNow }).Analyze(context.Background(), "credential-secret", "8.8.8.8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Verdict != "malicious" || result.RiskLevel != "high" {
+		t.Fatalf("result = %#v", result)
+	}
+	wantTags := []string{"Authorization expired", "IP mismatch", "Invalid NTI key", "forbidden", "over limit"}
+	if !reflect.DeepEqual(result.Tags, wantTags) {
+		t.Fatalf("tags = %#v, want %#v", result.Tags, wantTags)
 	}
 }
 

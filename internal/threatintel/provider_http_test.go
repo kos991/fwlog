@@ -106,6 +106,34 @@ func TestProviderHTTPClassifiesStatusWithoutLeakingBody(t *testing.T) {
 	}
 }
 
+func TestProviderHTTPBoundsBodyBeforeCustomErrorClassification(t *testing.T) {
+	body := `{"message":"` + strings.Repeat("x", maxProviderJSONResponseBytes) + `"}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		io.WriteString(w, body)
+	}))
+	defer server.Close()
+
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	classifierCalled := false
+	_, err = doProviderJSONWithErrorClassifier(server.Client(), request, func(status int, raw json.RawMessage) (ErrorCode, string, bool) {
+		classifierCalled = true
+		return ErrorInvalidCredential, "custom error", true
+	})
+	if err == nil {
+		t.Fatal("oversized error response should fail")
+	}
+	if classifierCalled {
+		t.Fatal("classifier should not receive an oversized response body")
+	}
+	if got := ErrorCodeOf(err); got != ErrorInvalidResponse {
+		t.Fatalf("ErrorCodeOf() = %q, want %q", got, ErrorInvalidResponse)
+	}
+}
+
 func TestProviderHTTPRejectsInvalidJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{not-json`)
