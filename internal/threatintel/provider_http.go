@@ -15,6 +15,7 @@ const maxProviderJSONResponseBytes = 4 << 20
 
 var providerCredentialFields = map[string]struct{}{
 	"apikey":        {},
+	"api-key":       {},
 	"key":           {},
 	"api_key":       {},
 	"token":         {},
