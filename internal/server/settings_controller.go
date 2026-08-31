@@ -86,7 +86,7 @@ func (a *App) getSettings() map[string]string {
 
 	settings := make(map[string]string, len(a.settings)+7)
 	for key, value := range a.settings {
-		if key == adminPasswordHashSettingKey {
+		if isProtectedSettingsKey(key) {
 			continue
 		}
 		settings[key] = value
@@ -116,7 +116,7 @@ func (a *App) updateSettings(payload map[string]any) {
 func (a *App) normalizeSettingsPayload(payload map[string]any) (map[string]string, error) {
 	updates := make(map[string]string, len(payload))
 	for key, value := range payload {
-		if protectedSettingsKeys[key] {
+		if isProtectedSettingsKey(key) {
 			continue
 		}
 		if key == "log_sources" {
@@ -193,7 +193,7 @@ func (a *App) saveSettings(ctx context.Context, payload map[string]any) error {
 	settings := make(map[string]string, len(payload))
 	a.mu.RLock()
 	for key := range payload {
-		if protectedSettingsKeys[key] {
+		if isProtectedSettingsKey(key) {
 			continue
 		}
 		settings[key] = a.settings[key]
