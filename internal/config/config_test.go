@@ -10,6 +10,7 @@ func TestLoadConfigUsesClickHouseDefaults(t *testing.T) {
 	t.Setenv("LOG_DIR", "")
 	t.Setenv("CLICKHOUSE_ADDR", "")
 	t.Setenv("CLICKHOUSE_DATABASE", "")
+	t.Setenv("THREAT_INTELLIGENCE_KEY_FILE", "")
 
 	cfg := LoadConfig()
 
@@ -31,6 +32,9 @@ func TestLoadConfigUsesClickHouseDefaults(t *testing.T) {
 	if cfg.Workers != 1 {
 		t.Fatalf("Workers = %d, want CPU-safe default 1", cfg.Workers)
 	}
+	if cfg.ThreatIntelligenceKeyFile != "/data/fwlog/threat-intelligence.key" {
+		t.Fatalf("ThreatIntelligenceKeyFile = %q", cfg.ThreatIntelligenceKeyFile)
+	}
 }
 
 func TestLoadConfigReadsRuntimeSettingsFromEnvironment(t *testing.T) {
@@ -41,6 +45,8 @@ func TestLoadConfigReadsRuntimeSettingsFromEnvironment(t *testing.T) {
 	t.Setenv("CUSTOM_IP_MAP", "/opt/nat/custom.csv")
 	t.Setenv("GEOIP_DB", "/opt/nat/GeoLite2-City.mmdb")
 	t.Setenv("PORT", "18080")
+	customKeyPath := filepath.Join(t.TempDir(), "threat-intelligence.key")
+	t.Setenv("THREAT_INTELLIGENCE_KEY_FILE", customKeyPath)
 
 	cfg := LoadConfig()
 
@@ -55,6 +61,9 @@ func TestLoadConfigReadsRuntimeSettingsFromEnvironment(t *testing.T) {
 	}
 	if cfg.Port != 18080 {
 		t.Fatalf("Port = %d", cfg.Port)
+	}
+	if cfg.ThreatIntelligenceKeyFile != customKeyPath {
+		t.Fatalf("ThreatIntelligenceKeyFile = %q", cfg.ThreatIntelligenceKeyFile)
 	}
 }
 
@@ -108,6 +117,15 @@ func TestDeploymentTemplatesUseCPUSafeImportDefaults(t *testing.T) {
 		filepath.Join("scripts", "deploy-142-from-release.sh"),
 	} {
 		assertFileIncludes(t, path, `Environment="WORKERS=1"`, `Nice=5`)
+	}
+}
+
+func TestThreatIntelligenceKeyFileIsConfiguredInSystemdUnits(t *testing.T) {
+	for _, path := range []string{
+		"fwlog.service",
+		filepath.Join("packaging", "systemd", "fwlog.service"),
+	} {
+		assertFileIncludes(t, path, `Environment="THREAT_INTELLIGENCE_KEY_FILE=/data/fwlog/threat-intelligence.key"`)
 	}
 }
 

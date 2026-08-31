@@ -201,6 +201,9 @@ func TestPackagedServiceUnitMatchesPackageMode(t *testing.T) {
 			if strings.Contains(unit, tc.forbidden) {
 				t.Fatalf("service unit contains forbidden dependency %q\n%s", tc.forbidden, unit)
 			}
+			if !strings.Contains(unit, `THREAT_INTELLIGENCE_KEY_FILE=/data/fwlog/threat-intelligence.key`) {
+				t.Fatalf("service unit misses threat intelligence key path\n%s", unit)
+			}
 			versionData, err := os.ReadFile(filepath.Join(rootfs, "opt", "fwlog", "VERSION"))
 			if err != nil || strings.TrimSpace(string(versionData)) != "VERSION=v9.9.9" {
 				t.Fatalf("VERSION file is invalid: %q, error %v", versionData, err)
@@ -247,6 +250,28 @@ func TestPackageInstallScriptsPropagateServiceRestartFailure(t *testing.T) {
 	specText := string(spec)
 	if !strings.Contains(specText, "/usr/bin/clickhouse-client") || !strings.Contains(specText, "for candidate in") {
 		t.Fatal("RPM upgrade must discover the ClickHouse client installed by the existing deployment")
+	}
+}
+
+func TestPackagesPreserveThreatIntelligenceKey(t *testing.T) {
+	for _, path := range []string{"../fwlog.service", "systemd/fwlog.service"} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(data), `THREAT_INTELLIGENCE_KEY_FILE=/data/fwlog/threat-intelligence.key`) {
+			t.Fatalf("%s misses key path", path)
+		}
+	}
+	for _, path := range []string{"build-server-packages.sh", "rpm/fwlog.spec"} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), "rm -f /data/fwlog/threat-intelligence.key") ||
+			strings.Contains(string(data), "rm -rf /data/fwlog") {
+			t.Fatalf("%s deletes persistent key data", path)
+		}
 	}
 }
 
