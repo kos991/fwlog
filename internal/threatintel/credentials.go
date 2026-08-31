@@ -11,12 +11,18 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"time"
 )
 
 const (
 	credentialPrefix = "v1:"
 	credentialAAD    = "fwlog-threat-intelligence-v1"
 	credentialKeyLen = 32
+)
+
+const (
+	credentialKeyReadyTimeout = time.Second
+	credentialKeyRetryDelay   = 10 * time.Millisecond
 )
 
 type CredentialCipher struct {
@@ -76,10 +82,14 @@ func (c *CredentialCipher) loadOrCreateKey() ([]byte, error) {
 	if err == nil {
 		return key, nil
 	}
+	var lengthErr credentialKeyLengthError
+	if errors.As(err, &lengthErr) {
+		return c.waitForCompleteKey(err)
+	}
 	if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	if err := os.MkdirAll(filepath.Dir(c.path), 0o700); err != nil {
+	if err := c.ensureParentDir(true); err != nil {
 		return nil, err
 	}
 	key = make([]byte, credentialKeyLen)
@@ -89,13 +99,17 @@ func (c *CredentialCipher) loadOrCreateKey() ([]byte, error) {
 	file, err := os.OpenFile(c.path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
-			return c.readKey()
+			return c.waitForCompleteKey(err)
 		}
 		return nil, err
 	}
-	if _, err := file.Write(key); err != nil {
+	written, err := file.Write(key)
+	if err != nil || written != len(key) {
 		file.Close()
 		_ = os.Remove(c.path)
+		if err == nil {
+			err = io.ErrShortWrite
+		}
 		return nil, err
 	}
 	if err := file.Close(); err != nil {
@@ -110,6 +124,9 @@ func (c *CredentialCipher) readKey() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := c.ensureParentDir(false); err != nil {
+		return nil, err
+	}
 	if runtime.GOOS != "windows" && info.Mode().Perm()&^0o600 != 0 {
 		return nil, fmt.Errorf("credential key permissions are too broad: %o", info.Mode().Perm())
 	}
@@ -118,9 +135,61 @@ func (c *CredentialCipher) readKey() ([]byte, error) {
 		return nil, err
 	}
 	if len(key) != credentialKeyLen {
-		return nil, fmt.Errorf("credential key length = %d, want %d", len(key), credentialKeyLen)
+		return nil, credentialKeyLengthError{length: len(key)}
 	}
 	return key, nil
+}
+
+func (c *CredentialCipher) ensureParentDir(create bool) error {
+	dir := filepath.Dir(c.path)
+	if create {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return err
+		}
+	}
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return err
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("credential key parent is not a directory: %s", dir)
+	}
+	if info.Mode().Perm() != 0o700 {
+		return fmt.Errorf("credential key parent permissions = %o, want 700", info.Mode().Perm())
+	}
+	return nil
+}
+
+func (c *CredentialCipher) waitForCompleteKey(originalErr error) ([]byte, error) {
+	deadline := time.Now().Add(credentialKeyReadyTimeout)
+	for {
+		key, err := c.readKey()
+		if err == nil {
+			return key, nil
+		}
+		var lengthErr credentialKeyLengthError
+		if !errors.As(err, &lengthErr) {
+			return nil, err
+		}
+		if time.Now().After(deadline) {
+			return nil, originalErr
+		}
+		time.Sleep(credentialKeyRetryDelay)
+	}
+}
+
+type credentialKeyLengthError struct {
+	length int
+}
+
+func (e credentialKeyLengthError) Error() string {
+	return fmt.Sprintf("credential key length = %d, want %d", e.length, credentialKeyLen)
 }
 
 func newCredentialGCM(key []byte) (cipher.AEAD, error) {
