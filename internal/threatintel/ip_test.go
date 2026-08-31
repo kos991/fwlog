@@ -20,10 +20,35 @@ func TestNormalizePublicIP(t *testing.T) {
 }
 
 func TestNormalizePublicIPRejectsNonPublicAddresses(t *testing.T) {
-	for _, raw := range []string{"", "not-an-ip", "10.0.0.1", "127.0.0.1", "169.254.1.1", "224.0.0.1", "255.255.255.255", "::"} {
+	tests := []struct {
+		raw      string
+		wantCode ErrorCode
+	}{
+		{"", ErrorInvalidIP},
+		{"not-an-ip", ErrorInvalidIP},
+		{"10.0.0.1", ErrorUnsupportedIP},
+		{"100.64.0.1", ErrorUnsupportedIP},
+		{"127.0.0.1", ErrorUnsupportedIP},
+		{"169.254.1.1", ErrorUnsupportedIP},
+		{"192.0.2.1", ErrorUnsupportedIP},
+		{"198.18.0.1", ErrorUnsupportedIP},
+		{"198.51.100.1", ErrorUnsupportedIP},
+		{"203.0.113.1", ErrorUnsupportedIP},
+		{"224.0.0.1", ErrorUnsupportedIP},
+		{"240.0.0.1", ErrorUnsupportedIP},
+		{"255.255.255.255", ErrorUnsupportedIP},
+		{"::", ErrorUnsupportedIP},
+		{"2001:db8::1", ErrorUnsupportedIP},
+	}
+
+	for _, tt := range tests {
+		raw := tt.raw
 		_, err := NormalizePublicIP(raw)
 		if err == nil {
 			t.Fatalf("NormalizePublicIP(%q) should fail", raw)
+		}
+		if got := ErrorCodeOf(err); got != tt.wantCode {
+			t.Fatalf("ErrorCodeOf(NormalizePublicIP(%q)) = %q, want %q", raw, got, tt.wantCode)
 		}
 	}
 }
