@@ -17,7 +17,7 @@ func TestClickHouseReadTimeoutAllowsLongSchemaMigrations(t *testing.T) {
 func TestClickHouseDDLContainsCoreTables(t *testing.T) {
 	sql := strings.Join(ClickHouseDDL(), "\n")
 
-	for _, table := range []string{"app_settings", "log_sources", "ingest_dates", "ingest_files", "nat_logs"} {
+	for _, table := range []string{"app_settings", "log_sources", "ingest_dates", "ingest_files", "nat_logs", "threat_intelligence_results"} {
 		if !strings.Contains(sql, "CREATE TABLE IF NOT EXISTS "+table) {
 			t.Fatalf("DDL 缺少�?%s:\n%s", table, sql)
 		}
@@ -25,7 +25,7 @@ func TestClickHouseDDLContainsCoreTables(t *testing.T) {
 }
 
 func TestNatLogsDDLUsesExpectedPartitionAndOrderKey(t *testing.T) {
-	sql := strings.Join(ClickHouseDDL(), "\n")
+	sql := natLogsTableDDL("nat_logs", true)
 
 	if !strings.Contains(sql, "PARTITION BY (source_id, log_date)") {
 		t.Fatalf("nat_logs 必须�?log_date 分区:\n%s", sql)
@@ -142,6 +142,7 @@ func TestClickHouseDiskUsageSQLReadsActiveParts(t *testing.T) {
 		"active",
 		"currentDatabase()",
 		"nat_logs",
+		"threat_intelligence_results",
 	} {
 		if !strings.Contains(sql, want) {
 			t.Fatalf("disk usage SQL missing %q: %s", want, sql)

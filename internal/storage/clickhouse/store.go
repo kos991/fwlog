@@ -358,7 +358,7 @@ func ClickHouseDiskUsageSQL() string {
 FROM system.parts
 WHERE active
   AND database = currentDatabase()
-  AND table IN ('nat_logs', 'dashboard_daily_totals', 'dashboard_daily_ip_counts', 'ingest_dates', 'ingest_files', 'app_settings', 'log_sources')`
+  AND table IN ('nat_logs', 'dashboard_daily_totals', 'dashboard_daily_ip_counts', 'ingest_dates', 'ingest_files', 'app_settings', 'log_sources', 'threat_intelligence_results')`
 }
 
 func (s *ClickHouseStore) countRowsForDate(ctx context.Context, date time.Time) (uint64, error) {
@@ -552,6 +552,24 @@ ENGINE = ReplacingMergeTree(updated_at)
 PRIMARY KEY path
 ORDER BY path`,
 		natLogsTableDDL("nat_logs", true),
+		`CREATE TABLE IF NOT EXISTS threat_intelligence_results
+(
+    provider LowCardinality(String),
+    ip String,
+    verdict LowCardinality(String),
+    risk_level LowCardinality(String),
+    confidence_score Nullable(Float64),
+    confidence_level LowCardinality(String),
+    tags Array(String),
+    first_seen Nullable(DateTime('UTC')),
+    last_seen Nullable(DateTime('UTC')),
+    source_updated_at Nullable(DateTime('UTC')),
+    analyzed_at DateTime('UTC'),
+    summary String,
+    raw_response String
+)
+ENGINE = ReplacingMergeTree(analyzed_at)
+ORDER BY (provider, ip)`,
 	}
 }
 
