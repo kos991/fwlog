@@ -13,7 +13,7 @@ import (
 
 func TestProviderHTTPRedactsCredentialFieldsInRawResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, `{"apikey":"echoed-secret","data":{"nested":{"API_KEY":"echoed-secret","key":"echoed-secret","token":"echoed-secret","secret":"echoed-secret","credential":"echoed-secret","safe":"kept"}}}`)
+		io.WriteString(w, `{"apikey":"echoed-secret","data":{"nested":{"API_KEY":"echoed-secret","key":"echoed-secret","token":"echoed-secret","secret":"echoed-secret","credential":"echoed-secret","Access_Token":"echoed-secret","REFRESH_TOKEN":"echoed-secret","Auth_Token":"echoed-secret","Authorization":"echoed-secret","PASSWORD":"echoed-secret","PassWd":"echoed-secret","Pwd":"echoed-secret","CLIENT_SECRET":"echoed-secret","safe":"kept"}}}`)
 	}))
 	defer server.Close()
 
@@ -35,6 +35,35 @@ func TestProviderHTTPRedactsCredentialFieldsInRawResponse(t *testing.T) {
 	}
 	if !strings.Contains(body, `"safe":"kept"`) {
 		t.Fatalf("raw response removed non-credential field: %s", body)
+	}
+}
+
+func TestProviderHTTPRejectsResponseJustOverSizeLimitWithoutLeakingBody(t *testing.T) {
+	const maxResponseBytes = 4 << 20
+	const prefix = `{"payload":"response-secret-`
+	const suffix = `"}`
+	body := prefix + strings.Repeat("x", maxResponseBytes+1-len(prefix)-len(suffix)) + suffix
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, body)
+	}))
+	defer server.Close()
+
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = doProviderJSON(server.Client(), request)
+	if err == nil {
+		t.Fatal("response just over size limit should fail")
+	}
+	if got := ErrorCodeOf(err); got != ErrorInvalidResponse {
+		t.Fatalf("ErrorCodeOf() = %q, want %q", got, ErrorInvalidResponse)
+	}
+	for current := err; current != nil; current = errors.Unwrap(current) {
+		if strings.Contains(current.Error(), "response-secret") {
+			t.Fatalf("size limit error chain leaked response body: %q", current.Error())
+		}
 	}
 }
 

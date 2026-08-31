@@ -11,13 +11,23 @@ import (
 	"strings"
 )
 
+const maxProviderJSONResponseBytes = 4 << 20
+
 var providerCredentialFields = map[string]struct{}{
-	"apikey":     {},
-	"key":        {},
-	"api_key":    {},
-	"token":      {},
-	"secret":     {},
-	"credential": {},
+	"apikey":        {},
+	"key":           {},
+	"api_key":       {},
+	"token":         {},
+	"secret":        {},
+	"credential":    {},
+	"access_token":  {},
+	"refresh_token": {},
+	"auth_token":    {},
+	"authorization": {},
+	"password":      {},
+	"passwd":        {},
+	"pwd":           {},
+	"client_secret": {},
 }
 
 func doProviderJSON(client *http.Client, request *http.Request) (json.RawMessage, error) {
@@ -43,9 +53,12 @@ func doProviderJSON(client *http.Client, request *http.Request) (json.RawMessage
 		return nil, newServiceError(code, message, fmt.Errorf("provider status %d", response.StatusCode))
 	}
 
-	raw, err := io.ReadAll(response.Body)
+	raw, err := io.ReadAll(io.LimitReader(response.Body, maxProviderJSONResponseBytes+1))
 	if err != nil {
 		return nil, newServiceError(ErrorInvalidResponse, "情报服务返回数据读取失败", errors.New("provider response read failed"))
+	}
+	if len(raw) > maxProviderJSONResponseBytes {
+		return nil, newServiceError(ErrorInvalidResponse, "情报服务返回数据过大", errors.New("provider response exceeds size limit"))
 	}
 	cleaned, err := sanitizeProviderRawResponse(raw)
 	if err != nil {
