@@ -97,6 +97,13 @@ func TestOpenClickHouseWithRetryRetriesStartupFailures(t *testing.T) {
 	}
 }
 
+func TestNewAppInitializesThreatIntelligenceService(t *testing.T) {
+	app := NewApp(LoadConfig())
+	if app.threatIntelligenceService == nil {
+		t.Fatal("threat intelligence service must be initialized")
+	}
+}
+
 func contains(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

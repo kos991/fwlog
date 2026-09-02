@@ -17,31 +17,32 @@ import (
 const minPasswordHashIterations = 10000
 
 type App struct {
-	cfg               Config
-	store             *ClickHouseStore
-	mu                sync.RWMutex
-	settings          map[string]string
-	ipEngine          *IPEngine
-	ipStatus          IPDataStatus
-	passwordHash      string
-	sessionToken      string
-	loginLimiter      loginLimiter
-	loginSem          chan struct{}
-	importRunner      importRunnerFunc
-	imports           *ImportCoordinator
-	receiver          *receiverpkg.Manager
-	querySem          chan struct{}
-	dashboardCache    *rankingCache
-	upgradeMu         sync.Mutex
-	upgradeStatus     UpgradeStatus
-	upgradeRunner     upgradeRunnerFunc
-	versionInfo       VersionInfo
-	logger            *slog.Logger
-	settingsSaver     func(context.Context, map[string]string) error
-	archiver          *receiverpkg.Archiver
-	dateStatesLoader  func(context.Context, time.Time) ([]DateIngestState, error)
-	rsyslogArchiveNow func() time.Time
-	rsyslogArchiveMu  sync.Mutex
+	cfg                       Config
+	store                     *ClickHouseStore
+	mu                        sync.RWMutex
+	settings                  map[string]string
+	ipEngine                  *IPEngine
+	ipStatus                  IPDataStatus
+	passwordHash              string
+	sessionToken              string
+	loginLimiter              loginLimiter
+	loginSem                  chan struct{}
+	importRunner              importRunnerFunc
+	imports                   *ImportCoordinator
+	receiver                  *receiverpkg.Manager
+	threatIntelligenceService threatIntelligenceService
+	querySem                  chan struct{}
+	dashboardCache            *rankingCache
+	upgradeMu                 sync.Mutex
+	upgradeStatus             UpgradeStatus
+	upgradeRunner             upgradeRunnerFunc
+	versionInfo               VersionInfo
+	logger                    *slog.Logger
+	settingsSaver             func(context.Context, map[string]string) error
+	archiver                  *receiverpkg.Archiver
+	dateStatesLoader          func(context.Context, time.Time) ([]DateIngestState, error)
+	rsyslogArchiveNow         func() time.Time
+	rsyslogArchiveMu          sync.Mutex
 }
 
 type importRunnerFunc func(context.Context, *ClickHouseStore, LogSource, bool, time.Time) ([]string, []string, error)
@@ -73,7 +74,7 @@ func NewApp(cfg Config) *App {
 		"workers", cfg.Workers,
 	)
 
-	return &App{
+	app := &App{
 		cfg:               cfg,
 		settings:          defaultSettings(cfg),
 		ipEngine:          NewIPEngine(),
@@ -90,6 +91,8 @@ func NewApp(cfg Config) *App {
 		versionInfo:       versionInfo,
 		logger:            logger,
 	}
+	app.threatIntelligenceService = newThreatIntelligenceService(app)
+	return app
 }
 
 func (a *App) Connect(ctx context.Context) error {
