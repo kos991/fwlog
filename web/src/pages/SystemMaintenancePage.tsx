@@ -22,6 +22,7 @@ import {
 import { Button, DatePicker, Empty, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Switch, Tabs, Tag, TimePicker, Tooltip, Typography, Upload, message } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { apiGet, apiPost, apiUpload, type UpgradeCheckResponse, type UpgradeStatus } from '../api';
+import { ThreatIntelligenceSettingsPanel } from '../components/ThreatIntelligenceSettingsPanel';
 import { buildUpgradeView, isSupportedUpgradeVersion } from '../upgradePresentation';
 
 const { Text } = Typography;
@@ -1048,6 +1049,16 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                     </div>
                   </div>
                   </div>
+                </section>
+              ),
+            },
+            {
+              key: 'threat-intelligence',
+              label: tabLabel(<SafetyCertificateOutlined />, '威胁情报'),
+              children: (
+                <section className="ops-section maintenance-card maintenance-panel">
+                  <Text className="maintenance-panel-note" type="secondary">威胁情报平台配置：管理微步、绿盟、奇安信和腾讯的连接凭据</Text>
+                  <ThreatIntelligenceSettingsPanel />
                 </section>
               ),
             },

@@ -1718,6 +1718,74 @@ body {
   min-width: 0;
 }
 
+.threat-intelligence-settings {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.threat-provider-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.threat-provider-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(120px, 0.55fr) minmax(220px, 1.2fr) minmax(120px, 0.7fr) minmax(260px, 1.25fr);
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--fw-line-soft);
+  border-radius: 8px;
+  background: var(--fw-surface);
+}
+
+.threat-provider-identity,
+.threat-provider-status {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.threat-provider-identity strong {
+  color: var(--fw-text);
+  font-size: 14px;
+}
+
+.threat-provider-identity .ant-typography,
+.threat-provider-status .ant-typography {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.threat-provider-enabled {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.threat-provider-credential {
+  min-width: 0;
+}
+
+.threat-provider-status .ant-tag {
+  width: fit-content;
+  margin-inline-end: 0;
+}
+
+.threat-provider-actions {
+  min-width: 0;
+}
+
+.threat-provider-actions .ant-btn {
+  min-width: 0;
+}
+
 .source-list-editor {
   display: grid;
   gap: 12px;
@@ -2393,6 +2461,19 @@ body {
 
   .maintenance-upgrade-actions .ant-btn {
     width: 100%;
+  }
+
+  .threat-provider-row {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .threat-provider-actions {
+    width: 100%;
+  }
+
+  .threat-provider-actions .ant-btn:not(.ant-btn-icon-only) {
+    flex: 1;
   }
 
   .source-row-header {
