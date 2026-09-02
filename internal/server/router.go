@@ -17,6 +17,7 @@ func (a *App) Router() http.Handler {
 	progressHandler := NewIngestProgressHandler(appDashboardService{app: a})
 	passwordHandler := NewPasswordHandler(appSecurityService{app: a})
 	ipReloadHandler := NewIPDataReloadHandler(appSecurityService{app: a})
+	threatIntelligenceHandler := threatIntelligenceHandler(a)
 
 	mux.Handle("/api/query", methodHandler(http.MethodGet, a.requireAuth(queryHandler)))
 	mux.Handle("/api/health-dashboard", methodHandler(http.MethodGet, a.requireAuth(dashboardHandler)))
@@ -38,6 +39,8 @@ func (a *App) Router() http.Handler {
 	mux.Handle("/api/upgrade/run", methodHandler(http.MethodPost, a.requireAuth(a.upgradeRunHandler())))
 	mux.Handle("/api/upgrade/upload", methodHandler(http.MethodPost, a.requireAuth(a.upgradeUploadHandler())))
 	mux.Handle("/api/version", methodHandler(http.MethodGet, a.requireAuth(versionHandler())))
+	mux.Handle(threatIntelligenceProvidersPath, a.requireAuth(threatIntelligenceHandler))
+	mux.Handle(threatIntelligenceProvidersPath+"/", a.requireAuth(threatIntelligenceHandler))
 
 	mux.Handle("/", newStaticHandler())
 

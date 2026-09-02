@@ -48,6 +48,11 @@ func TestRouterRegistersAPIRoutes(t *testing.T) {
 		{method: http.MethodPost, path: "/api/upgrade/run"},
 		{method: http.MethodPost, path: "/api/upgrade/upload"},
 		{method: http.MethodGet, path: "/api/version"},
+		{method: http.MethodGet, path: "/api/threat-intelligence/providers"},
+		{method: http.MethodPost, path: "/api/threat-intelligence/providers/threatbook"},
+		{method: http.MethodPost, path: "/api/threat-intelligence/providers/threatbook/test"},
+		{method: http.MethodGet, path: "/api/threat-intelligence/providers/threatbook/results?ip=8.8.8.8"},
+		{method: http.MethodPost, path: "/api/threat-intelligence/providers/threatbook/analyze"},
 	}
 
 	for _, tt := range tests {
