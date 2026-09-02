@@ -17,7 +17,7 @@ func TestServiceCoalescesConcurrentAnalysisAndSavesOnce(t *testing.T) {
 
 	start := make(chan struct{})
 	entered := make(chan struct{}, 8)
-	service.beforeAnalysis = func() { entered <- struct{}{} }
+	service.afterFlightJoin = func() { entered <- struct{}{} }
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
 		wg.Add(1)

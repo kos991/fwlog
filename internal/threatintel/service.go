@@ -13,12 +13,12 @@ import (
 const testProviderIP = "1.1.1.1"
 
 type Service struct {
-	config         ConfigStore
-	results        ResultStore
-	adapters       map[Provider]Adapter
-	timeout        time.Duration
-	flights        singleflight.Group
-	beforeAnalysis func()
+	config          ConfigStore
+	results         ResultStore
+	adapters        map[Provider]Adapter
+	timeout         time.Duration
+	flights         singleflight.Group
+	afterFlightJoin func()
 }
 
 func NewService(config ConfigStore, results ResultStore, adapters map[Provider]Adapter, timeout time.Duration) *Service {
@@ -70,21 +70,21 @@ func (s *Service) Analyze(ctx context.Context, provider Provider, rawIP string) 
 	if s == nil || s.config == nil || s.results == nil {
 		return AnalyzeOutcome{}, newServiceError(ErrorInternal, "威胁情报服务不可用", errors.New("threat intelligence service is not initialized"))
 	}
-	if s.beforeAnalysis != nil {
-		s.beforeAnalysis()
-	}
 	ip, err := NormalizePublicIP(rawIP)
 	if err != nil {
 		return AnalyzeOutcome{}, err
 	}
-
-	value, err, _ := s.flights.Do(string(provider)+"\x00"+ip, func() (any, error) {
+	resultCh := s.flights.DoChan(string(provider)+"\x00"+ip, func() (any, error) {
 		callCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.timeout)
 		defer cancel()
 		return s.analyzeOnce(callCtx, provider, ip)
 	})
-	outcome, _ := value.(AnalyzeOutcome)
-	return outcome, err
+	if s.afterFlightJoin != nil {
+		s.afterFlightJoin()
+	}
+	result := <-resultCh
+	outcome, _ := result.Val.(AnalyzeOutcome)
+	return outcome, result.Err
 }
 
 func (s *Service) TestProvider(ctx context.Context, provider Provider) (ProviderTestStatus, error) {
