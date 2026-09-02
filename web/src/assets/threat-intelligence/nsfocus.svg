@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="绿盟">
+  <rect width="32" height="32" rx="7" fill="#16845b"/>
+  <path d="M16 6l9 4v6c0 6-3.8 9.2-9 11-5.2-1.8-9-5-9-11v-6z" fill="#fff"/>
+  <path d="M12 15h8v3h-8z" fill="#16845b"/>
+</svg>

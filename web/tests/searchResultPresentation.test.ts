@@ -31,3 +31,11 @@ test('search date picker uses compact status markers instead of clipped labels',
   assert.doesNotMatch(page, /visible-date-label/);
   assert.doesNotMatch(page, /label: '可查'/);
 });
+
+test('search results include threat intelligence actions for destination IPs', () => {
+  const page = fs.readFileSync(pagePath, 'utf8');
+
+  assert.match(page, /ThreatIntelligenceActions/);
+  assert.match(page, /row\.dst_ip/);
+  assert.doesNotMatch(page, /ThreatIntelligenceActions[^\n]*dst_port/);
+});

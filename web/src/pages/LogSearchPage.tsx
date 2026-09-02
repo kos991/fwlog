@@ -7,6 +7,8 @@ import type { FilterDropdownProps } from 'antd/es/table/interface';
 import dayjs, { type Dayjs } from 'dayjs';
 import { apiGet, buildQueryString, type QueryVisibility } from '../api';
 import { formatIPPort, geoFallback, matchCidrAlias, type CidrAliasSetting } from '../ipAddress';
+import { ThreatIntelligenceActions } from '../components/ThreatIntelligencePopover';
+import type { ThreatProviderListResponse, ThreatProviderStatus } from '../threatIntelligence';
 import { ingestStatusText } from '../uiCopy';
 
 const { RangePicker } = DatePicker;
@@ -208,6 +210,7 @@ export function LogSearchPage(_props: LogSearchPageProps) {
   const [queryValues, setQueryValues] = React.useState<SearchFormValues | null>(null);
   const [queryPageSize, setQueryPageSize] = React.useState(defaultQueryPageSize);
   const [cursorStack, setCursorStack] = React.useState<string[]>(['']);
+  const [threatProviders, setThreatProviders] = React.useState<ThreatProviderStatus[]>([]);
   const selectedSourceID = Form.useWatch('source_id', form);
 
   const runSearch = React.useCallback(async (
@@ -311,6 +314,22 @@ export function LogSearchPage(_props: LogSearchPageProps) {
     };
   }, [form, runSearch]);
 
+  React.useEffect(() => {
+    let active = true;
+    const loadThreatProviders = async () => {
+      try {
+        const status = await apiGet<ThreatProviderListResponse>('/api/threat-intelligence/providers');
+        if (active) setThreatProviders(status.providers || []);
+      } catch {
+        if (active) setThreatProviders([]);
+      }
+    };
+    void loadThreatProviders();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const columns: ProColumns<SearchRecord>[] = [
     { title: '时间', dataIndex: 'timestamp', width: 180, render: (_, row) => mono(row.timestamp) },
     {
@@ -329,8 +348,13 @@ export function LogSearchPage(_props: LogSearchPageProps) {
       filterDropdown: textFilterDropdown('输入源 IP', (value) => applyColumnFilter('src_ip', value)),
     },
     {
-      title: '目标 IP / 端口', width: 180,
-      render: (_, row) => mono(formatIPPort(row.dst_ip, row.dst_port)),
+      title: '目标 IP / 端口', width: 240,
+      render: (_, row) => (
+        <div className="target-ip-cell">
+          {mono(formatIPPort(row.dst_ip, row.dst_port))}
+          <ThreatIntelligenceActions ip={row.dst_ip || ''} providers={threatProviders} />
+        </div>
+      ),
       filteredValue: queryValues?.dst_ip ? [queryValues.dst_ip] : null,
       filterDropdown: textFilterDropdown('输入目标 IP', (value) => applyColumnFilter('dst_ip', value)),
     },
