@@ -1,3 +1,5 @@
+import type { ThreatIntelligenceResult, ThreatProvider, ThreatProviderStatus } from './threatIntelligence';
+
 export async function apiGet<T>(path: string, options?: Pick<RequestInit, 'signal'>): Promise<T> {
   return requestJSON<T>(path, { method: 'GET', signal: options?.signal });
 }
@@ -78,6 +80,83 @@ let mockLogSources = [
   },
 ];
 
+const mockThreatCredential = 'test-key';
+const mockThreatResultsPath = '/results';
+const mockThreatAnalyzePath = '/analyze';
+const mockThreatTestPath = '/test';
+let mockThreatProviders: ThreatProviderStatus[] = [
+  { provider: 'threatbook', name: '微步', enabled: true, configured: true, last_test_status: 'success' },
+  { provider: 'nsfocus', name: '绿盟', enabled: false, configured: true, last_test_status: 'success' },
+  { provider: 'qianxin', name: '奇安信', enabled: false, configured: false, last_test_status: '' },
+  { provider: 'tencent', name: '腾讯', enabled: true, configured: true, last_test_status: 'success' },
+];
+
+function mockThreatResult(provider: ThreatProvider, ip = '8.8.8.8', analyzedAt = '2026-08-31T08:00:00+08:00'): ThreatIntelligenceResult {
+  return {
+    provider,
+    ip,
+    verdict: 'benign',
+    risk_level: 'info',
+    confidence_score: 96,
+    confidence_level: 'high',
+    tags: ['公共 DNS'],
+    first_seen: null,
+    last_seen: null,
+    source_updated_at: analyzedAt,
+    analyzed_at: analyzedAt,
+    summary: '未发现威胁情报记录',
+    raw_response: { source: 'local-mock', ip },
+  };
+}
+
+let mockThreatResults: Partial<Record<ThreatProvider, ThreatIntelligenceResult>> = {
+  threatbook: mockThreatResult('threatbook'),
+  tencent: mockThreatResult('tencent'),
+};
+
+function mockThreatResponse<T>(path: string, init: RequestInit): T | undefined {
+  const prefix = '/api/threat-intelligence/providers';
+  if (path === prefix && init.method === 'GET') {
+    return { providers: mockThreatProviders } as T;
+  }
+  if (!path.startsWith(`${prefix}/`)) return undefined;
+
+  const request = new URL(path, 'http://fwlog.mock');
+  const parts = request.pathname.split('/').filter(Boolean);
+  const provider = parts[3] as ThreatProvider;
+  const operation = parts[4] || 'configuration';
+  const status = mockThreatProviders.find((item) => item.provider === provider);
+  if (!status) return {} as T;
+
+  if (operation === mockThreatResultsPath.slice(1) && init.method === 'GET') {
+    return { result: mockThreatResults[provider] ?? null } as T;
+  }
+  if (operation === mockThreatAnalyzePath.slice(1) && init.method === 'POST') {
+    const payload = typeof init.body === 'string' ? (JSON.parse(init.body) as { ip?: string }) : {};
+    const previousResult = mockThreatResults[provider];
+    const result = mockThreatResult(provider, payload.ip || '8.8.8.8', '2026-08-31T08:05:00+08:00');
+    mockThreatResults = { ...mockThreatResults, [provider]: result };
+    return { result, previous_result: previousResult } as T;
+  }
+  if (operation === mockThreatTestPath.slice(1) && init.method === 'POST') {
+    const testedAt = '2026-08-31T08:10:00+08:00';
+    const updated = { ...status, last_test_status: 'success' as const, last_test_message: '连接成功', last_tested_at: testedAt };
+    mockThreatProviders = mockThreatProviders.map((item) => (item.provider === provider ? updated : item));
+    return updated as T;
+  }
+  if (operation === 'configuration' && init.method === 'POST') {
+    const payload = typeof init.body === 'string'
+      ? (JSON.parse(init.body) as { enabled?: boolean; credential?: string | null; clear_credential?: boolean })
+      : {};
+    const hasCredential = typeof payload.credential === 'string' && payload.credential.trim() !== '';
+    const configured = payload.clear_credential ? false : hasCredential ? payload.credential === mockThreatCredential : status.configured;
+    const updated = { ...status, enabled: payload.enabled ?? status.enabled, configured };
+    mockThreatProviders = mockThreatProviders.map((item) => (item.provider === provider ? updated : item));
+    return updated as T;
+  }
+  return {} as T;
+}
+
 function mockResponse<T>(path: string, init: RequestInit): T {
   if (path.startsWith('/api/session') || path.startsWith('/api/login')) {
     return { authenticated: true } as T;
@@ -85,6 +164,8 @@ function mockResponse<T>(path: string, init: RequestInit): T {
   if (path.startsWith('/api/logout')) {
     return { authenticated: false } as T;
   }
+  const threatResponse = mockThreatResponse<T>(path, init);
+  if (threatResponse !== undefined) return threatResponse;
   if (path.startsWith('/api/health-dashboard')) {
     return {
       data_health: {

@@ -27,3 +27,19 @@ test('api mock includes rsyslog log source defaults', () => {
   assert.match(source, /last_client_ip:\s*'192\.168\.10\.20'/);
   assert.match(source, /received_messages:\s*128/);
 });
+
+test('api mock exposes threat intelligence routes and never calls real providers', () => {
+  for (const required of [
+    '/api/threat-intelligence/providers',
+    '/results',
+    '/analyze',
+    '/test',
+    'test-key',
+  ]) {
+    assert.equal(source.includes(required), true, `Mock 中缺少威胁情报约定：${required}`);
+  }
+
+  for (const forbidden of ['x.threatbook.com', 'ti.nsfocus.com', 'ti.qianxin.com', 'tix.qq.com']) {
+    assert.equal(source.includes(forbidden), false, `Mock 不应包含真实平台域名：${forbidden}`);
+  }
+});
