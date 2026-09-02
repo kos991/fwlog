@@ -13,11 +13,12 @@ import (
 const testProviderIP = "1.1.1.1"
 
 type Service struct {
-	config   ConfigStore
-	results  ResultStore
-	adapters map[Provider]Adapter
-	timeout  time.Duration
-	flights  singleflight.Group
+	config         ConfigStore
+	results        ResultStore
+	adapters       map[Provider]Adapter
+	timeout        time.Duration
+	flights        singleflight.Group
+	beforeAnalysis func()
 }
 
 func NewService(config ConfigStore, results ResultStore, adapters map[Provider]Adapter, timeout time.Duration) *Service {
@@ -66,6 +67,12 @@ func (s *Service) Result(ctx context.Context, provider Provider, rawIP string) (
 }
 
 func (s *Service) Analyze(ctx context.Context, provider Provider, rawIP string) (AnalyzeOutcome, error) {
+	if s == nil || s.config == nil || s.results == nil {
+		return AnalyzeOutcome{}, newServiceError(ErrorInternal, "威胁情报服务不可用", errors.New("threat intelligence service is not initialized"))
+	}
+	if s.beforeAnalysis != nil {
+		s.beforeAnalysis()
+	}
 	ip, err := NormalizePublicIP(rawIP)
 	if err != nil {
 		return AnalyzeOutcome{}, err
@@ -108,7 +115,9 @@ func (s *Service) TestProvider(ctx context.Context, provider Provider) (Provider
 		status.Status = "success"
 		status.Message = "连接测试成功"
 	}
-	if recordErr := s.config.RecordTest(context.WithoutCancel(ctx), provider, status); recordErr != nil {
+	recordCtx, recordCancel := context.WithTimeout(context.WithoutCancel(ctx), s.timeout)
+	defer recordCancel()
+	if recordErr := s.config.RecordTest(recordCtx, provider, status); recordErr != nil {
 		return status, newServiceError(ErrorInternal, "保存连接测试状态失败", recordErr)
 	}
 	if status.Status == "failed" {
@@ -154,11 +163,21 @@ func (s *Service) analyzeOnce(ctx context.Context, provider Provider, ip string)
 	result.Provider = provider
 	result.IP = ip
 	if err := s.results.SaveResult(ctx, result); err != nil {
-		return outcome, newServiceError(ErrorInternal, "保存威胁情报结果失败", err)
+		return outcome, normalizeSaveError(err, ctx)
 	}
 	clone := cloneResult(result)
 	outcome.Result = &clone
 	return outcome, nil
+}
+
+func normalizeSaveError(err error, ctx context.Context) error {
+	if err == nil {
+		return nil
+	}
+	if ErrorCodeOf(err) == ErrorTimeout || errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return newServiceError(ErrorTimeout, "威胁情报分析超时", err)
+	}
+	return newServiceError(ErrorInternal, "保存威胁情报结果失败", err)
 }
 
 func credentialConfigError(err error) error {

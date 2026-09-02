@@ -11,11 +11,13 @@ import (
 )
 
 func TestServiceCoalescesConcurrentAnalysisAndSavesOnce(t *testing.T) {
-	adapter := &fakeAdapter{provider: ProviderThreatBook, result: Result{Verdict: "malicious", RawResponse: json.RawMessage(`{}`)}, release: make(chan struct{})}
+	adapter := &fakeAdapter{provider: ProviderThreatBook, result: Result{Verdict: "malicious", RawResponse: json.RawMessage(`{}`)}, started: make(chan struct{}), release: make(chan struct{})}
 	store := &fakeResultStore{}
 	service := NewService(configuredStore(ProviderThreatBook), store, map[Provider]Adapter{ProviderThreatBook: adapter}, 15*time.Second)
 
 	start := make(chan struct{})
+	entered := make(chan struct{}, 8)
+	service.beforeAnalysis = func() { entered <- struct{}{} }
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
 		wg.Add(1)
@@ -26,7 +28,18 @@ func TestServiceCoalescesConcurrentAnalysisAndSavesOnce(t *testing.T) {
 		}()
 	}
 	close(start)
-	time.Sleep(20 * time.Millisecond)
+	for i := 0; i < 8; i++ {
+		select {
+		case <-entered:
+		case <-time.After(time.Second):
+			t.Fatal("analysis request did not reach the coalescing point")
+		}
+	}
+	select {
+	case <-adapter.started:
+	case <-time.After(time.Second):
+		t.Fatal("adapter did not start")
+	}
 	close(adapter.release)
 	wg.Wait()
 
@@ -35,6 +48,25 @@ func TestServiceCoalescesConcurrentAnalysisAndSavesOnce(t *testing.T) {
 	}
 	if got := store.saveCalls.Load(); got != 1 {
 		t.Fatalf("store saves = %d, want 1", got)
+	}
+}
+
+func TestServiceAnalyzeNilOrUninitializedReturnsInternal(t *testing.T) {
+	tests := []struct {
+		name    string
+		service *Service
+	}{
+		{name: "nil receiver"},
+		{name: "uninitialized service", service: &Service{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := tt.service.Analyze(context.Background(), ProviderThreatBook, "8.8.8.8")
+			if got := ErrorCodeOf(err); got != ErrorInternal {
+				t.Fatalf("ErrorCodeOf = %q, want %q (err=%v)", got, ErrorInternal, err)
+			}
+		})
 	}
 }
 
@@ -173,6 +205,34 @@ func TestServiceTestProviderAllowsDisabledButRequiresCredential(t *testing.T) {
 	}
 }
 
+func TestServiceTestProviderTimesOutBlockedStatusRecording(t *testing.T) {
+	config := configuredStore(ProviderThreatBook)
+	config.recordWaitForContext = true
+	config.recordStarted = make(chan struct{})
+	service := NewService(config, &fakeResultStore{}, map[Provider]Adapter{
+		ProviderThreatBook: &fakeAdapter{provider: ProviderThreatBook},
+	}, 10*time.Millisecond)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := service.TestProvider(context.Background(), ProviderThreatBook)
+		done <- err
+	}()
+	select {
+	case <-config.recordStarted:
+	case <-time.After(time.Second):
+		t.Fatal("RecordTest did not start")
+	}
+	select {
+	case err := <-done:
+		if got := ErrorCodeOf(err); got != ErrorInternal {
+			t.Fatalf("ErrorCodeOf = %q, want %q (err=%v)", got, ErrorInternal, err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("TestProvider blocked on RecordTest")
+	}
+}
+
 func TestServiceAnalyzeTimeoutReturnsTimeoutAndPreservesPreviousResult(t *testing.T) {
 	previous := Result{Provider: ProviderThreatBook, IP: "8.8.8.8", Verdict: "benign"}
 	adapter := &fakeAdapter{provider: ProviderThreatBook, waitForContext: true}
@@ -188,6 +248,33 @@ func TestServiceAnalyzeTimeoutReturnsTimeoutAndPreservesPreviousResult(t *testin
 	}
 	if got := store.saveCalls.Load(); got != 0 {
 		t.Fatalf("store saves = %d, want 0", got)
+	}
+}
+
+func TestServiceAnalyzeSaveResultTimeoutReturnsTimeout(t *testing.T) {
+	store := &fakeResultStore{saveWaitForContext: true, saveStarted: make(chan struct{})}
+	service := NewService(configuredStore(ProviderThreatBook), store, map[Provider]Adapter{
+		ProviderThreatBook: &fakeAdapter{provider: ProviderThreatBook, result: Result{Verdict: "unknown"}},
+	}, 10*time.Millisecond)
+
+	outcome, err := service.Analyze(context.Background(), ProviderThreatBook, "8.8.8.8")
+	if got := ErrorCodeOf(err); got != ErrorTimeout {
+		t.Fatalf("ErrorCodeOf = %q, want %q (err=%v)", got, ErrorTimeout, err)
+	}
+	if outcome.Result != nil {
+		t.Fatalf("outcome = %#v, want no saved result", outcome)
+	}
+}
+
+func TestServiceAnalyzeSaveResultFailureReturnsInternal(t *testing.T) {
+	store := &fakeResultStore{saveErr: errors.New("write failed")}
+	service := NewService(configuredStore(ProviderThreatBook), store, map[Provider]Adapter{
+		ProviderThreatBook: &fakeAdapter{provider: ProviderThreatBook, result: Result{Verdict: "unknown"}},
+	}, time.Second)
+
+	_, err := service.Analyze(context.Background(), ProviderThreatBook, "8.8.8.8")
+	if got := ErrorCodeOf(err); got != ErrorInternal {
+		t.Fatalf("ErrorCodeOf = %q, want %q (err=%v)", got, ErrorInternal, err)
 	}
 }
 
@@ -274,10 +361,12 @@ func (a *fakeAdapter) Analyze(ctx context.Context, _ string, ip string) (Result,
 }
 
 type fakeConfigStore struct {
-	config    ProviderConfig
-	statuses  []ProviderStatus
-	lastTest  ProviderTestStatus
-	configErr error
+	config               ProviderConfig
+	statuses             []ProviderStatus
+	lastTest             ProviderTestStatus
+	configErr            error
+	recordWaitForContext bool
+	recordStarted        chan struct{}
 }
 
 func (s *fakeConfigStore) Statuses(context.Context) ([]ProviderStatus, error) {
@@ -295,25 +384,49 @@ func (s *fakeConfigStore) Update(context.Context, Provider, ProviderConfigUpdate
 	return ProviderStatus{}, nil
 }
 
-func (s *fakeConfigStore) RecordTest(_ context.Context, _ Provider, status ProviderTestStatus) error {
+func (s *fakeConfigStore) RecordTest(ctx context.Context, _ Provider, status ProviderTestStatus) error {
+	if s.recordStarted != nil {
+		select {
+		case <-s.recordStarted:
+		default:
+			close(s.recordStarted)
+		}
+	}
+	if s.recordWaitForContext {
+		<-ctx.Done()
+		return ctx.Err()
+	}
 	s.lastTest = status
 	return nil
 }
 
 type fakeResultStore struct {
-	latest    Result
-	found     bool
-	latestErr error
-	saveErr   error
-	saveCalls atomic.Int32
+	latest             Result
+	found              bool
+	latestErr          error
+	saveErr            error
+	saveWaitForContext bool
+	saveStarted        chan struct{}
+	saveCalls          atomic.Int32
 }
 
 func (s *fakeResultStore) LatestResult(context.Context, Provider, string) (Result, bool, error) {
 	return s.latest, s.found, s.latestErr
 }
 
-func (s *fakeResultStore) SaveResult(_ context.Context, result Result) error {
+func (s *fakeResultStore) SaveResult(ctx context.Context, result Result) error {
 	s.saveCalls.Add(1)
+	if s.saveStarted != nil {
+		select {
+		case <-s.saveStarted:
+		default:
+			close(s.saveStarted)
+		}
+	}
+	if s.saveWaitForContext {
+		<-ctx.Done()
+		return ctx.Err()
+	}
 	if s.saveErr != nil {
 		return s.saveErr
 	}
