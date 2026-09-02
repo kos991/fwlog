@@ -29,6 +29,7 @@ var providerCredentialFields = map[string]struct{}{
 	"passwd":        {},
 	"pwd":           {},
 	"client_secret": {},
+	"c_appkey":      {},
 }
 
 type providerHTTPErrorClassifier func(status int, raw json.RawMessage) (ErrorCode, string, bool)
