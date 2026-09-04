@@ -264,7 +264,7 @@ if [ "$1" = "install" ] || [ "$1" = "upgrade" ]; then
         else
             cat /tmp/fwlog-preinst-backup.err >> /data/fwlog/backups/backup-failed.log 2>/dev/null || true
             rm -f "$backup.tmp"
-            echo "app_settings 澶囦唤澶辫触锛屽凡涓鍗囩骇锛堝闇€璺宠繃璇峰厛鍋滄 ClickHouse 鍚庨噸璇曪級" >&2
+            echo "app_settings 备份失败，已终止升级（如需跳过请先停止 ClickHouse 后重试）" >&2
             exit 1
         fi
     fi
@@ -332,7 +332,7 @@ if command -v systemctl >/dev/null 2>&1; then
         backup="/data/fwlog/backups/app_settings-before-package.tsv"
         if [ -s "\$backup" ] && [ -x "\$client" ]; then
             if ! clickhouse_query "INSERT INTO app_settings (key, value, updated_at) FORMAT TabSeparated" < "\$backup" >/dev/null 2>&1; then
-                echo "app_settings 鎭㈠澶辫触锛屽浠芥枃浠朵繚鐣欏湪 \$backup" >&2
+                echo "app_settings 恢复失败，备份文件保留在 \$backup" >&2
             fi
         fi
         if [ -x "\$client" ]; then
