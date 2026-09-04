@@ -85,6 +85,13 @@ func TestScanArchivedLogFilesReturnsOnlyStableArchives(t *testing.T) {
 	writeFileWithMTime(t, dir, "sangfor.log", old)
 	writeFileWithMTime(t, dir, "sangfor.log-20260701", old)
 	writeFileWithMTime(t, dir, "sangfor.log-20260702.gz", boundary)
+	emptyPath := filepath.Join(dir, "sangfor.log-20260704.gz")
+	if err := os.WriteFile(emptyPath, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(emptyPath, old, old); err != nil {
+		t.Fatal(err)
+	}
 	writeFileWithMTime(t, dir, "sangfor.log-20260703.gz", recent)
 	writeFileWithMTime(t, dir, "sangfor.log-20261301.gz", old)
 
@@ -106,6 +113,9 @@ func TestScanArchivedLogFilesReturnsOnlyStableArchives(t *testing.T) {
 		}
 		if file.Name == "sangfor.log-20261301.gz" {
 			t.Fatalf("invalid date archive should be skipped: %#v", files)
+		}
+		if file.Name == "sangfor.log-20260704.gz" {
+			t.Fatalf("empty archive should be skipped: %#v", files)
 		}
 		if now.Sub(file.ModTime) < 5*time.Minute {
 			t.Fatalf("unstable archive should be skipped: %#v", file)

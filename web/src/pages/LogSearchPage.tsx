@@ -13,6 +13,13 @@ import { ingestStatusText } from '../uiCopy';
 
 const { RangePicker } = DatePicker;
 const defaultQueryPageSize = 100;
+const queryDateTimeFormat = 'YYYY-MM-DD HH:mm:ss';
+const queryDateTimeInputFormats = [
+  queryDateTimeFormat,
+  'YYYY-MM-DD HH:mm',
+  'YYYYMMDDHHmmss',
+  'YYYYMMDDHHmm',
+];
 
 type SearchRecord = {
   id?: string;
@@ -224,8 +231,8 @@ export function LogSearchPage(_props: LogSearchPageProps) {
     setLoading(true);
     try {
       const nextResponse = await apiGet<QueryResponse>(`/api/query${buildQueryString({
-        start: range?.[0]?.format('YYYY-MM-DD HH:mm:ss'),
-        end: range?.[1]?.format('YYYY-MM-DD HH:mm:ss'),
+        start: range?.[0]?.format(queryDateTimeFormat),
+        end: range?.[1]?.format(queryDateTimeFormat),
         ip: values.ip,
         source_id: values.source_id,
         src_ip: values.src_ip,
@@ -482,10 +489,11 @@ export function LogSearchPage(_props: LogSearchPageProps) {
       <section className="ops-section search-panel">
         <Form form={form} layout="vertical" className="dense-form">
           <div className="primary-filter-grid">
-            <Form.Item className="time-range-item" name="range" label="日期" rules={[{ required: true, message: '请选择日期' }]}>
+            <Form.Item className="time-range-item" name="range" label="日期（支持手动输入）" rules={[{ required: true, message: '请选择日期' }]}>
               <RangePicker
                 showTime
-                format="YYYY-MM-DD HH:mm:ss"
+                format={queryDateTimeInputFormats}
+                placeholder={['开始时间（支持手动输入）', '结束时间（支持手动输入）']}
                 separator="到"
                 allowClear={false}
                 cellRender={renderDateCell}

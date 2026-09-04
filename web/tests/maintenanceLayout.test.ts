@@ -35,7 +35,7 @@ test('system settings tabs expose clear task names', () => {
   assert.match(page, /maintenance-plan-card maintenance-plan-card--schedule/);
   assert.match(page, /maintenance-run-card maintenance-run-card--manual/);
   assert.match(page, /maintenance-run-card maintenance-run-card--upgrade/);
-  assert.match(page, /威胁情报平台配置/);
+  assert.match(page, /API Key 或 Token/);
   assert.match(page, /ThreatIntelligenceSettingsPanel/);
   assert.equal((page.match(/<section className="ops-section maintenance-card maintenance-panel">/g) || []).length, 6);
   assert.equal((page.match(/className="maintenance-panel-note"/g) || []).length, 6);

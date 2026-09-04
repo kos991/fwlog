@@ -32,11 +32,11 @@ type ProviderUpdate = {
 };
 
 function statusTag(status?: ThreatProviderStatus) {
-  if (status?.credential_error) return <Tag color="error">凭据异常</Tag>;
+  if (status?.credential_error) return <Tag color="error">API 凭据异常</Tag>;
   if (status?.last_test_status === 'success') return <Tag color="success">连接正常</Tag>;
   if (status?.last_test_status === 'failed') return <Tag color="error">连接失败</Tag>;
   if (status?.configured) return <Tag color="processing">已配置</Tag>;
-  return <Tag>未配置</Tag>;
+  return <Tag>未配置 API 凭据</Tag>;
 }
 
 export function ThreatIntelligenceSettingsPanel() {
@@ -137,7 +137,7 @@ export function ThreatIntelligenceSettingsPanel() {
     <section className="threat-intelligence-settings">
       <div className="maintenance-panel-toolbar">
         <Text className="maintenance-panel-note" type="secondary">
-          凭据仅提交至 FWLOG 后端保存，输入框不会回显已保存内容
+          请填写对应平台发放的 API Key 或 Token；没有平台账号请保持停用，这里不是填写 FWLOG 登录密码
         </Text>
         <Button icon={<SafetyCertificateOutlined />} onClick={() => void load()} loading={loading}>
           刷新状态
@@ -170,9 +170,9 @@ export function ThreatIntelligenceSettingsPanel() {
                   prefix={<LockOutlined />}
                   value={credentials[provider]}
                   onChange={(event) => setCredentials((current) => ({ ...current, [provider]: event.target.value }))}
-                  placeholder="输入新凭据（留空保持原凭据）"
+                  placeholder="请输入该平台 API Key / Token"
                   autoComplete="new-password"
-                  aria-label={`${providerName} 凭据`}
+                  aria-label={`${providerName} API Key 或 Token`}
                 />
               </div>
               <div className="threat-provider-status">
@@ -187,7 +187,7 @@ export function ThreatIntelligenceSettingsPanel() {
                   disabled={testing !== null}
                   onClick={() => void saveProvider(provider)}
                 >
-                  保存
+                    保存凭据
                 </Button>
                 <Popconfirm
                   title="确认测试连接？"

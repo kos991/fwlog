@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -126,22 +128,29 @@ func (s *ClickHouseStore) DashboardSummaryMetrics(ctx context.Context) (Dashboar
 }
 
 func (s *ClickHouseStore) DashboardRankingMetrics(ctx context.Context, since time.Time, sourceID string) (DashboardMetrics, error) {
+	queryGroup, queryCtx := errgroup.WithContext(ctx)
 	var metrics DashboardMetrics
-	var err error
-	metrics.TopSourceIPs, err = s.dashboardDistribution(ctx, "src_ip", since, sourceID)
-	if err != nil {
-		return DashboardMetrics{}, err
-	}
-	metrics.TopDestinationIPs, err = s.dashboardDistribution(ctx, "dst_ip", since, sourceID)
-	if err != nil {
-		return DashboardMetrics{}, err
-	}
-	metrics.DestinationSubnets, err = s.dashboardDistribution(ctx, "dst_subnet", since, sourceID)
-	if err != nil {
-		return DashboardMetrics{}, err
-	}
-	metrics.LogTagDistribution, err = s.dashboardDistribution(ctx, "log_tag", since, sourceID)
-	if err != nil {
+	queryGroup.Go(func() error {
+		var err error
+		metrics.TopSourceIPs, err = s.dashboardDistribution(queryCtx, "src_ip", since, sourceID)
+		return err
+	})
+	queryGroup.Go(func() error {
+		var err error
+		metrics.TopDestinationIPs, err = s.dashboardDistribution(queryCtx, "dst_ip", since, sourceID)
+		return err
+	})
+	queryGroup.Go(func() error {
+		var err error
+		metrics.DestinationSubnets, err = s.dashboardDistribution(queryCtx, "dst_subnet", since, sourceID)
+		return err
+	})
+	queryGroup.Go(func() error {
+		var err error
+		metrics.LogTagDistribution, err = s.dashboardDistribution(queryCtx, "log_tag", since, sourceID)
+		return err
+	})
+	if err := queryGroup.Wait(); err != nil {
 		return DashboardMetrics{}, err
 	}
 	return metrics, nil

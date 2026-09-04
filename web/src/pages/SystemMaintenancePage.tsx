@@ -1057,7 +1057,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
               label: tabLabel(<SafetyCertificateOutlined />, '威胁情报'),
               children: (
                 <section className="ops-section maintenance-card maintenance-panel">
-                  <Text className="maintenance-panel-note" type="secondary">威胁情报平台配置：管理微步、绿盟、奇安信和腾讯的连接凭据</Text>
+                  <Text className="maintenance-panel-note" type="secondary">配置第三方平台 API Key 或 Token；没有平台账号请保持停用，不要填写 FWLOG 登录密码</Text>
                   <ThreatIntelligenceSettingsPanel />
                 </section>
               ),

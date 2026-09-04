@@ -13,6 +13,20 @@ test('search page shows actual total count instead of current page count only', 
   assert.match(page, /第 <span className="mono-number">\{currentPage\}<\/span> 页，共 <span className="mono-number">\{currentTotal\}<\/span> 条/);
 });
 
+test('search date picker accepts manually typed compact date times', () => {
+  const page = fs.readFileSync(pagePath, 'utf8');
+
+  assert.match(page, /const queryDateTimeFormat = 'YYYY-MM-DD HH:mm:ss';/);
+  assert.match(page, /'YYYY-MM-DD HH:mm'/);
+  assert.match(page, /'YYYYMMDDHHmmss'/);
+  assert.match(page, /'YYYYMMDDHHmm'/);
+  assert.match(page, /format=\{queryDateTimeInputFormats\}/);
+  assert.match(page, /label="日期（支持手动输入）"/);
+  assert.match(page, /placeholder=\{\['开始时间（支持手动输入）', '结束时间（支持手动输入）'\]\}/);
+  assert.match(page, /start: range\?\.\[0\]\?\.format\(queryDateTimeFormat\)/);
+  assert.match(page, /end: range\?\.\[1\]\?\.format\(queryDateTimeFormat\)/);
+});
+
 test('search page exposes log source filter and device identity', () => {
   const page = fs.readFileSync(pagePath, 'utf8');
 

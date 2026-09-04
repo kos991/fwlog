@@ -8,6 +8,7 @@ import { HealthDashboard } from './pages/HealthDashboard';
 import { LogSearchPage } from './pages/LogSearchPage';
 import { IncrementalProgressPage } from './pages/IncrementalProgressPage';
 import { SystemMaintenancePage } from './pages/SystemMaintenancePage';
+import { UpgradePreviewPage } from './pages/UpgradePreviewPage';
 import { apiGet, apiPost, setOnUnauthorized } from './api';
 import './styles.css';
 
@@ -20,6 +21,7 @@ function App() {
   const [active, setActive] = React.useState<RouteKey>('dashboard');
   const [authenticated, setAuthenticated] = React.useState(false);
   const [checkingSession, setCheckingSession] = React.useState(true);
+  const isUpgradePreview = new URLSearchParams(window.location.search).get('preview') === 'upgrade';
 
   const refreshSession = React.useCallback(async () => {
     try {
@@ -38,8 +40,12 @@ function App() {
   }, []);
 
   React.useEffect(() => {
+    if (isUpgradePreview) {
+      setCheckingSession(false);
+      return;
+    }
     void refreshSession();
-  }, [refreshSession]);
+  }, [isUpgradePreview, refreshSession]);
 
   const logout = React.useCallback(async () => {
     try {
@@ -50,6 +56,10 @@ function App() {
       setAuthenticated(false);
     }
   }, []);
+
+  if (isUpgradePreview) {
+    return <UpgradePreviewPage />;
+  }
 
   if (checkingSession) {
     return <Spin fullscreen tip="正在检查登录状态" />;

@@ -1,8 +1,9 @@
-﻿# Build and packaging outputs
+# Build and packaging outputs
 /dist/
 /pkg_temp/
 /release/
 /tmp/
+/.tmp-docx-structure/
 /.cache/
 /docs/
 !/docs/
