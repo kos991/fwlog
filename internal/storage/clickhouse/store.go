@@ -327,22 +327,16 @@ func (s *ClickHouseStore) databaseHealth(ctx context.Context, diskUsedBytes uint
 	health := DatabaseHealth{
 		Status:        "ok",
 		DiskUsedBytes: diskUsedBytes,
-		Description:   "ClickHouse 姝ｅ父",
+		Description:   "ClickHouse 正常",
 	}
 
-	if err := s.conn.QueryRow(ctx, "SELECT version()").Scan(&health.Version); err != nil {
-		return DatabaseHealth{}, err
-	}
-	if err := s.conn.QueryRow(ctx, "SELECT count() FROM system.processes").Scan(&health.ActiveQueries); err != nil {
-		return DatabaseHealth{}, err
-	}
-	if err := s.conn.QueryRow(ctx, "SELECT count() FROM system.merges WHERE database = currentDatabase()").Scan(&health.ActiveMerges); err != nil {
-		return DatabaseHealth{}, err
-	}
-	if err := s.conn.QueryRow(ctx, "SELECT count() FROM system.parts WHERE active AND database = currentDatabase()").Scan(&health.ActiveParts); err != nil {
-		return DatabaseHealth{}, err
-	}
-	if err := s.conn.QueryRow(ctx, DashboardTotalRowsSQL()).Scan(&health.TotalRows); err != nil {
+	if err := s.conn.QueryRow(ctx, databaseHealthSQL()).Scan(
+		&health.Version,
+		&health.ActiveQueries,
+		&health.ActiveMerges,
+		&health.ActiveParts,
+		&health.TotalRows,
+	); err != nil {
 		return DatabaseHealth{}, err
 	}
 
@@ -351,6 +345,16 @@ func (s *ClickHouseStore) databaseHealth(ctx context.Context, diskUsedBytes uint
 		health.Description = "后台合并中"
 	}
 	return health, nil
+}
+
+func databaseHealthSQL() string {
+	return `SELECT
+    version(),
+    (SELECT count() FROM system.processes),
+    (SELECT count() FROM system.merges WHERE database = currentDatabase()),
+    (SELECT count() FROM system.parts WHERE active AND database = currentDatabase()),
+    (SELECT coalesce(sum(rows), 0) FROM dashboard_daily_totals)
+SETTINGS max_threads = 1`
 }
 
 func ClickHouseDiskUsageSQL() string {

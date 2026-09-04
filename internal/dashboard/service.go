@@ -318,11 +318,6 @@ func enrichGeoDistributionMetrics(metrics DashboardMetrics, engine *IPEngine) Da
 	return metrics
 }
 
-type geoDistributionTotals struct {
-	countries map[string]uint64
-	regions   map[string]uint64
-}
-
 func aggregateGeoDestinations(destinations []DistributionItem, engine *IPEngine) (map[string]uint64, map[string]uint64) {
 	countries := make(map[string]uint64)
 	regions := make(map[string]uint64)
@@ -330,36 +325,7 @@ func aggregateGeoDestinations(destinations []DistributionItem, engine *IPEngine)
 		return countries, regions
 	}
 
-	workers := min(1, len(destinations))
-	chunkSize := (len(destinations) + workers - 1) / workers
-	partials := make(chan geoDistributionTotals, workers)
-	for worker := 0; worker < workers; worker++ {
-		start := worker * chunkSize
-		end := min(start+chunkSize, len(destinations))
-		if start >= end {
-			partials <- geoDistributionTotals{countries: map[string]uint64{}, regions: map[string]uint64{}}
-			continue
-		}
-		go func(items []DistributionItem) {
-			partial := geoDistributionTotals{countries: make(map[string]uint64), regions: make(map[string]uint64)}
-			aggregateGeoDestinationChunk(items, engine, partial.countries, partial.regions)
-			partials <- partial
-		}(destinations[start:end])
-	}
-
-	for worker := 0; worker < workers; worker++ {
-		partial := <-partials
-		for name, value := range partial.countries {
-			countries[name] += value
-		}
-		for name, value := range partial.regions {
-			regions[name] += value
-		}
-	}
-	return countries, regions
-}
-
-func aggregateGeoDestinationChunk(destinations []DistributionItem, engine *IPEngine, countries map[string]uint64, regions map[string]uint64) {
+	// 冷排行与 GeoIP 聚合刻意保持单 worker 顺序执行，避免冷刷新时并发抢占多核 CPU。
 	for _, item := range destinations {
 		if item.Name == "" || item.Value == 0 {
 			continue
@@ -373,6 +339,7 @@ func aggregateGeoDestinationChunk(destinations []DistributionItem, engine *IPEng
 			regions[region] += item.Value
 		}
 	}
+	return countries, regions
 }
 
 func splitGeoLocation(location string) (string, string) {

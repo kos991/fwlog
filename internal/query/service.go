@@ -414,8 +414,7 @@ func startOfDay(ts time.Time) time.Time {
 }
 
 func dateKey(ts time.Time) string {
-	year, month, day := ts.Date()
-	return fmt.Sprintf("%04d-%02d-%02d", year, month, day)
+	return ts.Format("2006-01-02")
 }
 
 func endOfDayTime(ts time.Time) time.Time {
