@@ -12,6 +12,8 @@ const (
 	defaultExportDir                 = "/data/export"
 	defaultThreatIntelligenceKeyFile = "/data/fwlog/threat-intelligence.key"
 	defaultPort                      = 8080
+	defaultTLSCertPath               = "/opt/fwlog/tls/server.crt"
+	defaultTLSKeyPath                = "/opt/fwlog/tls/server.key"
 	defaultWorkers                   = 1
 	defaultAutoScanSec               = 3600
 )
@@ -21,6 +23,9 @@ func LoadConfig() Config {
 		LogDir:                    getEnv("LOG_DIR", defaultLogDir),
 		LogTag:                    normalizeLogTag(getEnv("LOG_TAG", defaultLogTag)),
 		Port:                      getEnvInt("PORT", defaultPort),
+		TLSEnabled:                getEnvBool("TLS_ENABLED", true),
+		TLSCertPath:               getEnv("TLS_CERT", defaultTLSCertPath),
+		TLSKeyPath:                getEnv("TLS_KEY", defaultTLSKeyPath),
 		Workers:                   getEnvInt("WORKERS", defaultWorkers),
 		ClickHouseAddr:            getEnv("CLICKHOUSE_ADDR", "127.0.0.1:9000"),
 		ClickHouseDatabase:        getEnv("CLICKHOUSE_DATABASE", "default"),

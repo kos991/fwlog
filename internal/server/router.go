@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"time"
@@ -88,7 +89,6 @@ func (a *App) Run(ctx context.Context) error {
 	a.applyReceiverFromSettings()
 
 	addr := fmt.Sprintf(":%d", a.cfg.Port)
-	a.logger.Info("starting http server", "addr", addr)
 
 	server := &http.Server{
 		Addr:         addr,
@@ -99,11 +99,25 @@ func (a *App) Run(ctx context.Context) error {
 	}
 
 	errCh := make(chan error, 1)
-	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			errCh <- err
+	if a.cfg.TLSEnabled {
+		if err := ensureSelfSignedCert(a.cfg.TLSCertPath, a.cfg.TLSKeyPath); err != nil {
+			return fmt.Errorf("prepare TLS certificate: %w", err)
 		}
-	}()
+		a.logger.Info("starting https server", "addr", addr, "cert", a.cfg.TLSCertPath)
+		server.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+		go func() {
+			if err := server.ListenAndServeTLS(a.cfg.TLSCertPath, a.cfg.TLSKeyPath); err != nil && err != http.ErrServerClosed {
+				errCh <- err
+			}
+		}()
+	} else {
+		a.logger.Info("starting http server", "addr", addr)
+		go func() {
+			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				errCh <- err
+			}
+		}()
+	}
 
 	select {
 	case <-ctx.Done():

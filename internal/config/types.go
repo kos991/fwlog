@@ -4,6 +4,9 @@ type Config struct {
 	LogDir                    string
 	LogTag                    string
 	Port                      int
+	TLSEnabled                bool
+	TLSCertPath               string
+	TLSKeyPath                string
 	Workers                   int
 	ClickHouseAddr            string
 	ClickHouseDatabase        string

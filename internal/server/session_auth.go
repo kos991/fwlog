@@ -150,7 +150,7 @@ func (a *App) loginHandler() http.Handler {
 		a.sessionToken = token
 		a.mu.Unlock()
 
-		http.SetCookie(w, buildSessionCookie(token))
+		http.SetCookie(w, buildSessionCookie(token, a.cookieSecureFlag()))
 		writeJSON(w, SessionResponse{Authenticated: true})
 	})
 }
@@ -161,7 +161,7 @@ func (a *App) logoutHandler() http.Handler {
 		a.sessionToken = ""
 		a.mu.Unlock()
 
-		http.SetCookie(w, clearSessionCookie())
+		http.SetCookie(w, clearSessionCookie(a.cookieSecureFlag()))
 		writeJSON(w, SessionResponse{Authenticated: false})
 	})
 }
@@ -251,30 +251,33 @@ func newSessionToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(raw[:]), nil
 }
 
-func cookieSecureFlag() bool {
+func (a *App) cookieSecureFlag() bool {
+	if a != nil && a.cfg.TLSEnabled {
+		return true
+	}
 	v := strings.ToLower(strings.TrimSpace(os.Getenv("COOKIE_SECURE")))
 	return v == "true" || v == "1"
 }
 
-func buildSessionCookie(token string) *http.Cookie {
+func buildSessionCookie(token string, secure bool) *http.Cookie {
 	return &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   cookieSecureFlag(),
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   sessionMaxAge,
 	}
 }
 
-func clearSessionCookie() *http.Cookie {
+func clearSessionCookie(secure bool) *http.Cookie {
 	return &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   cookieSecureFlag(),
+		Secure:   secure,
 		MaxAge:   -1,
 		SameSite: http.SameSiteLaxMode,
 	}

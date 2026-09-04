@@ -67,6 +67,42 @@ func TestLoadConfigReadsRuntimeSettingsFromEnvironment(t *testing.T) {
 	}
 }
 
+func TestLoadConfigTLSDefaultsToEnabledSelfSigned(t *testing.T) {
+	t.Setenv("TLS_ENABLED", "")
+	t.Setenv("TLS_CERT", "")
+	t.Setenv("TLS_KEY", "")
+
+	cfg := LoadConfig()
+
+	if !cfg.TLSEnabled {
+		t.Fatal("TLSEnabled should default to true")
+	}
+	if cfg.TLSCertPath != "/opt/fwlog/tls/server.crt" {
+		t.Fatalf("TLSCertPath = %q", cfg.TLSCertPath)
+	}
+	if cfg.TLSKeyPath != "/opt/fwlog/tls/server.key" {
+		t.Fatalf("TLSKeyPath = %q", cfg.TLSKeyPath)
+	}
+}
+
+func TestLoadConfigTLSOverridesFromEnvironment(t *testing.T) {
+	t.Setenv("TLS_ENABLED", "false")
+	t.Setenv("TLS_CERT", "/etc/fwlog/tls/cert.pem")
+	t.Setenv("TLS_KEY", "/etc/fwlog/tls/key.pem")
+
+	cfg := LoadConfig()
+
+	if cfg.TLSEnabled {
+		t.Fatal("TLSEnabled should be false from env")
+	}
+	if cfg.TLSCertPath != "/etc/fwlog/tls/cert.pem" {
+		t.Fatalf("TLSCertPath = %q", cfg.TLSCertPath)
+	}
+	if cfg.TLSKeyPath != "/etc/fwlog/tls/key.pem" {
+		t.Fatalf("TLSKeyPath = %q", cfg.TLSKeyPath)
+	}
+}
+
 func TestGetEnvBoolRecognizesSupportedValues(t *testing.T) {
 	trueCases := []string{"yes", "on", "1", "true"}
 	falseCases := []string{"no", "off", "0", "false"}
