@@ -35,7 +35,7 @@ test('dashboard trend exposes all devices and per-device filter options', () => 
   assert.match(source, /全部设备/);
   assert.match(source, /selectedTrendSource/);
   assert.match(source, /trendSourceOptions/);
-  assert.match(source, /source_id: selectedTrendSource === allTrendSourcesValue \? undefined : selectedTrendSource/);
+  assert.match(source, /sourceID=\{[\s\S]*?selectedTrendSource === allTrendSourcesValue[\s\S]*?undefined[\s\S]*?selectedTrendSource/);
 });
 
 test('dashboard trend anchors the date window to today and labels the selected device on the curve', () => {

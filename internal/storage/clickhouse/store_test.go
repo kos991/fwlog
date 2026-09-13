@@ -150,6 +150,24 @@ func TestClickHouseDiskUsageSQLReadsActiveParts(t *testing.T) {
 	}
 }
 
+func TestDatabaseHealthSQLReadsDefaultDataDiskCapacity(t *testing.T) {
+	sql := databaseHealthSQL()
+	for _, want := range []string{"system.disks", "name = 'default'", "total_space", "free_space"} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("database health SQL missing %q: %s", want, sql)
+		}
+	}
+}
+
+func TestDiskAvailablePercent(t *testing.T) {
+	if got := diskAvailablePercent(400, 100); got != 25 {
+		t.Fatalf("available percent = %v, want 25", got)
+	}
+	if got := diskAvailablePercent(0, 0); got != 0 {
+		t.Fatalf("zero-capacity percent = %v, want 0", got)
+	}
+}
+
 func TestDistributionSQLFiltersByLogDate(t *testing.T) {
 	since := time.Date(2026, 6, 4, 15, 30, 0, 0, time.Local)
 	sql, args, err := distributionSQL("src_ip", since, "fw-a")

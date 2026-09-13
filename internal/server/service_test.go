@@ -2,12 +2,25 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"regexp"
 	"strings"
 	"testing"
 )
+
+func TestDefaultSettingsExposeConfiguredLogSource(t *testing.T) {
+	cfg := Config{LogDir: "/var/log/fw", LogTag: "核心防火墙"}
+	settings := defaultSettings(cfg)
+	var sources []map[string]any
+	if err := json.Unmarshal([]byte(settings["log_sources"]), &sources); err != nil {
+		t.Fatalf("default log_sources is invalid JSON: %v", err)
+	}
+	if len(sources) != 1 || sources[0]["source_id"] != "default" || sources[0]["log_dir"] != cfg.LogDir || sources[0]["log_tag"] != cfg.LogTag || sources[0]["enabled"] != true {
+		t.Fatalf("unexpected default log source: %#v", sources)
+	}
+}
 
 func TestSystemdServiceAllowsRuntimeDataDirectory(t *testing.T) {
 	content := []byte(readRepoFile(t, "fwlog.service"))
@@ -19,10 +32,18 @@ func TestSystemdServiceAllowsRuntimeDataDirectory(t *testing.T) {
 
 	paths := strings.Fields(match[1])
 	if !contains(paths, "/data") {
-		t.Fatalf("ReadWritePaths must include /data so the service can create /data/index and /data/export; got %q", match[1])
+		t.Fatalf("ReadWritePaths must include /data so the service can create log and export directories; got %q", match[1])
 	}
 	if !contains(paths, "/opt/fwlog") {
 		t.Fatalf("ReadWritePaths must include /opt/fwlog so the service can replace its binary during Release upgrades; got %q", match[1])
+	}
+}
+
+func TestApplySavedSettingsMigratesLegacyGeoIPDefault(t *testing.T) {
+	app := &App{settings: map[string]string{}}
+	app.applySavedSettingsLocked(map[string]string{"geoip_db_path": "/data/index/GeoLite2-City.mmdb"})
+	if got := app.settings["geoip_db_path"]; got != "/opt/fwlog/GeoLite2-City.mmdb" {
+		t.Fatalf("legacy GeoIP path = %q", got)
 	}
 }
 
@@ -43,21 +64,16 @@ func TestSystemdServicesUseProtectedAdminPasswordFile(t *testing.T) {
 	}
 }
 
-func TestServerPackagesGenerateInitialAdminPasswordOnce(t *testing.T) {
+func TestServerPackagesDoNotGenerateInitialAdminPassword(t *testing.T) {
 	buildScript := readRepoFile(t, "packaging", "build-server-packages.sh")
 	rpmSpec := readRepoFile(t, "packaging", "rpm", "fwlog.spec")
 	for path, content := range map[string]string{
 		"packaging/build-server-packages.sh": buildScript,
 		"packaging/rpm/fwlog.spec":           rpmSpec,
 	} {
-		for _, want := range []string{
-			`if [ ! -f /etc/fwlog/admin-password ]`,
-			`mkdir -p /etc/fwlog`,
-			`chmod 700 /etc/fwlog`,
-			`chmod 600 /etc/fwlog/admin-password`,
-		} {
-			if !strings.Contains(content, want) {
-				t.Fatalf("%s missing %q", path, want)
+		for _, want := range []string{`od -An -N24`, `> /etc/fwlog/admin-password`} {
+			if strings.Contains(content, want) {
+				t.Fatalf("%s unexpectedly contains %q", path, want)
 			}
 		}
 	}
@@ -193,7 +209,7 @@ func TestServerPackageBuildBundlesGeoIPDatabase(t *testing.T) {
 		"GEOIP_DB_URL",
 		"https://github.com/P3TERX/GeoLite.mmdb/releases/latest/download/GeoLite2-City.mmdb",
 		"GeoLite2-City.mmdb",
-		"$rootfs/data/index/GeoLite2-City.mmdb",
+		"$rootfs/opt/fwlog/GeoLite2-City.mmdb",
 	} {
 		if !strings.Contains(buildScript, want) {
 			t.Fatalf("packaging/build-server-packages.sh missing %q", want)
@@ -201,8 +217,8 @@ func TestServerPackageBuildBundlesGeoIPDatabase(t *testing.T) {
 	}
 
 	rpmSpec := readRepoFile(t, "packaging", "rpm", "fwlog.spec")
-	if !strings.Contains(rpmSpec, "/data/index/GeoLite2-City.mmdb") {
-		t.Fatal("RPM spec must include /data/index/GeoLite2-City.mmdb")
+	if !strings.Contains(rpmSpec, "/opt/fwlog/GeoLite2-City.mmdb") {
+		t.Fatal("RPM spec must include /opt/fwlog/GeoLite2-City.mmdb")
 	}
 }
 

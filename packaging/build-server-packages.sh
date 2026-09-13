@@ -182,18 +182,18 @@ stage_rootfs() {
     install -d "$rootfs/opt/fwlog" \
         "$rootfs/etc/systemd/system" \
         "$rootfs/data/sangfor_fw_log" \
-        "$rootfs/data/index" \
         "$rootfs/data/export"
 
     install -m 0755 "$binary_path" "$rootfs/opt/fwlog/fwlog"
     install -m 0755 "$repo_root/scripts/backfill-dashboard-aggregates.sh" "$rootfs/opt/fwlog/backfill-dashboard-aggregates.sh"
+    install -m 0755 "$repo_root/scripts/backfill-access-trend-aggregates.sh" "$rootfs/opt/fwlog/backfill-access-trend-aggregates.sh"
     printf 'VERSION=v%s\n' "$pkg_version" > "$rootfs/opt/fwlog/VERSION"
     local service_unit="$repo_root/fwlog.service"
     if [[ "$include_clickhouse" != "true" ]]; then
         service_unit="$repo_root/packaging/systemd/fwlog.service"
     fi
     install -m 0644 "$service_unit" "$rootfs/etc/systemd/system/fwlog.service"
-    install -m 0644 "$geoip_db" "$rootfs/data/index/GeoLite2-City.mmdb"
+    install -m 0644 "$geoip_db" "$rootfs/opt/fwlog/GeoLite2-City.mmdb"
 
     if [[ "$include_clickhouse" == "true" ]]; then
         printf 'RUNTIME_VERSION=clickhouse-%s\n' "${CLICKHOUSE_VERSION:-25.8.27.1}" > "$rootfs/opt/fwlog/RUNTIME_VERSION"
@@ -275,14 +275,6 @@ EOF
     cat > "$debroot/DEBIAN/postinst" <<EOF
 #!/bin/sh
 set -e
-if [ ! -f /etc/fwlog/admin-password ]; then
-    mkdir -p /etc/fwlog
-    chmod 700 /etc/fwlog
-    umask 077
-    od -An -N24 -tx1 /dev/urandom | tr -d '[:space:]' > /etc/fwlog/admin-password
-    chmod 600 /etc/fwlog/admin-password
-    echo "FWLog 初始管理员密码已写入 /etc/fwlog/admin-password（仅 root 可读）" >&2
-fi
 if command -v systemctl >/dev/null 2>&1; then
     clickhouse_query() {
         case "\$client" in
@@ -341,6 +333,10 @@ if command -v systemctl >/dev/null 2>&1; then
                 BACKFILL_CHECKPOINT=/data/fwlog/backups/dashboard-backfill-checkpoint.tsv \
                     bash /opt/fwlog/backfill-dashboard-aggregates.sh \
                     >> /data/fwlog/backups/dashboard-backfill.log 2>&1
+                START_SERVICE_AFTER_SWITCH=0 \
+                    BACKFILL_CHECKPOINT=/data/fwlog/backups/access-trend-backfill-checkpoint.tsv \
+                    bash /opt/fwlog/backfill-access-trend-aggregates.sh \
+                    >> /data/fwlog/backups/access-trend-backfill.log 2>&1
             else
                 systemctl --job-mode=ignore-dependencies stop fwlog.service || true
             fi

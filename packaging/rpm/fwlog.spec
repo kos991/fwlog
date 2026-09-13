@@ -62,14 +62,6 @@ fi
 exit 0
 
 %post
-if [ ! -f /etc/fwlog/admin-password ]; then
-    mkdir -p /etc/fwlog
-    chmod 700 /etc/fwlog
-    umask 077
-    od -An -N24 -tx1 /dev/urandom | tr -d '[:space:]' > /etc/fwlog/admin-password
-    chmod 600 /etc/fwlog/admin-password
-    echo "FWLog 初始管理员密码已写入 /etc/fwlog/admin-password（仅 root 可读）" >&2
-fi
 if command -v systemctl >/dev/null 2>&1; then
     clickhouse_query() {
         case "$client" in
@@ -124,6 +116,10 @@ if command -v systemctl >/dev/null 2>&1; then
                 BACKFILL_CHECKPOINT=/data/fwlog/backups/dashboard-backfill-checkpoint.tsv \
                     bash /opt/fwlog/backfill-dashboard-aggregates.sh \
                     >> /data/fwlog/backups/dashboard-backfill.log 2>&1
+                START_SERVICE_AFTER_SWITCH=0 \
+                    BACKFILL_CHECKPOINT=/data/fwlog/backups/access-trend-backfill-checkpoint.tsv \
+                    bash /opt/fwlog/backfill-access-trend-aggregates.sh \
+                    >> /data/fwlog/backups/access-trend-backfill.log 2>&1
             else
                 systemctl --job-mode=ignore-dependencies stop fwlog.service || true
             fi
@@ -154,6 +150,7 @@ fi
 %dir /opt/fwlog
 /opt/fwlog/fwlog
 /opt/fwlog/backfill-dashboard-aggregates.sh
+/opt/fwlog/backfill-access-trend-aggregates.sh
 /opt/fwlog/VERSION
 %if %{include_clickhouse}
 /opt/fwlog/RUNTIME_VERSION
@@ -173,6 +170,5 @@ fi
 /etc/systemd/system/fwlog.service
 %dir /data
 %dir /data/sangfor_fw_log
-%dir /data/index
-/data/index/GeoLite2-City.mmdb
+/opt/fwlog/GeoLite2-City.mmdb
 %dir /data/export

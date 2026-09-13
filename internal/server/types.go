@@ -37,6 +37,10 @@ type SkippedLogDate = query.SkippedLogDate
 type CIDRAliasSetting = config.CIDRAliasSetting
 type HealthDashboardResponse = dashboard.HealthDashboardResponse
 type IngestProgressResponse = dashboard.IngestProgressResponse
+type AccessTrendPoint = model.AccessTrendPoint
+type AccessTrendSummary = model.AccessTrendSummary
+type AccessTrendResponse = model.AccessTrendResponse
+type AccessTrendRow = clickhouse.AccessTrendRow
 
 const (
 	StatusIdle      = model.StatusIdle

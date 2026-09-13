@@ -4,8 +4,12 @@ go 1.21
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.28.3
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/oschwald/geoip2-golang v1.13.0
+	github.com/pquerna/otp v1.5.0
 )
+
+require github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc // indirect
 
 require (
 	github.com/ClickHouse/ch-go v0.61.5 // indirect

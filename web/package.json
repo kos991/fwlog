@@ -12,16 +12,22 @@
   "dependencies": {
     "@ant-design/icons": "^5.5.1",
     "@ant-design/pro-components": "^2.8.10",
-    "animejs": "^4.5.0",
+    "@gsap/react": "^2.1.2",
+    "@types/qrcode": "^1.5.6",
     "antd": "^5.22.0",
     "dayjs": "^1.11.13",
+    "echarts": "^5.6.0",
+    "gsap": "^3.15.0",
     "ipaddr.js": "^2.2.0",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "three": "^0.180.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "@types/three": "^0.185.4",
     "@vitejs/plugin-react": "^4.3.3",
     "typescript": "^5.6.3",
     "vite": "^5.4.10"

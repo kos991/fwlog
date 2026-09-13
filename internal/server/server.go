@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	receiverpkg "fwlog/internal/receiver"
+	"fwlog/internal/security"
 )
 
 const minPasswordHashIterations = 10000
@@ -24,7 +26,14 @@ type App struct {
 	ipEngine                  *IPEngine
 	ipStatus                  IPDataStatus
 	passwordHash              string
+	setupMu                   sync.Mutex
 	sessionToken              string
+	jwtManager                *security.JWTManager
+	mfaEnabled                bool
+	mfaSecret                 string
+	recoveryCodeHashes        []string
+	mfaPendingSecret          string
+	mfaChallenges             map[string]time.Time
 	loginLimiter              loginLimiter
 	loginSem                  chan struct{}
 	importRunner              importRunnerFunc
@@ -33,6 +42,7 @@ type App struct {
 	threatIntelligenceService threatIntelligenceService
 	querySem                  chan struct{}
 	dashboardCache            *rankingCache
+	accessTrendCache          *accessTrendCache
 	upgradeMu                 sync.Mutex
 	upgradeStatus             UpgradeStatus
 	upgradeRunner             upgradeRunnerFunc
@@ -74,12 +84,18 @@ func NewApp(cfg Config) *App {
 		"workers", cfg.Workers,
 	)
 
+	jwtManager, err := security.NewEphemeralJWTManager(15 * time.Minute)
+	if err != nil {
+		panic(err)
+	}
 	app := &App{
 		cfg:               cfg,
 		settings:          defaultSettings(cfg),
 		ipEngine:          NewIPEngine(),
 		ipStatus:          defaultIPDataStatus(cfg),
 		passwordHash:      passwordHash,
+		jwtManager:        jwtManager,
+		mfaChallenges:     make(map[string]time.Time),
 		loginSem:          make(chan struct{}, maxConcurrentLogins),
 		imports:           NewImportCoordinator(cfg.Workers, defaultConcurrentWrites),
 		receiver:          receiverpkg.NewManager(),
@@ -87,6 +103,7 @@ func NewApp(cfg Config) *App {
 		rsyslogArchiveNow: time.Now,
 		querySem:          make(chan struct{}, 4),
 		dashboardCache:    newRankingCache(dashboardRankingCacheTTL),
+		accessTrendCache:  newAccessTrendCache(dashboardRankingCacheTTL),
 		upgradeStatus:     defaultUpgradeStatus(),
 		versionInfo:       versionInfo,
 		logger:            logger,
@@ -96,6 +113,13 @@ func NewApp(cfg Config) *App {
 }
 
 func (a *App) Connect(ctx context.Context) error {
+	jwtManager, err := loadJWTManager(a.cfg.JWTKeyFile)
+	if err != nil {
+		return err
+	}
+	a.mu.Lock()
+	a.jwtManager = jwtManager
+	a.mu.Unlock()
 	a.logger.Info("connecting to clickhouse", "addr", a.cfg.ClickHouseAddr)
 
 	store, err := a.openClickHouseWithRetry(ctx)
@@ -121,12 +145,12 @@ func (a *App) Connect(ctx context.Context) error {
 
 	a.mu.Lock()
 	a.applySavedSettingsLocked(savedSettings)
-	passwordConfigured := looksLikePasswordHash(a.passwordHash)
-	if passwordConfigured {
-		a.store = store
-	}
+	// 首次安装允许无密码启动，由公开初始化接口完成管理员创建。
+	// 首次安装允许无密码启动，由公开初始化接口完成管理员创建。
+	passwordConfigured := true
+	a.store = store
 	a.mu.Unlock()
-	if !passwordConfigured {
+	if false && !passwordConfigured {
 		return errors.New("管理员密码未初始化：请设置 ADMIN_PASSWORD 后重启，或恢复已保存的管理员密码配置")
 	}
 	a.reloadIPDataFromSettings()
@@ -150,8 +174,17 @@ func (a *App) applySavedSettingsLocked(savedSettings map[string]string) {
 			}
 			continue
 		}
+		if key == mfaEnabledSettingKey || key == mfaSecretSettingKey || key == mfaRecoverySettingKey {
+			a.settings[key] = value
+			continue
+		}
 		a.settings[key] = value
 	}
+	// GeoIP 曾随旧安装包放在 /data/index；只迁移旧默认值，保留用户明确配置的其他路径。
+	if a.settings["geoip_db_path"] == "/data/index/GeoLite2-City.mmdb" {
+		a.settings["geoip_db_path"] = "/opt/fwlog/GeoLite2-City.mmdb"
+	}
+	a.loadMFASettingsLocked()
 }
 
 func (a *App) openClickHouseWithRetry(ctx context.Context) (*ClickHouseStore, error) {
@@ -215,21 +248,31 @@ func loadAdminPassword() string {
 }
 
 func defaultSettings(cfg Config) map[string]string {
+	defaultSource, _ := json.Marshal([]map[string]any{{
+		"source_id":   "default",
+		"log_dir":     cfg.LogDir,
+		"log_tag":     cfg.LogTag,
+		"source_type": "file",
+		"enabled":     true,
+	}})
 	return map[string]string{
-		"source_id":              "default",
-		"log_dir":                cfg.LogDir,
-		"log_tag":                cfg.LogTag,
-		"custom_ip_map_path":     cfg.CustomIPMapPath,
-		"geoip_db_path":          cfg.GeoIPDBPath,
-		"ip_map_enabled":         fmt.Sprintf("%t", cfg.IPMapEnabled),
-		"geoip_enabled":          fmt.Sprintf("%t", cfg.GeoIPEnabled),
-		"auto_scan_enabled":      fmt.Sprintf("%t", cfg.AutoScanEnabled),
-		"auto_scan_mode":         cfg.AutoScanMode,
-		"auto_scan_times":        cfg.AutoScanTimes,
-		"auto_scan_timezone":     cfg.AutoScanTimezone,
-		"auto_scan_jitter_sec":   fmt.Sprintf("%d", cfg.AutoScanJitterSec),
-		"auto_scan_interval_sec": fmt.Sprintf("%d", cfg.AutoScanIntervalSec),
-		"export_dir":             cfg.ExportDir(),
+		"source_id":                  "default",
+		"log_dir":                    cfg.LogDir,
+		"log_tag":                    cfg.LogTag,
+		"log_sources":                string(defaultSource),
+		"custom_ip_map_path":         cfg.CustomIPMapPath,
+		"geoip_db_path":              cfg.GeoIPDBPath,
+		"ip_map_enabled":             fmt.Sprintf("%t", cfg.IPMapEnabled),
+		"geoip_enabled":              fmt.Sprintf("%t", cfg.GeoIPEnabled),
+		"auto_scan_enabled":          fmt.Sprintf("%t", cfg.AutoScanEnabled),
+		"auto_scan_mode":             cfg.AutoScanMode,
+		"auto_scan_times":            cfg.AutoScanTimes,
+		"auto_scan_timezone":         cfg.AutoScanTimezone,
+		"auto_scan_jitter_sec":       fmt.Sprintf("%d", cfg.AutoScanJitterSec),
+		"auto_scan_interval_sec":     fmt.Sprintf("%d", cfg.AutoScanIntervalSec),
+		"export_dir":                 cfg.ExportDir(),
+		externalAPIEnabledSettingKey: "true",
+		mcpEnabledSettingKey:         "false",
 	}
 }
 

@@ -6,5 +6,9 @@ const (
 )
 
 type SessionResponse struct {
-	Authenticated bool `json:"authenticated"`
+	Authenticated bool   `json:"authenticated"`
+	MFARequired   bool   `json:"mfa_required,omitempty"`
+	Challenge     string `json:"challenge,omitempty"`
+	AccessToken   string `json:"access_token,omitempty"`
+	TokenType     string `json:"token_type,omitempty"`
 }

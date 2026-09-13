@@ -103,6 +103,9 @@ func (a *App) getSettings() map[string]string {
 
 var protectedSettingsKeys = map[string]bool{
 	adminPasswordHashSettingKey: true,
+	mfaEnabledSettingKey:        true,
+	mfaSecretSettingKey:         true,
+	mfaRecoverySettingKey:       true,
 }
 
 func (a *App) updateSettings(payload map[string]any) {
@@ -182,6 +185,12 @@ func (a *App) reloadIPDataFromSettings() IPDataStatus {
 	a.ipEngine = nextEngine
 	a.ipStatus = status
 	a.mu.Unlock()
+	if a.dashboardCache != nil {
+		a.dashboardCache.Clear()
+	}
+	if a.accessTrendCache != nil {
+		a.accessTrendCache.Clear()
+	}
 
 	return status
 }
@@ -230,6 +239,17 @@ func (a *App) saveAdminPasswordHash(ctx context.Context, passwordHash string) er
 	return store.SaveSettings(ctx, map[string]string{
 		adminPasswordHashSettingKey: passwordHash,
 	})
+}
+
+func (a *App) saveAdminPasswordHashStrict(ctx context.Context, passwordHash string) error {
+	if a.settingsSaver != nil {
+		return a.settingsSaver(ctx, map[string]string{adminPasswordHashSettingKey: passwordHash})
+	}
+	store := a.currentStore()
+	if store == nil || !store.Ready() {
+		return errors.New("ClickHouse 尚未连接，无法持久化管理员密码")
+	}
+	return store.SaveSettings(ctx, map[string]string{adminPasswordHashSettingKey: passwordHash})
 }
 
 func (a *App) currentIPDataConfig() Config {

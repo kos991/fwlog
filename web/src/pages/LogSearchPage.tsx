@@ -481,7 +481,6 @@ export function LogSearchPage(_props: LogSearchPageProps) {
     <div className="page-stack">
       <section className="page-header">
         <div>
-          <span className="eyebrow">NAT 日志检索</span>
           <h1>日志查询</h1>
         </div>
       </section>

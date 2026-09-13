@@ -28,8 +28,8 @@ test('maintenance page exposes an independent threat intelligence settings panel
 
 test('maintenance layout includes the threat intelligence tab and panel note', () => {
   const page = fs.readFileSync(pagePath, 'utf8');
-  assert.equal((page.match(/<section className="ops-section maintenance-card maintenance-panel">/g) || []).length, 6);
-  assert.equal((page.match(/className="maintenance-panel-note"/g) || []).length, 6);
+  assert.equal((page.match(/<section className="ops-section maintenance-card maintenance-panel(?: account-security-panel)?">/g) || []).length, 8);
+  assert.equal((page.match(/className="maintenance-panel-note"/g) || []).length, 8);
   assert.match(page, /配置第三方平台 API Key 或 Token/);
   assert.match(page, /ThreatIntelligenceSettingsPanel/);
 });

@@ -19,6 +19,9 @@ type SystemHealth = model.SystemHealth
 type CPUHealth = model.CPUHealth
 type MemoryHealth = model.MemoryHealth
 type DatabaseHealth = model.DatabaseHealth
+type AccessTrendPoint = model.AccessTrendPoint
+type AccessTrendSummary = model.AccessTrendSummary
+type AccessTrendResponse = model.AccessTrendResponse
 
 const (
 	StatusIdle      = model.StatusIdle

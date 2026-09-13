@@ -11,6 +11,7 @@ const (
 	defaultLogTag                    = "\u6df1\u4fe1\u670d NAT"
 	defaultExportDir                 = "/data/export"
 	defaultThreatIntelligenceKeyFile = "/data/fwlog/threat-intelligence.key"
+	defaultJWTKeyFile                = "/data/fwlog/jwt.key"
 	defaultPort                      = 8080
 	defaultTLSCertPath               = "/opt/fwlog/tls/server.crt"
 	defaultTLSKeyPath                = "/opt/fwlog/tls/server.key"
@@ -32,7 +33,7 @@ func LoadConfig() Config {
 		ClickHouseUser:            getEnv("CLICKHOUSE_USER", "default"),
 		ClickHousePassword:        os.Getenv("CLICKHOUSE_PASSWORD"),
 		CustomIPMapPath:           getEnv("CUSTOM_IP_MAP", "/opt/fwlog/custom_ip_map.csv"),
-		GeoIPDBPath:               getEnv("GEOIP_DB", "/data/index/GeoLite2-City.mmdb"),
+		GeoIPDBPath:               getEnv("GEOIP_DB", "/opt/fwlog/GeoLite2-City.mmdb"),
 		IPMapEnabled:              getEnvBool("IP_MAP_ENABLED", true),
 		GeoIPEnabled:              getEnvBool("GEOIP_ENABLED", true),
 		AutoScanEnabled:           getEnvBool("AUTO_SCAN_ENABLED", false),
@@ -43,6 +44,7 @@ func LoadConfig() Config {
 		AutoScanJitterSec:         getEnvInt("AUTO_SCAN_JITTER_SEC", 60),
 		ExportRoot:                getEnv("EXPORT_DIR", defaultExportDir),
 		ThreatIntelligenceKeyFile: getEnv("THREAT_INTELLIGENCE_KEY_FILE", defaultThreatIntelligenceKeyFile),
+		JWTKeyFile:                getEnv("JWT_KEY_FILE", defaultJWTKeyFile),
 	}
 }
 

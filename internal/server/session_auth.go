@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
@@ -31,7 +32,12 @@ const (
 )
 
 type loginRequest struct {
-	Password string `json:"password"`
+	Mode      string `json:"mode"`
+	Password  string `json:"password"`
+	Code      string `json:"mfa_code"`
+	Challenge string `json:"challenge"`
+	Recovery  bool   `json:"use_recovery_code"`
+	Client    string `json:"client"`
 }
 
 type passwordChangeRequest struct {
@@ -126,6 +132,35 @@ func (a *App) loginHandler() http.Handler {
 			return
 		}
 
+		if payload.Challenge != "" {
+			if !a.consumeMFAChallenge(payload.Challenge) {
+				writeJSONStatus(w, http.StatusUnauthorized, map[string]any{"error": "invalid_mfa_challenge", "message": "登录验证已过期，请重新输入密码"})
+				return
+			}
+			if !a.verifyMFACode(payload.Code, payload.Recovery) {
+				a.loginLimiter.recordFailure(source)
+				writeJSONStatus(w, http.StatusUnauthorized, map[string]any{"error": "invalid_mfa_code", "message": "验证码错误或已过期"})
+				return
+			}
+			a.loginLimiter.reset(source)
+			a.issueJWT(w, []string{"pwd", "totp"}, shouldExposeAccessToken(payload.Client))
+			return
+		}
+
+		if payload.Mode == "mfa" {
+			a.mu.RLock()
+			mfaEnabled := a.mfaEnabled && a.mfaSecret != ""
+			a.mu.RUnlock()
+			if !mfaEnabled || !a.verifyMFACode(payload.Code, payload.Recovery) {
+				a.loginLimiter.recordFailure(source)
+				writeJSONStatus(w, http.StatusUnauthorized, map[string]any{"error": "invalid_mfa_code", "message": "验证码错误或 MFA 未启用"})
+				return
+			}
+			a.loginLimiter.reset(source)
+			a.issueJWT(w, []string{"totp"}, shouldExposeAccessToken(payload.Client))
+			return
+		}
+
 		if !a.verifyPassword(payload.Password) {
 			a.loginLimiter.recordFailure(source)
 			writeJSONStatus(w, http.StatusUnauthorized, map[string]any{
@@ -135,24 +170,65 @@ func (a *App) loginHandler() http.Handler {
 			return
 		}
 
-		a.loginLimiter.reset(source)
-
-		token, err := newSessionToken()
-		if err != nil {
-			writeJSONStatus(w, http.StatusInternalServerError, map[string]any{
-				"error":   "session_init_failed",
-				"message": err.Error(),
-			})
+		a.mu.RLock()
+		mfaEnabled := a.mfaEnabled && a.mfaSecret != ""
+		a.mu.RUnlock()
+		// 显式选择密码登录时只使用密码认证；未传 mode 的旧客户端仍沿用原有的二阶段 MFA 流程。
+		if mfaEnabled && payload.Mode == "" {
+			challenge := randomChallenge()
+			if challenge == "" {
+				writeJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "session_init_failed", "message": "生成 MFA 挑战失败"})
+				return
+			}
+			a.mu.Lock()
+			for key, expires := range a.mfaChallenges {
+				if time.Now().After(expires) {
+					delete(a.mfaChallenges, key)
+				}
+			}
+			a.mfaChallenges[challenge] = time.Now().Add(5 * time.Minute)
+			a.mu.Unlock()
+			writeJSON(w, SessionResponse{MFARequired: true, Challenge: challenge})
 			return
 		}
 
-		a.mu.Lock()
-		a.sessionToken = token
-		a.mu.Unlock()
-
-		http.SetCookie(w, buildSessionCookie(token, a.cookieSecureFlag()))
-		writeJSON(w, SessionResponse{Authenticated: true})
+		a.loginLimiter.reset(source)
+		a.issueJWT(w, []string{"pwd"}, shouldExposeAccessToken(payload.Client))
 	})
+}
+
+func shouldExposeAccessToken(client string) bool {
+	switch strings.ToLower(strings.TrimSpace(client)) {
+	case "chrome_extension", "api", "mcp":
+		return true
+	default:
+		return false
+	}
+}
+
+func (a *App) issueJWT(w http.ResponseWriter, amr []string, exposeToken bool) {
+	a.mu.RLock()
+	manager := a.jwtManager
+	a.mu.RUnlock()
+	if manager == nil {
+		writeJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "session_init_failed", "message": "JWT 管理器未初始化"})
+		return
+	}
+	token, err := manager.Issue("admin", amr, time.Now())
+	if err != nil {
+		writeJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "session_init_failed", "message": err.Error()})
+		return
+	}
+	a.mu.Lock()
+	a.sessionToken = token
+	a.mu.Unlock()
+	http.SetCookie(w, buildSessionCookie(token, a.cookieSecureFlag()))
+	response := SessionResponse{Authenticated: true}
+	if exposeToken {
+		response.AccessToken = token
+		response.TokenType = "Bearer"
+	}
+	writeJSON(w, response)
 }
 
 func (a *App) logoutHandler() http.Handler {
@@ -160,6 +236,7 @@ func (a *App) logoutHandler() http.Handler {
 		a.mu.Lock()
 		a.sessionToken = ""
 		a.mu.Unlock()
+		a.invalidateSessions()
 
 		http.SetCookie(w, clearSessionCookie(a.cookieSecureFlag()))
 		writeJSON(w, SessionResponse{Authenticated: false})
@@ -170,6 +247,25 @@ func decodeLoginRequest(r *http.Request) (loginRequest, error) {
 	var payload loginRequest
 	if err := decodeJSONBodyLimit(r, &payload, maxLoginBodyBytes); err != nil {
 		return loginRequest{}, err
+	}
+	if strings.TrimSpace(payload.Challenge) != "" {
+		payload.Challenge = strings.TrimSpace(payload.Challenge)
+		payload.Code = strings.TrimSpace(payload.Code)
+		if payload.Code == "" || len(payload.Code) > 64 {
+			return loginRequest{}, errors.New("MFA 验证码不能为空")
+		}
+		return payload, nil
+	}
+	payload.Mode = strings.ToLower(strings.TrimSpace(payload.Mode))
+	if payload.Mode == "mfa" {
+		payload.Code = strings.TrimSpace(payload.Code)
+		if payload.Code == "" || len(payload.Code) > 64 {
+			return loginRequest{}, errors.New("MFA 验证码不能为空")
+		}
+		return payload, nil
+	}
+	if payload.Mode != "" && payload.Mode != "password" {
+		return loginRequest{}, errors.New("不支持的登录方式")
 	}
 	if strings.TrimSpace(payload.Password) == "" {
 		return loginRequest{}, errors.New("password 不能为空")
@@ -284,18 +380,80 @@ func clearSessionCookie(secure bool) *http.Cookie {
 }
 
 func (a *App) isAuthenticated(r *http.Request) bool {
-	cookie, err := r.Cookie(sessionCookieName)
-	if err != nil {
-		return false
-	}
-
 	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if cookie.Value == "" || a.sessionToken == "" {
-		return false
+	manager, sessionToken := a.jwtManager, a.sessionToken
+	a.mu.RUnlock()
+	if manager != nil {
+		if token := bearerToken(r); token != "" {
+			if _, err := manager.Parse(token, time.Now()); err == nil {
+				return true
+			}
+			return false
+		}
+		cookie, err := r.Cookie(sessionCookieName)
+		if err != nil || cookie.Value == "" {
+			return false
+		}
+		if _, err := manager.Parse(cookie.Value, time.Now()); err == nil {
+			return true
+		}
+		// JWT 格式令牌解析失败时不得回退到旧的内存令牌比较，否则过期令牌会继续有效。
+		if strings.Count(cookie.Value, ".") == 2 {
+			return false
+		}
 	}
-	return subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(a.sessionToken)) == 1
+	cookie, err := r.Cookie(sessionCookieName)
+	return err == nil && cookie.Value != "" && sessionToken != "" && subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(sessionToken)) == 1
+}
+
+func bearerToken(r *http.Request) string {
+	value := strings.TrimSpace(r.Header.Get("Authorization"))
+	if len(value) < len("Bearer ")+1 || !strings.EqualFold(value[:len("Bearer")], "Bearer") {
+		return ""
+	}
+	return strings.TrimSpace(value[len("Bearer"):])
+}
+
+func (a *App) invalidateSessions() {
+	a.mu.Lock()
+	manager := a.jwtManager
+	a.sessionToken = ""
+	a.mu.Unlock()
+	if manager != nil {
+		manager.InvalidateAll()
+	}
+}
+
+func (a *App) consumeMFAChallenge(challenge string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	expires, ok := a.mfaChallenges[challenge]
+	if ok {
+		delete(a.mfaChallenges, challenge)
+	}
+	return ok && time.Now().Before(expires)
+}
+
+func (a *App) verifyMFACode(code string, recovery bool) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if recovery {
+		remaining, ok := security.ConsumeRecoveryCode(a.recoveryCodeHashes, code)
+		if ok {
+			a.recoveryCodeHashes = remaining
+			go a.persistRecoveryHashes(remaining)
+		}
+		return ok
+	}
+	return security.ValidateTOTP(a.mfaSecret, code, time.Now())
+}
+
+func (a *App) persistRecoveryHashes(hashes []string) {
+	data, err := json.Marshal(hashes)
+	if err != nil {
+		return
+	}
+	_ = a.saveNormalizedSettings(context.Background(), map[string]string{mfaRecoverySettingKey: string(data)})
 }
 
 func (a *App) verifyPassword(password string) bool {

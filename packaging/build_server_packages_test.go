@@ -311,8 +311,12 @@ func TestPackageInstallRunsDashboardBackfillBeforeApplicationStart(t *testing.T)
 	if !strings.Contains(buildText, `install -m 0755 "$repo_root/scripts/backfill-dashboard-aggregates.sh" "$rootfs/opt/fwlog/backfill-dashboard-aggregates.sh"`) {
 		t.Fatal("打包根目录必须包含数据概览历史回填脚本")
 	}
+	if !strings.Contains(buildText, `install -m 0755 "$repo_root/scripts/backfill-access-trend-aggregates.sh" "$rootfs/opt/fwlog/backfill-access-trend-aggregates.sh"`) {
+		t.Fatal("打包根目录必须包含访问趋势历史回填脚本")
+	}
 	debPostinst := between(t, buildText, `cat > "$debroot/DEBIAN/postinst"`, "\nEOF")
 	assertDashboardBackfillBeforeStart(t, "DEB postinst", debPostinst)
+	assertAccessTrendBackfillBeforeStart(t, "DEB postinst", debPostinst)
 
 	rpmSpec, err := os.ReadFile(filepath.Join(repoRoot, "packaging", "rpm", "fwlog.spec"))
 	if err != nil {
@@ -321,8 +325,24 @@ func TestPackageInstallRunsDashboardBackfillBeforeApplicationStart(t *testing.T)
 	rpmText := strings.ReplaceAll(string(rpmSpec), "\r\n", "\n")
 	rpmPost := between(t, rpmText, "%post\n", "\n%preun")
 	assertDashboardBackfillBeforeStart(t, "RPM post", rpmPost)
+	assertAccessTrendBackfillBeforeStart(t, "RPM post", rpmPost)
 	if !strings.Contains(rpmText, "/opt/fwlog/backfill-dashboard-aggregates.sh") {
 		t.Fatal("RPM 文件清单必须包含数据概览历史回填脚本")
+	}
+	if !strings.Contains(rpmText, "/opt/fwlog/backfill-access-trend-aggregates.sh") {
+		t.Fatal("RPM 文件清单必须包含访问趋势历史回填脚本")
+	}
+}
+
+func assertAccessTrendBackfillBeforeStart(t *testing.T, name, script string) {
+	t.Helper()
+	backfill := strings.Index(script, "backfill-access-trend-aggregates.sh")
+	startApp := strings.LastIndex(script, "systemctl start fwlog.service")
+	if backfill < 0 {
+		t.Fatalf("%s 未执行访问趋势历史回填", name)
+	}
+	if startApp < 0 || backfill > startApp {
+		t.Fatalf("%s 必须在启动新应用前完成访问趋势历史回填", name)
 	}
 }
 

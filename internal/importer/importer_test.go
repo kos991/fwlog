@@ -171,13 +171,14 @@ func TestImportDateSuccessDropsSourceDatePartitionSleepsAndMarksReady(t *testing
 		t.Fatalf("ImportDate returned error: %v", err)
 	}
 
-	if len(writer.execCalls) != 3 {
-		t.Fatalf("Exec calls = %d, want 3", len(writer.execCalls))
+	if len(writer.execCalls) != 4 {
+		t.Fatalf("Exec calls = %d, want 4", len(writer.execCalls))
 	}
 	wantDrops := []string{
 		"ALTER TABLE nat_logs DROP PARTITION ('fw-a', '2026-07-02')",
 		"ALTER TABLE dashboard_daily_totals DROP PARTITION ('fw-a', '2026-07-02')",
 		"ALTER TABLE dashboard_daily_ip_counts DROP PARTITION ('fw-a', '2026-07-02')",
+		"ALTER TABLE access_trend_daily_flows DROP PARTITION ('fw-a', '2026-07-02')",
 	}
 	for index, want := range wantDrops {
 		if got := writer.execCalls[index].query; got != want {

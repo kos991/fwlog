@@ -206,6 +206,70 @@ func TestParseNATLineDefaultsInvalidPortsToZero(t *testing.T) {
 	}
 }
 
+func TestParseNATLineParsesHuaweiUSGSyslog(t *testing.T) {
+	line := "<14>Sep  4 18:15:30 2026 USG6000 %%01NAT/4/NAT_LOG(l): Zone: trust->untrust; Protocol: TCP; SrcIP: 192.168.1.100; SrcPort: 54321; NatSrcIP: 203.0.113.50; NatSrcPort: 1024; DstIP: 8.8.8.8; DstPort: 443; Action: Create;"
+	row, ok := ParseNATLine(line, ParseMeta{LogDate: time.Date(2026, 9, 4, 0, 0, 0, 0, time.Local)})
+	if !ok {
+		t.Fatal("Huawei USG NAT line should parse")
+	}
+	if row.Timestamp != time.Date(2026, 9, 4, 18, 15, 30, 0, time.Local) {
+		t.Fatalf("timestamp = %v", row.Timestamp)
+	}
+	if row.SrcIP != netip.MustParseAddr("192.168.1.100") || row.SrcPort != 54321 ||
+		row.NATIP != netip.MustParseAddr("203.0.113.50") || row.NATPort != 1024 ||
+		row.DstIP != netip.MustParseAddr("8.8.8.8") || row.DstPort != 443 ||
+		row.Protocol != "TCP" || row.Action != "Create" {
+		t.Fatalf("unexpected Huawei row: %#v", row)
+	}
+}
+
+func TestParseNATLineParsesH3CNATStream(t *testing.T) {
+	line := "%Sep  4 18:15:32 2026 H3C NAT/6/NAT_STREAM: Protocol(6), SrcIP(192.168.1.100:54321) -> NatSrcIP(203.0.113.50:1024) -> DstIP(8.8.8.8:443) MsgType(Create)"
+	row, ok := ParseNATLine(line, ParseMeta{LogDate: time.Date(2026, 9, 4, 0, 0, 0, 0, time.Local)})
+	if !ok {
+		t.Fatal("H3C NAT line should parse")
+	}
+	if row.Timestamp != time.Date(2026, 9, 4, 18, 15, 32, 0, time.Local) {
+		t.Fatalf("timestamp = %v", row.Timestamp)
+	}
+	if row.SrcIP != netip.MustParseAddr("192.168.1.100") || row.SrcPort != 54321 ||
+		row.NATIP != netip.MustParseAddr("203.0.113.50") || row.NATPort != 1024 ||
+		row.DstIP != netip.MustParseAddr("8.8.8.8") || row.DstPort != 443 ||
+		row.Protocol != "TCP" || row.Action != "Create" {
+		t.Fatalf("unexpected H3C row: %#v", row)
+	}
+}
+
+func TestParseNATLineParsesH3CIPv6Endpoints(t *testing.T) {
+	line := "%Sep  4 18:15:32 2026 H3C NAT/6/NAT_STREAM: Protocol(6), SrcIP([2001:db8::10]:54321) -> NatSrcIP([2001:db8::50]:1024) -> DstIP([2001:db8:1::8]:443) MsgType(Create)"
+	row, ok := ParseNATLine(line, ParseMeta{LogDate: time.Date(2026, 9, 4, 0, 0, 0, 0, time.Local)})
+	if !ok {
+		t.Fatal("H3C IPv6 NAT line should parse")
+	}
+	if row.SrcIP != netip.MustParseAddr("2001:db8::10") || row.SrcPort != 54321 ||
+		row.NATIP != netip.MustParseAddr("2001:db8::50") || row.NATPort != 1024 ||
+		row.DstIP != netip.MustParseAddr("2001:db8:1::8") || row.DstPort != 443 {
+		t.Fatalf("unexpected H3C IPv6 row: %#v", row)
+	}
+}
+
+func TestParseNATLineParsesFortiGateKeyValue(t *testing.T) {
+	line := "date=2026-09-04 time=18:15:30 devname=FG-100D action=accept protocol=6 srcip=192.168.1.100 srcport=54321 transip=203.0.113.50 transport=1024 dstip=8.8.8.8 dstport=443"
+	row, ok := ParseNATLine(line, ParseMeta{LogDate: time.Date(2026, 9, 4, 0, 0, 0, 0, time.Local)})
+	if !ok {
+		t.Fatal("FortiGate NAT line should parse")
+	}
+	if row.Timestamp != time.Date(2026, 9, 4, 18, 15, 30, 0, time.Local) {
+		t.Fatalf("timestamp = %v", row.Timestamp)
+	}
+	if row.SrcIP != netip.MustParseAddr("192.168.1.100") || row.SrcPort != 54321 ||
+		row.NATIP != netip.MustParseAddr("203.0.113.50") || row.NATPort != 1024 ||
+		row.DstIP != netip.MustParseAddr("8.8.8.8") || row.DstPort != 443 ||
+		row.Protocol != "TCP" || row.Action != "accept" {
+		t.Fatalf("unexpected FortiGate row: %#v", row)
+	}
+}
+
 func BenchmarkParseNATLine(b *testing.B) {
 	line := "2026 Jun 28 01:17:18 源IP:192.168.1.10 源端�?12345 目的IP:222.186.177.145 目的端口:443 协议:6 转换后的IP:10.0.0.1 转换后的端口:50000 动作:允许"
 	meta := ParseMeta{

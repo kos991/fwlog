@@ -48,8 +48,9 @@ async function requestJSON<T>(path: string, init: RequestInit): Promise<T> {
       },
     });
     if (response.status === 401) {
-      if (onUnauthorized) onUnauthorized();
-      throw new Error('登录已失效，请重新登录');
+      // 登录密码或 MFA 校验失败只反馈给登录页，不应清理已有会话状态。
+      if (!path.startsWith('/api/login') && onUnauthorized) onUnauthorized();
+      throw new Error(path.startsWith('/api/login') ? await readErrorMessage(response) : '登录已失效，请重新登录');
     }
     if (!response.ok) {
       throw new Error(await readErrorMessage(response));
@@ -79,6 +80,10 @@ let mockLogSources = [
     enabled: true,
   },
 ];
+let mockExternalAPIEnabled = true;
+let mockMCPEnabled = false;
+// Mock 默认模拟已有安装；需要预览首次初始化时显式设置 VITE_MOCK_SETUP_REQUIRED=true。
+let mockSetupRequired = String(import.meta.env.VITE_MOCK_SETUP_REQUIRED || '').toLowerCase() === 'true';
 
 const mockThreatCredential = 'test-key';
 const mockThreatResultsPath = '/results';
@@ -158,11 +163,34 @@ function mockThreatResponse<T>(path: string, init: RequestInit): T | undefined {
 }
 
 function mockResponse<T>(path: string, init: RequestInit): T {
+  if (path === '/api/setup/status' && init.method === 'GET') {
+    return { required: mockSetupRequired, username: 'admin' } as T;
+  }
+  if (path === '/api/setup' && init.method === 'POST') {
+    if (!mockSetupRequired) throw new Error('管理员已初始化');
+    mockSetupRequired = false;
+    return { created: true, username: 'admin' } as T;
+  }
   if (path.startsWith('/api/session') || path.startsWith('/api/login')) {
     return { authenticated: true } as T;
   }
+  if (path.startsWith('/api/mfa/status')) {
+    return { enabled: false, configured: false, recovery_codes: 0 } as T;
+  }
+  if (path.startsWith('/api/mfa/setup')) {
+    return { secret: 'JBSWY3DPEHPK3PXP', otpauth_uri: 'otpauth://totp/FWLOG:admin?secret=JBSWY3DPEHPK3PXP&issuer=FWLOG' } as T;
+  }
+  if (path.startsWith('/api/mfa/enable')) {
+    return { enabled: true, recovery_codes: ['ABCD2345EF', 'GHJK6789LM'] } as T;
+  }
+  if (path.startsWith('/api/mfa/disable')) {
+    return { enabled: false, configured: false, recovery_codes: 0 } as T;
+  }
   if (path.startsWith('/api/logout')) {
     return { authenticated: false } as T;
+  }
+  if (path.startsWith('/api/access-trend')) {
+    return { flows: [], summary: { total: 0, domestic: 0, overseas: 0, unknown: 0 } } as T;
   }
   const threatResponse = mockThreatResponse<T>(path, init);
   if (threatResponse !== undefined) return threatResponse;
@@ -364,11 +392,13 @@ function mockResponse<T>(path: string, init: RequestInit): T {
   }
   if (path.startsWith('/api/settings')) {
     if (init.method === 'POST' && typeof init.body === 'string') {
-      const payload = JSON.parse(init.body) as { log_sources?: unknown };
+      const payload = JSON.parse(init.body) as { log_sources?: unknown; external_api_enabled?: unknown; mcp_enabled?: unknown };
       if (typeof payload.log_sources === 'string') {
         const parsed = JSON.parse(payload.log_sources) as unknown;
         if (Array.isArray(parsed)) mockLogSources = parsed as typeof mockLogSources;
       }
+      if (payload.external_api_enabled !== undefined) mockExternalAPIEnabled = Boolean(payload.external_api_enabled);
+      if (payload.mcp_enabled !== undefined) mockMCPEnabled = Boolean(payload.mcp_enabled);
     }
     return {
       log_dir: '/data/sangfor_fw_log',
@@ -376,9 +406,11 @@ function mockResponse<T>(path: string, init: RequestInit): T {
       log_sources: mockLogSources,
       cidr_aliases: [{ cidr: '10.10.0.0/16', alias: '办公网段', enabled: true }],
       custom_ip_map_path: '/opt/fwlog/custom_ip_map.csv',
-      geoip_db_path: '/data/index/GeoLite2-City.mmdb',
+      geoip_db_path: '/opt/fwlog/GeoLite2-City.mmdb',
       auto_scan_enabled: 'false',
       auto_scan_interval_sec: '3600',
+      external_api_enabled: String(mockExternalAPIEnabled),
+      mcp_enabled: String(mockMCPEnabled),
     } as T;
   }
   return {} as T;

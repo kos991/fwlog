@@ -16,7 +16,68 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"fwlog/internal/security"
 )
+
+func TestLoginSupportsDirectMFAMode(t *testing.T) {
+	app := NewApp(LoadConfig())
+	secret, err := security.GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("generate TOTP secret: %v", err)
+	}
+	app.mu.Lock()
+	app.mfaEnabled = true
+	app.mfaSecret = secret
+	app.mu.Unlock()
+
+	code, err := security.GenerateTOTPCode(secret, time.Now())
+	if err != nil {
+		t.Fatalf("generate TOTP code: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewBufferString(fmt.Sprintf(`{"mode":"mfa","mfa_code":"%s"}`, code)))
+	res := httptest.NewRecorder()
+	app.loginHandler().ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("direct MFA login status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	passwordReq := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewBufferString(`{"mode":"password","password":"admin"}`))
+	passwordRes := httptest.NewRecorder()
+	app.loginHandler().ServeHTTP(passwordRes, passwordReq)
+	if passwordRes.Code != http.StatusOK {
+		t.Fatalf("explicit password login status = %d, body = %s", passwordRes.Code, passwordRes.Body.String())
+	}
+}
+
+func TestExtensionLoginReturnsBearerToken(t *testing.T) {
+	app := NewApp(LoadConfig())
+	hash, err := HashPassword("admin")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	app.mu.Lock()
+	app.passwordHash = hash
+	app.mu.Unlock()
+	req := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewBufferString(`{"mode":"password","password":"admin","client":"chrome_extension"}`))
+	res := httptest.NewRecorder()
+	app.loginHandler().ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("extension login status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var payload SessionResponse
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode extension login response: %v", err)
+	}
+	if payload.AccessToken == "" || payload.TokenType != "Bearer" {
+		t.Fatalf("extension login should return bearer token: %#v", payload)
+	}
+	bearerReq := httptest.NewRequest(http.MethodGet, "/api/query", nil)
+	bearerReq.Header.Set("Authorization", "Bearer "+payload.AccessToken)
+	if !app.isAuthenticated(bearerReq) {
+		t.Fatal("returned bearer token should authenticate")
+	}
+}
 
 // 这些路由测试依赖 `web/dist/index.html` 和打包后的 `/assets/*` 文件；
 // 干净检出环境下请先执行 `cd web && npm run build`，再运行 `go test ./...`。
@@ -33,6 +94,7 @@ func TestRouterRegistersAPIRoutes(t *testing.T) {
 		{method: http.MethodGet, path: "/api/health-dashboard/summary"},
 		{method: http.MethodGet, path: "/api/health-dashboard/rankings"},
 		{method: http.MethodGet, path: "/api/ingest-progress"},
+		{method: http.MethodGet, path: "/api/access-trend"},
 		{method: http.MethodGet, path: "/api/session"},
 		{method: http.MethodPost, path: "/api/login"},
 		{method: http.MethodPost, path: "/api/logout"},
@@ -62,6 +124,40 @@ func TestRouterRegistersAPIRoutes(t *testing.T) {
 		if res.Code == http.StatusNotFound {
 			t.Fatalf("%s %s should be registered", tt.method, tt.path)
 		}
+	}
+}
+
+func TestRouterSupportsChromeExtensionBearerAuthenticationAndCORS(t *testing.T) {
+	app := NewApp(LoadConfig())
+	manager, err := security.NewJWTManager([]byte(strings.Repeat("k", 32)), time.Hour)
+	if err != nil {
+		t.Fatalf("new jwt manager: %v", err)
+	}
+	token, err := manager.Issue("admin", []string{"pwd"}, time.Now())
+	if err != nil {
+		t.Fatalf("issue token: %v", err)
+	}
+	app.mu.Lock()
+	app.jwtManager = manager
+	app.mu.Unlock()
+	req := httptest.NewRequest(http.MethodGet, "/api/query", nil)
+	req.Header.Set("Origin", "chrome-extension://test-extension")
+	req.Header.Set("Authorization", "Bearer "+token)
+	res := httptest.NewRecorder()
+	app.Router().ServeHTTP(res, req)
+	if res.Code == http.StatusUnauthorized {
+		t.Fatalf("bearer token should authenticate extension request: %d %s", res.Code, res.Body.String())
+	}
+	if got := res.Header().Get("Access-Control-Allow-Origin"); got != "chrome-extension://test-extension" {
+		t.Fatalf("allow-origin = %q", got)
+	}
+	preflight := httptest.NewRequest(http.MethodOptions, "/api/query", nil)
+	preflight.Header.Set("Origin", "chrome-extension://test-extension")
+	preflight.Header.Set("Access-Control-Request-Headers", "Authorization")
+	preflightRes := httptest.NewRecorder()
+	app.Router().ServeHTTP(preflightRes, preflight)
+	if preflightRes.Code != http.StatusNoContent {
+		t.Fatalf("preflight status = %d", preflightRes.Code)
 	}
 }
 

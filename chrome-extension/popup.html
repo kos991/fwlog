@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>FWLOG 查询</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div class="brand">
+        <strong>FWLOG</strong>
+        <svg class="brand-stream" viewBox="0 0 42 14" aria-hidden="true">
+          <path d="M1 7h40" />
+          <circle cx="3" cy="7" r="1.5" />
+          <circle cx="3" cy="7" r="1.5" />
+          <circle cx="3" cy="7" r="1.5" />
+        </svg>
+      </div>
+      <div class="header-actions">
+        <span id="connection-status" class="connection-status" data-state="checking"><i></i><span>检测中</span></span>
+        <button id="plugin-toggle" class="plugin-toggle" type="button" role="switch" aria-checked="true" aria-label="停用插件" title="停用插件"><span></span></button>
+        <button id="settings" class="icon-button" title="接口设置" aria-label="接口设置">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8.3 2.3h3.4l.5 1.9c.4.2.8.4 1.2.7l1.9-.5L17 7.3l-1.4 1.4v1.4l1.4 1.4-1.7 2.9-1.9-.5c-.4.3-.8.5-1.2.7l-.5 1.9H8.3l-.5-1.9c-.4-.2-.8-.4-1.2-.7l-1.9.5L3 11.5l1.4-1.4V8.7L3 7.3l1.7-2.9 1.9.5c.4-.3.8-.5 1.2-.7l.5-1.9Z"/><circle cx="10" cy="9.4" r="2.4"/></svg>
+        </button>
+      </div>
+    </header>
+    <section id="settings-panel" class="settings-panel" hidden>
+      <div class="section-heading"><strong>接口设置</strong><span>查询服务地址</span></div>
+      <label>服务地址<input id="api-url" type="url" placeholder="https://192.168.0.130:8080"></label>
+      <div class="settings-actions"><button id="cancel-settings" type="button">取消</button><button id="save-settings" class="primary compact-primary" type="button">保存</button></div>
+      <p id="settings-status" class="settings-status" role="status"></p>
+    </section>
+    <section id="disabled-panel" class="disabled-panel" hidden>
+      <strong>插件已停用</strong>
+      <span>打开右上角开关后恢复日志查询。</span>
+    </section>
+    <section id="login" class="panel">
+      <div class="login-globe" aria-hidden="true">
+        <div class="login-heading"><strong>管理员登录</strong></div>
+        <svg class="login-globe-fallback" viewBox="0 0 120 120" aria-hidden="true">
+          <circle class="globe-ring" cx="60" cy="60" r="34" />
+          <ellipse class="globe-latitude" cx="60" cy="60" rx="34" ry="14" />
+          <ellipse class="globe-latitude globe-latitude--tilt" cx="60" cy="60" rx="14" ry="34" />
+          <g class="globe-dots">
+            <circle cx="38" cy="48" r="1.5"/><circle cx="45" cy="41" r="1.5"/><circle cx="54" cy="37" r="1.5"/>
+            <circle cx="63" cy="40" r="1.5"/><circle cx="72" cy="44" r="1.5"/><circle cx="80" cy="51" r="1.5"/>
+            <circle cx="35" cy="59" r="1.5"/><circle cx="44" cy="57" r="1.5"/><circle cx="53" cy="55" r="1.5"/>
+            <circle cx="63" cy="57" r="1.5"/><circle cx="73" cy="60" r="1.5"/><circle cx="83" cy="63" r="1.5"/>
+            <circle cx="40" cy="70" r="1.5"/><circle cx="49" cy="74" r="1.5"/><circle cx="59" cy="76" r="1.5"/>
+            <circle cx="69" cy="73" r="1.5"/><circle cx="78" cy="69" r="1.5"/>
+          </g>
+        </svg>
+        <canvas id="login-globe-canvas"></canvas>
+      </div>
+      <form id="login-form">
+        <div class="switch" role="tablist" aria-label="登录方式">
+          <button type="button" role="tab" aria-selected="true" data-mode="password" class="active">密码登录</button>
+          <button type="button" role="tab" aria-selected="false" data-mode="mfa">MFA 登录</button>
+        </div>
+        <label id="password-row">管理员密码<span class="password-field"><input id="password" type="password" autocomplete="current-password" aria-describedby="login-error" autofocus><button id="toggle-password" class="field-icon" type="button" aria-label="显示密码" title="显示密码"><svg class="eye-open" viewBox="0 0 20 20" aria-hidden="true"><path d="M2.2 10s2.8-4.4 7.8-4.4 7.8 4.4 7.8 4.4-2.8 4.4-7.8 4.4S2.2 10 2.2 10Z"/><circle cx="10" cy="10" r="2.2"/></svg><svg class="eye-closed" viewBox="0 0 20 20" aria-hidden="true" hidden><path d="M3 3l14 14M7.1 5.9A7.8 7.8 0 0 1 10 5.4c5 0 7.8 4.6 7.8 4.6a13 13 0 0 1-2.4 2.8M12.8 14a8.2 8.2 0 0 1-2.8.6C5 14.6 2.2 10 2.2 10a13.6 13.6 0 0 1 2.3-2.8"/></svg></button></span></label>
+        <label id="code-row" hidden>6 位动态验证码<input id="code" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" autocomplete="one-time-code" spellcheck="false" aria-describedby="login-error"></label>
+        <button id="login-button" class="primary" type="submit">登录</button>
+        <button id="back-to-password" class="back-button" type="button" hidden>返回密码登录</button>
+        <p id="login-error" class="error" role="alert"></p>
+      </form>
+    </section>
+    <section id="query" hidden>
+      <div class="toolbar"><span id="auth-state">已认证</span><button id="logout">退出</button></div>
+      <div class="workspace-tabs" data-active="search" role="tablist" aria-label="插件页面">
+        <span class="tab-indicator" aria-hidden="true"></span>
+        <button type="button" role="tab" aria-selected="true" data-page="search" class="active">日志查询</button>
+        <button type="button" role="tab" aria-selected="false" data-page="status">主机状态</button>
+      </div>
+      <div id="search-page" role="tabpanel">
+        <form id="query-form" class="filters">
+          <label>开始时间<span class="date-input"><input id="start" type="text" placeholder="YYYY-MM-DD HH:mm" autocomplete="off" spellcheck="false" required><button class="date-trigger" type="button" data-target="start" aria-label="选择开始日期" title="选择开始日期"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2.5v3M15 2.5v3M3 7h14M4.5 4h11A1.5 1.5 0 0 1 17 5.5v10a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 3 15.5v-10A1.5 1.5 0 0 1 4.5 4Z"/></svg></button></span></label>
+          <label>结束时间<span class="date-input"><input id="end" type="text" placeholder="YYYY-MM-DD HH:mm" autocomplete="off" spellcheck="false" required><button class="date-trigger" type="button" data-target="end" aria-label="选择结束日期" title="选择结束日期"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2.5v3M15 2.5v3M3 7h14M4.5 4h11A1.5 1.5 0 0 1 17 5.5v10a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 3 15.5v-10A1.5 1.5 0 0 1 4.5 4Z"/></svg></button></span></label>
+          <div class="date-sync">
+            <button id="date-sync-toggle" class="date-sync-toggle" type="button" aria-expanded="false">
+              <span><i data-state="loading"></i><strong id="date-sync-text">正在同步可查询日期</strong></span>
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>
+            </button>
+            <div id="date-picker" class="date-picker" hidden>
+              <div class="calendar-toolbar">
+                <button id="calendar-previous" type="button" aria-label="上个月" title="上个月"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m10 3-5 5 5 5"/></svg></button>
+                <strong id="calendar-title">--</strong>
+                <button id="calendar-next" type="button" aria-label="下个月" title="下个月"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg></button>
+              </div>
+              <div class="calendar-weekdays" aria-hidden="true"><span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span></div>
+              <div id="calendar-grid" class="calendar-grid" role="grid" aria-label="可查询日期"></div>
+              <div class="calendar-legend"><span><i class="ready"></i>可查询</span><span><i class="importing"></i>正在入库</span><span><i class="pending"></i>等待处理</span><span><i class="failed"></i>处理失败</span></div>
+              <div class="calendar-footer"><span id="calendar-hint">选择开始日期</span><button id="calendar-close" type="button">完成</button></div>
+            </div>
+          </div>
+          <div class="search-row"><input id="ip" aria-label="IP 地址" placeholder="源、目标或转换地址"><button class="primary" type="submit">查询</button></div>
+        </form>
+        <div id="query-error" class="error"></div>
+        <div class="result-meta"><span id="summary">尚未查询</span><span id="query-time"></span></div>
+        <div id="body" class="result-list" aria-live="polite"></div>
+        <div class="pager"><button id="previous" disabled>上一页</button><span id="page-number">第 1 页</span><button id="next" disabled>下一页</button></div>
+      </div>
+      <div id="status-page" role="tabpanel" hidden>
+        <div id="receiver-health" class="receive-overview" data-state="checking">
+          <div>
+            <span class="receiver-title"><i></i><strong id="receiver-title">正在读取接收状态</strong></span>
+            <span id="receiver-last">--</span>
+          </div>
+          <div><span id="receiver-services">--</span><span id="receiver-detail">--</span></div>
+        </div>
+        <div class="telemetry" aria-label="主机运行状态">
+          <div class="metric-row"><span>CPU</span><strong id="metric-cpu">--</strong><i><b id="metric-cpu-bar"></b></i></div>
+          <div class="metric-row"><span>内存</span><strong id="metric-memory">--</strong><i><b id="metric-memory-bar"></b></i></div>
+          <div class="metric-row"><span>磁盘剩余</span><strong id="metric-disk-available">--</strong><i class="disk"><b id="metric-disk-bar"></b></i></div>
+          <div class="metric-row simple"><span>ClickHouse</span><strong id="metric-database">--</strong><small>日志数据占用</small></div>
+        </div>
+        <div class="endpoint-row endpoint">
+          <div><span>查询服务</span><strong id="current-api">--</strong></div>
+          <button id="edit-api" type="button">修改</button>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script src="date-availability.js"></script>
+  <script src="status-metrics.js"></script>
+  <script src="popup.js"></script>
+  <script type="module" src="login-globe.js"></script>
+</body>
+</html>

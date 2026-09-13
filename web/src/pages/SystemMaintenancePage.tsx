@@ -1,14 +1,18 @@
 import React from 'react';
 import {
+  ApiOutlined,
   ClockCircleOutlined,
   CloudDownloadOutlined,
+  CopyOutlined,
   DatabaseOutlined,
   DeleteOutlined,
+  DownloadOutlined,
   EditOutlined,
   FileTextOutlined,
   FolderOpenOutlined,
   GlobalOutlined,
   KeyOutlined,
+  LockOutlined,
   LogoutOutlined,
   PlusOutlined,
   ReloadOutlined,
@@ -16,6 +20,7 @@ import {
   SafetyCertificateOutlined,
   SyncOutlined,
   TagsOutlined,
+  ThunderboltOutlined,
   UploadOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
@@ -24,11 +29,15 @@ import dayjs, { type Dayjs } from 'dayjs';
 import { apiGet, apiPost, apiUpload, type UpgradeCheckResponse, type UpgradeStatus } from '../api';
 import { ThreatIntelligenceSettingsPanel } from '../components/ThreatIntelligenceSettingsPanel';
 import { buildUpgradeView, isSupportedUpgradeVersion } from '../upgradePresentation';
+import QRCode from 'qrcode';
 
 const { Text } = Typography;
 
 type SystemMaintenancePageProps = {
   onRequireLogin: () => void;
+  scope?: 'schedule' | 'sources' | 'organize' | 'system';
+  embedded?: boolean;
+  initialTab?: 'ingest' | 'schedule' | 'ip';
 };
 
 type LogSourceSetting = {
@@ -88,6 +97,8 @@ type Settings = {
   auto_scan_times?: string | Dayjs;
   auto_scan_timezone?: string;
   auto_scan_interval_sec?: number | string;
+  external_api_enabled?: boolean | string;
+  mcp_enabled?: boolean | string;
   current_password?: string;
   new_password?: string;
   confirm_new_password?: string;
@@ -198,7 +209,26 @@ function formatAutoScanTime(value?: string | Dayjs | null) {
   return firstAutoScanTime(value);
 }
 
-export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageProps) {
+function interfaceEndpoint(path: string) {
+  return `${window.location.origin}${path}`;
+}
+
+async function copyInterfaceEndpoint(value: string) {
+  await navigator.clipboard.writeText(value);
+  message.success('接口地址已复制');
+}
+
+function downloadTextFile(filename: string, value: string, type = 'application/json') {
+  const blob = new Blob([value], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+export function SystemMaintenancePage({ onRequireLogin, scope = 'system', embedded = false, initialTab = 'ingest' }: SystemMaintenancePageProps) {
   const [form] = Form.useForm<Settings>();
   const [sourceForm] = Form.useForm<LogSourceSetting>();
   const [loading, setLoading] = React.useState(false);
@@ -218,8 +248,24 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   const [sourceSaving, setSourceSaving] = React.useState(false);
   const [upgradeRestarting, setUpgradeRestarting] = React.useState(false);
   const [upgradeFile, setUpgradeFile] = React.useState<File | null>(null);
+  const [mfaStatus, setMfaStatus] = React.useState<{ enabled: boolean; configured: boolean; recovery_codes: number }>({ enabled: false, configured: false, recovery_codes: 0 });
+  const [mfaSecret, setMfaSecret] = React.useState('');
+  const [mfaQRCode, setMfaQRCode] = React.useState('');
+  const [mfaCode, setMfaCode] = React.useState('');
+  const [systemSection, setSystemSection] = React.useState('upgrade');
+  const [organizeSection, setOrganizeSection] = React.useState('ingest');
   const autoScanEnabled = Form.useWatch('auto_scan_enabled', form);
   const autoScanTimes = Form.useWatch('auto_scan_times', form);
+  const externalAPIEnabled = Form.useWatch('external_api_enabled', form);
+  const mcpEnabled = Form.useWatch('mcp_enabled', form);
+
+  React.useEffect(() => {
+    if (scope === 'organize') setOrganizeSection(initialTab);
+  }, [initialTab, scope]);
+
+  const loadMFAStatus = React.useCallback(async () => {
+    try { setMfaStatus(await apiGet('/api/mfa/status')); } catch { setMfaStatus({ enabled: false, configured: false, recovery_codes: 0 }); }
+  }, []);
 
   const loadReceiverStatus = React.useCallback(async () => {
     try {
@@ -235,7 +281,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
       setLoading(true);
       const settings = await apiGet<Settings>('/api/settings');
       const parsedLogSources = parseLogSources(settings.log_sources);
-      const logSources = normalizeLogSourcesForForm(parsedLogSources.length ? parsedLogSources : [
+      const legacyLogSources = settings.log_sources === undefined ? [
         {
           source_id: 'default',
           log_tag: settings.log_tag || '深信服 NAT',
@@ -243,7 +289,8 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
           source_type: 'file',
           enabled: true,
         },
-      ]);
+      ] : [];
+      const logSources = normalizeLogSourcesForForm(parsedLogSources.length ? parsedLogSources : legacyLogSources);
       const cidrAliases = parseCidrAliases(settings.cidr_aliases);
       setSavedLogSources(logSources);
       const { log_sources: _ignoredLogSources, ...formSettings } = settings;
@@ -251,6 +298,8 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
         ...formSettings,
         cidr_aliases: cidrAliases,
         auto_scan_enabled: settings.auto_scan_enabled === true || settings.auto_scan_enabled === 'true',
+        external_api_enabled: settings.external_api_enabled === true || settings.external_api_enabled === 'true',
+        mcp_enabled: settings.mcp_enabled === true || settings.mcp_enabled === 'true',
         auto_scan_mode: settings.auto_scan_mode || 'daily',
         auto_scan_times: autoScanTimeValue(settings.auto_scan_times),
         auto_scan_timezone: settings.auto_scan_timezone || 'Asia/Shanghai',
@@ -267,6 +316,8 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   React.useEffect(() => {
     void load();
   }, [load]);
+
+  React.useEffect(() => { void loadMFAStatus(); }, [loadMFAStatus]);
 
   const loadUpgradeStatus = React.useCallback(async () => {
     const status = await apiGet<UpgradeStatus>('/api/upgrade/status');
@@ -307,7 +358,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   const canCheckUpgrade = upgradeStatus?.state !== 'running' && !upgradeLoading;
   const canRunUpgrade = upgradeView.showUpgradeAction && upgradeStatus?.state !== 'running' && !upgradeLoading;
   const autoScanDisplay = firstAutoScanTime(autoScanTimes);
-  const autoScanSummary = `自动扫描：${autoScanEnabled ? '已开启' : '已关闭'}；每天 ${autoScanDisplay} 扫描全部已启用日志来源，只导入尚未完成的日期。`;
+  const autoScanSummary = `自动处理：${autoScanEnabled ? '已开启' : '已关闭'}；每天 ${autoScanDisplay} 扫描全部已启用日志来源，只处理尚未完成入库的日期。`;
   const upgradeSummary = `版本状态：当前版本 ${upgradeView.currentVersion}；${upgradeCheckError || upgradeView.message}`;
 
   async function persistLogSources(next: LogSourceSetting[]) {
@@ -439,7 +490,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
   const selectedSourceLabel = importSourceID
     ? selectedLogSource?.log_tag || selectedLogSource?.source_id || importSourceID
     : '全部已启用日志来源';
-  const actionLabel = ingestAction === 'sync' ? '导入新增日志' : '重新导入所选日期';
+  const actionLabel = ingestAction === 'sync' ? '新增日志处理' : '历史数据重建';
   const dateScopeLabel = dateMode === 'all'
     ? '所有历史日期'
     : dateMode === 'single'
@@ -447,9 +498,11 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
       : dateRange?.[0] && dateRange?.[1]
         ? `${dateRange[0].format('YYYY-MM-DD')} 至 ${dateRange[1].format('YYYY-MM-DD')}`
         : '未选择日期范围';
-  const buttonLabel = ingestAction === 'sync' ? '开始导入' : '开始重新导入';
-  const actionSummary = `本次处理：日志来源 = ${selectedSourceLabel}；日期 = ${dateScopeLabel}；处理方式 = ${actionLabel}。`;
-  const rebuildConfirmDescription = `将先清除「${selectedSourceLabel}」在「${dateScopeLabel}」已有的入库结果，再重新处理所选日期。该操作耗时可能较长。`;
+  const buttonLabel = ingestAction === 'sync' ? '开始处理新增日志' : '开始重建历史数据';
+  const actionSummary = ingestAction === 'sync'
+    ? `本次处理：来源 = ${selectedSourceLabel}；日期 = ${dateScopeLabel}；方式 = 新增日志处理（仅处理尚未完成入库的日期）。`
+    : `本次处理：来源 = ${selectedSourceLabel}；日期 = ${dateScopeLabel}；方式 = 历史数据重建（先清除已有结果，再重新处理）。`;
+  const rebuildConfirmDescription = `将先清除「${selectedSourceLabel}」在「${dateScopeLabel}」范围内已有的处理结果，再重新处理原始日志。该操作不可撤销，耗时可能较长。`;
   const ingestActionDisabled = dateMode === 'single'
     ? !singleDate
     : dateMode === 'range'
@@ -492,7 +545,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
     try {
       setLoading(true);
       await apiPost(buildIngestPath());
-      message.success(ingestAction === 'sync' ? '新增日志导入任务已开始' : '重新导入任务已开始');
+      message.success(ingestAction === 'sync' ? '新增日志处理任务已开始，可前往处理概览查看进度' : '历史数据重建任务已开始，可前往处理概览查看进度');
     } catch (error) {
       message.error(error instanceof Error ? error.message : '操作失败');
     } finally {
@@ -597,27 +650,61 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
     }
   };
 
+  const setupMFA = async () => {
+    try {
+      const response = await apiPost<{ secret: string; otpauth_uri: string }>('/api/mfa/setup');
+      setMfaSecret(response.secret);
+      setMfaQRCode(await QRCode.toDataURL(response.otpauth_uri, { width: 188, margin: 1, errorCorrectionLevel: 'M' }));
+      message.success('MFA 密钥已生成，请在身份验证器中添加后输入验证码');
+    } catch (error) { message.error(error instanceof Error ? error.message : '生成 MFA 密钥失败'); }
+  };
+
+  const enableMFA = async () => {
+    try {
+      const response = await apiPost<{ recovery_codes: string[] }>('/api/mfa/enable', { code: mfaCode });
+      setMfaSecret(''); setMfaQRCode(''); setMfaCode('');
+      setMfaStatus({ enabled: true, configured: true, recovery_codes: response.recovery_codes.length });
+      Modal.info({ title: '请保存恢复码', content: <pre className="mfa-recovery-codes">{response.recovery_codes.join('\n')}</pre> });
+    } catch (error) { message.error(error instanceof Error ? error.message : '启用 MFA 失败'); }
+  };
+
+  const disableMFA = async () => {
+    try {
+      const values = await form.validateFields(['current_password']);
+      await apiPost('/api/mfa/disable', { password: values.current_password, code: mfaCode });
+      setMfaStatus({ enabled: false, configured: false, recovery_codes: 0 }); setMfaCode(''); setMfaQRCode('');
+      message.success('MFA 已关闭');
+    } catch (error) { if (error && typeof error === 'object' && 'errorFields' in error) return; message.error(error instanceof Error ? error.message : '关闭 MFA 失败'); }
+  };
+
   return (
-    <div className="page-stack">
-      <section className="page-header">
+    <div className={embedded ? 'page-stack maintenance-page--embedded' : 'page-stack'}>
+      {!embedded && <section className="page-header">
         <div>
-          <span className="eyebrow">系统管理</span>
-          <h1>系统设置</h1>
+          <h1>{scope === 'schedule' ? '扫描计划' : scope === 'sources' ? '日志来源' : scope === 'organize' ? '日志整理' : '系统设置'}</h1>
         </div>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={() => void load()} loading={loading} />
-          <Button type="primary" icon={<SaveOutlined />} onClick={() => void save()} loading={loading}>保存</Button>
+          {(scope === 'schedule' || scope === 'organize' || (scope === 'system' && systemSection !== 'security')) && <Button type="primary" icon={<SaveOutlined />} onClick={() => void save()} loading={loading}>保存</Button>}
         </Space>
-      </section>
+      </section>}
 
       <Form form={form} layout="vertical">
         <Tabs
+          className={scope === 'schedule' || scope === 'sources' ? 'maintenance-tabs maintenance-tabs--standalone' : 'maintenance-tabs'}
+          tabBarStyle={scope === 'schedule' || scope === 'sources' ? { display: 'none' } : undefined}
+          activeKey={scope === 'schedule' ? 'schedule' : scope === 'sources' ? 'source' : scope === 'organize' ? organizeSection : systemSection}
+          onChange={(key) => {
+            if (scope === 'organize') setOrganizeSection(key);
+            else if (scope === 'system') setSystemSection(key);
+          }}
           items={[
             {
               key: 'source',
               label: tabLabel(<FolderOpenOutlined />, '日志来源'),
               children: (
-                <section className="ops-section maintenance-card maintenance-panel">
+                <div className="page-stack reception-page-content">
+                  <section className="ops-section maintenance-card maintenance-panel">
                   <div className="source-list-editor">
                     <div className="maintenance-panel-toolbar">
                       <Text className="maintenance-panel-note" type="secondary">添加、启停或修改后立即应用</Text>
@@ -730,16 +817,17 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                       })}
                     </div>
                   </div>
-                </section>
+                  </section>
+                </div>
               ),
             },
             {
               key: 'ip',
-              label: tabLabel(<GlobalOutlined />, 'CIDR 别名'),
+              label: tabLabel(<GlobalOutlined />, '网段别称'),
               children: (
                 <section className="ops-section maintenance-card maintenance-panel">
                   <div className="maintenance-panel-toolbar">
-                    <Text className="maintenance-panel-note" type="secondary">管理地理位置数据、IP 映射和网段显示名称</Text>
+                    <Text className="maintenance-panel-note" type="secondary">为 IP 网段设置业务名称，便于日志查询和地址识别</Text>
                     <Button icon={<ReloadOutlined />} onClick={() => void trigger('/api/ip-data/reload', 'IP 映射数据已重新加载')} loading={loading}>
                       重新加载
                     </Button>
@@ -757,8 +845,8 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                           <div className="source-list-editor cidr-list-editor ip-cidr-list-editor">
                             <div className="source-list-head">
                               <div>
-                                <strong>CIDR 别名</strong>
-                                <Text type="secondary">用于把内网网段显示为业务名称</Text>
+                                <strong>网段名称</strong>
+                                <Text type="secondary">将 IP 网段映射为日志中的业务名称</Text>
                               </div>
                               <Button
                                 icon={<PlusOutlined />}
@@ -768,7 +856,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                               </Button>
                             </div>
                             <div className="source-row cidr-row source-row-header">
-                              <span>CIDR 网段</span>
+                              <span>IP 网段</span>
                               <span>显示名称</span>
                               <span>启用</span>
                               <span>操作</span>
@@ -785,13 +873,13 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                                   <Input prefix={<GlobalOutlined />} placeholder="10.10.0.0/16" />
                                 </Form.Item>
                                 <Form.Item name={[field.name, 'alias']} rules={[{ required: true, message: '必填' }]}>
-                                  <Input prefix={<TagsOutlined />} placeholder="办公网段" />
+                                  <Input prefix={<TagsOutlined />} placeholder="例如：办公网段" />
                                 </Form.Item>
                                 <Form.Item name={[field.name, 'enabled']} valuePropName="checked">
                                   <Switch />
                                 </Form.Item>
                                 <Popconfirm
-                                  title="删除这个 CIDR 别名？"
+                                  title="删除这个网段名称？"
                                   okText="删除"
                                   cancelText="取消"
                                   onConfirm={() => remove(field.name)}
@@ -809,12 +897,11 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
               ),
             },
             {
-              key: 'ingest',
-              label: tabLabel(<WarningOutlined />, '日志入库'),
+              key: 'schedule',
+              label: tabLabel(<ClockCircleOutlined />, '扫描计划'),
               children: (
                 <section className="ops-section maintenance-card maintenance-panel">
-                  <Text className="maintenance-panel-note" type="secondary">自动扫描和手动处理历史日志</Text>
-                  <div className="maintenance-panel-stack">
+                  <Text className="maintenance-panel-note" type="secondary">设置自动扫描日志来源的时间和运行状态</Text>
                   <div className="maintenance-plan-card maintenance-plan-card--schedule">
                     <div className="maintenance-card-head">
                       <div>
@@ -854,11 +941,20 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                     </div>
                   </div>
 
+                </section>
+              ),
+            },
+            {
+              key: 'ingest',
+              label: tabLabel(<WarningOutlined />, '日志重建'),
+              children: (
+                <section className="ops-section maintenance-card maintenance-panel">
+                  <Text className="maintenance-panel-note" type="secondary">手动处理新增日志或重建历史数据</Text>
                   <div className="maintenance-run-card maintenance-run-card--manual">
                     <div className="maintenance-card-head">
                       <div>
-                        <span className="maintenance-card-kicker"><SyncOutlined /> 日志导入</span>
-                        <strong>导入操作</strong>
+                        <span className="maintenance-card-kicker"><SyncOutlined /> 数据处理</span>
+                        <strong>手动处理</strong>
                       </div>
                     </div>
 
@@ -897,7 +993,7 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                         ) : dateMode === 'range' ? (
                           <DatePicker.RangePicker value={dateRange} onChange={(value) => setDateRange(value)} />
                         ) : (
-                          <Text type="secondary">系统会扫描所选日志来源下已有的历史日志</Text>
+                          <Text type="secondary">{ingestAction === 'sync' ? '仅处理尚未完成入库的日期，已完成日期不会重复处理。' : '将先清除所选日期范围内已有结果，再重新处理原始日志。'}</Text>
                         )}
                       </div>
 
@@ -907,8 +1003,8 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                           value={ingestAction}
                           onChange={(value: IngestAction) => setIngestAction(value)}
                           options={[
-                            { value: 'sync', label: '导入新增日志' },
-                            { value: 'rebuild', label: '重新导入所选日期' },
+                            { value: 'sync', label: '新增日志处理' },
+                            { value: 'rebuild', label: '历史数据重建' },
                           ]}
                         />
                       </div>
@@ -917,9 +1013,9 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                         <label>开始处理</label>
                         {ingestAction === 'rebuild' ? (
                           <Popconfirm
-                            title={`确认重新导入${importSourceID ? '当前日志来源' : '全部日志来源'}？`}
+                            title={`确认重建${importSourceID ? '当前日志来源' : '全部日志来源'}的历史数据？`}
                             description={rebuildConfirmDescription}
-                            okText="确认重新导入"
+                            okText="确认重建历史数据"
                             cancelText="取消"
                             onConfirm={() => void triggerIngestAction()}
                           >
@@ -938,8 +1034,6 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                     <div className="maintenance-card-summary maintenance-action-summary">
                       <Text>{actionSummary}</Text>
                     </div>
-                  </div>
-
                   </div>
                 </section>
               ),
@@ -1063,13 +1157,66 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
               ),
             },
             {
+              key: 'interfaces',
+              label: tabLabel(<ApiOutlined />, '接口服务'),
+              children: (
+                <section className="ops-section maintenance-card maintenance-panel">
+                  <Text className="maintenance-panel-note" type="secondary">管理查询插件、自动化客户端与 MCP 客户端的访问</Text>
+                  <div className="interface-settings-list">
+                    <div className="interface-settings-row">
+                      <span className="interface-settings-icon"><ApiOutlined /></span>
+                      <div className="interface-settings-main">
+                        <div className="interface-settings-heading">
+                          <strong>日志查询 API</strong>
+                          <Tag color={externalAPIEnabled ? 'green' : 'default'}>{externalAPIEnabled ? '运行中' : '已停用'}</Tag>
+                        </div>
+                        <Text type="secondary">供查询插件和自动化客户端通过 JWT 调用，只返回日志查询结果。</Text>
+                        <div className="interface-settings-meta">
+                          <span><LockOutlined /> Bearer JWT</span>
+                          <span className="interface-settings-endpoint"><code>{interfaceEndpoint('/api/query')}</code><Tooltip title="复制接口地址"><Button type="text" size="small" icon={<CopyOutlined />} aria-label="复制 API 接口地址" onClick={() => void copyInterfaceEndpoint(interfaceEndpoint('/api/query'))} /></Tooltip></span>
+                          <a className="interface-download-button" href="/downloads/fwlog-query-extension.zip" download="fwlog-query-extension.zip"><DownloadOutlined />下载 Chrome 插件</a>
+                        </div>
+                      </div>
+                      <Form.Item name="external_api_enabled" valuePropName="checked" noStyle>
+                        <Switch aria-label="启用 API 接口" />
+                      </Form.Item>
+                    </div>
+
+                    <div className="interface-settings-row">
+                      <span className="interface-settings-icon"><ThunderboltOutlined /></span>
+                      <div className="interface-settings-main">
+                        <div className="interface-settings-heading">
+                          <strong>MCP 接口</strong>
+                          <Tag color={mcpEnabled ? 'green' : 'default'}>{mcpEnabled ? '运行中' : '已停用'}</Tag>
+                        </div>
+                        <Text type="secondary">向 MCP 客户端提供只读的 <code>query_logs</code> 日志查询工具。</Text>
+                        <div className="interface-settings-meta">
+                          <span><LockOutlined /> Bearer JWT</span>
+                          <span className="interface-settings-endpoint"><code>{interfaceEndpoint('/api/mcp')}</code><Tooltip title="复制接口地址"><Button type="text" size="small" icon={<CopyOutlined />} aria-label="复制 MCP 接口地址" onClick={() => void copyInterfaceEndpoint(interfaceEndpoint('/api/mcp'))} /></Tooltip></span>
+                          <Button className="interface-download-button" type="default" size="small" icon={<DownloadOutlined />} onClick={() => downloadTextFile('fwlog-mcp-config.json', JSON.stringify({ mcpServers: { fwlog: { url: interfaceEndpoint('/api/mcp'), transport: 'streamable-http', headers: { Authorization: 'Bearer <JWT>' } } } }, null, 2))}>下载接入配置</Button>
+                        </div>
+                      </div>
+                      <Form.Item name="mcp_enabled" valuePropName="checked" noStyle>
+                        <Switch aria-label="启用 MCP 接口" />
+                      </Form.Item>
+                    </div>
+                  </div>
+                </section>
+              ),
+            },
+            {
               key: 'security',
               label: tabLabel(<SafetyCertificateOutlined />, '账号安全'),
               children: (
-                <section className="ops-section maintenance-card maintenance-panel">
-                  <Text className="maintenance-panel-note" type="secondary">修改管理员密码并管理当前登录会话</Text>
-                  <div className="setting-grid">
-                    <div className="setting-fields">
+                <section className="ops-section maintenance-card maintenance-panel account-security-panel">
+                  <Text className="maintenance-panel-note" type="secondary">管理登录密码、双因子认证和当前会话</Text>
+                  <div className="account-security-layout">
+                    <section className="account-security-section account-password-section">
+                      <div className="account-security-heading">
+                        <span className="account-security-icon"><KeyOutlined /></span>
+                        <div><strong>修改登录密码</strong><Text type="secondary">密码更新后，当前登录状态将失效，需要使用新密码重新登录。</Text></div>
+                      </div>
+                      <div className="account-password-fields">
                       <Form.Item name="current_password" label="当前密码" rules={[{ required: true, message: '请输入当前密码' }]}>
                         <Input.Password prefix={<KeyOutlined />} />
                       </Form.Item>
@@ -1092,21 +1239,37 @@ export function SystemMaintenancePage({ onRequireLogin }: SystemMaintenancePageP
                       >
                         <Input.Password prefix={<SafetyCertificateOutlined />} />
                       </Form.Item>
-                      <Space>
-                        <Button type="primary" icon={<KeyOutlined />} onClick={() => void changePassword()} loading={loading}>更新密码</Button>
-                        <Button icon={<LogoutOutlined />} onClick={onRequireLogin}>退出登录</Button>
-                      </Space>
-                    </div>
-                    <aside className="setting-summary setting-summary-amber">
-                      <SafetyCertificateOutlined />
-                      <Text type="secondary">当前会话</Text>
-                      <strong>本机控制台</strong>
-                    </aside>
+                      </div>
+                      <Button className="account-password-submit" type="primary" icon={<KeyOutlined />} onClick={() => void changePassword()} loading={loading}>修改密码</Button>
+                    </section>
+                    <section className="account-security-section account-mfa-section">
+                      <div className="account-security-heading">
+                        <span className="account-security-icon"><SafetyCertificateOutlined /></span>
+                        <div><strong>双因子认证（MFA）</strong><Text type="secondary">使用身份验证器验证码或恢复码登录。</Text></div>
+                        <Tag color={mfaStatus.enabled ? 'green' : 'default'}>{mfaStatus.enabled ? '已启用' : '未启用'}</Tag>
+                      </div>
+                      <div className="mfa-settings account-mfa-settings">
+                        {!mfaStatus.enabled && !mfaSecret && <Button icon={<SafetyCertificateOutlined />} onClick={() => void setupMFA()}>生成身份验证器密钥</Button>}
+                        {mfaSecret && <div className="mfa-setup-block"><div className="mfa-setup-content"><div className="mfa-qr-panel">{mfaQRCode ? <img src={mfaQRCode} alt="MFA 身份验证器二维码" className="mfa-qr-code" /> : <span className="mfa-qr-loading">二维码生成中</span>}<Text type="secondary">使用身份验证器扫码</Text></div><div className="mfa-setup-details"><Text type="secondary">将此密钥添加到身份验证器：</Text><code>{mfaSecret}</code></div></div><Input value={mfaCode} onChange={(event) => setMfaCode(event.target.value)} placeholder="输入 6 位验证码完成启用" maxLength={6} /><Space><Button type="primary" onClick={() => void enableMFA()}>确认启用</Button><Button onClick={() => { setMfaSecret(''); setMfaQRCode(''); }}>取消</Button></Space></div>}
+                        {mfaStatus.enabled && <><Text type="secondary">关闭 MFA 前，请填写左侧当前密码。</Text><Space wrap><Input value={mfaCode} onChange={(event) => setMfaCode(event.target.value)} placeholder="输入当前验证码" maxLength={6} /><Button danger onClick={() => void disableMFA()}>关闭 MFA</Button><Text type="secondary">剩余恢复码：{mfaStatus.recovery_codes}</Text></Space></>}
+                      </div>
+                    </section>
+                  </div>
+                  <div className="account-session-bar">
+                    <div><span className="account-security-icon"><SafetyCertificateOutlined /></span><span><Text type="secondary">当前会话</Text><strong>本机控制台</strong></span></div>
+                    <Button icon={<LogoutOutlined />} onClick={onRequireLogin}>退出登录</Button>
                   </div>
                 </section>
               ),
             },
-          ]}
+          ].filter((item) => {
+            if (scope === 'schedule') return item.key === 'schedule';
+            if (scope === 'sources') return item.key === 'source';
+            if (scope === 'organize') return item.key === 'ingest' || item.key === 'schedule' || item.key === 'ip';
+            return item.key === 'upgrade' || item.key === 'threat-intelligence' || item.key === 'interfaces' || item.key === 'security';
+          }).sort((left, right) => scope === 'organize'
+            ? ['ingest', 'ip'].indexOf(left.key) - ['ingest', 'ip'].indexOf(right.key)
+            : 0)}
         />
       </Form>
       <Modal

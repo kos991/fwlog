@@ -9,13 +9,7 @@ base_url="https://github.com/${repo}/releases/download/${version}"
 work_dir="$(mktemp -d)"
 trap 'rm -rf "$work_dir"' EXIT
 
-install -d /opt/fwlog /data/sangfor_fw_log /data/index /data/export
-
-if [[ ! -f /etc/fwlog/admin-password ]]; then
-  : "${ADMIN_PASSWORD:?首次部署请通过 ADMIN_PASSWORD 环境变量设置管理员密码}"
-  install -d -m 0700 /etc/fwlog
-  printf '%s' "$ADMIN_PASSWORD" > "${work_dir}/admin-password"
-fi
+install -d /opt/fwlog /data/sangfor_fw_log /data/fwlog /data/export
 
 curl -fL --retry 3 --retry-delay 5 \
   "${base_url}/${asset}" \
@@ -59,7 +53,7 @@ Environment="WORKERS=1"
 Environment="CLICKHOUSE_ADDR=127.0.0.1:9000"
 Environment="CLICKHOUSE_DATABASE=default"
 Environment="CUSTOM_IP_MAP=/opt/fwlog/custom_ip_map.csv"
-Environment="GEOIP_DB=/data/index/GeoLite2-City.mmdb"
+Environment="GEOIP_DB=/opt/fwlog/GeoLite2-City.mmdb"
 Environment="AUTO_SCAN_ENABLED=false"
 Environment="GIN_MODE=release"
 Environment="ADMIN_PASSWORD_FILE=/etc/fwlog/admin-password"
@@ -94,9 +88,10 @@ WantedBy=multi-user.target
 UNITEOF
 
 if systemctl is-active --quiet fwlog 2>/dev/null; then
-  systemctl stop fwlog
+systemctl stop fwlog
 fi
 
+# 兼容旧版发布包携带的管理员密码文件；新安装由 Web 初始化，不主动生成密码。
 if [[ -f "${work_dir}/admin-password" ]]; then
   install -m 0600 "${work_dir}/admin-password" /etc/fwlog/admin-password
 fi

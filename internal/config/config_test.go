@@ -11,6 +11,8 @@ func TestLoadConfigUsesClickHouseDefaults(t *testing.T) {
 	t.Setenv("CLICKHOUSE_ADDR", "")
 	t.Setenv("CLICKHOUSE_DATABASE", "")
 	t.Setenv("THREAT_INTELLIGENCE_KEY_FILE", "")
+	t.Setenv("CUSTOM_IP_MAP", "")
+	t.Setenv("GEOIP_DB", "")
 
 	cfg := LoadConfig()
 
@@ -34,6 +36,9 @@ func TestLoadConfigUsesClickHouseDefaults(t *testing.T) {
 	}
 	if cfg.ThreatIntelligenceKeyFile != "/data/fwlog/threat-intelligence.key" {
 		t.Fatalf("ThreatIntelligenceKeyFile = %q", cfg.ThreatIntelligenceKeyFile)
+	}
+	if cfg.CustomIPMapPath != "/opt/fwlog/custom_ip_map.csv" || cfg.GeoIPDBPath != "/opt/fwlog/GeoLite2-City.mmdb" {
+		t.Fatalf("IP data paths = %q, %q", cfg.CustomIPMapPath, cfg.GeoIPDBPath)
 	}
 }
 
@@ -153,6 +158,10 @@ func TestDeploymentTemplatesUseCPUSafeImportDefaults(t *testing.T) {
 		filepath.Join("scripts", "deploy-142-from-release.sh"),
 	} {
 		assertFileIncludes(t, path, `Environment="WORKERS=1"`, `Nice=5`)
+		assertFileIncludes(t, path,
+			`CUSTOM_IP_MAP=/opt/fwlog/custom_ip_map.csv`,
+			`GEOIP_DB=/opt/fwlog/GeoLite2-City.mmdb`,
+		)
 	}
 }
 

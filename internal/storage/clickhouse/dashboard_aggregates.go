@@ -41,6 +41,22 @@ ORDER BY (log_date, source_id, log_tag)`,
 ENGINE = SummingMergeTree
 PARTITION BY (source_id, log_date)
 ORDER BY (dimension, log_date, source_id, address, log_tag)`,
+		`CREATE TABLE IF NOT EXISTS access_trend_daily_flows
+(
+    log_date Date,
+    source_id String,
+    src_ip IPv6,
+    src_port UInt16,
+    dst_ip IPv6,
+    dst_port UInt16,
+    protocol LowCardinality(String),
+    rows_state AggregateFunction(sum, UInt64),
+    last_seen_state AggregateFunction(max, DateTime),
+    nat_state AggregateFunction(argMax, Tuple(IPv6, UInt16), Tuple(DateTime, String, UInt64))
+)
+ENGINE = AggregatingMergeTree
+PARTITION BY (source_id, log_date)
+ORDER BY (log_date, source_id, src_ip, src_port, dst_ip, dst_port, protocol)`,
 		`CREATE MATERIALIZED VIEW IF NOT EXISTS dashboard_daily_totals_mv
 TO dashboard_daily_totals AS
 SELECT log_date, source_id, log_tag, count() AS rows
@@ -61,6 +77,14 @@ TO dashboard_daily_ip_counts AS
 SELECT log_date, source_id, log_tag, 'dst_subnet' AS dimension, toIPv6(cutIPv6(dst_ip, 8, 1)) AS address, count() AS rows
 FROM nat_logs
 GROUP BY log_date, source_id, log_tag, dimension, address`,
+		`CREATE MATERIALIZED VIEW IF NOT EXISTS access_trend_daily_flows_mv
+TO access_trend_daily_flows AS
+SELECT log_date, source_id, src_ip, src_port, dst_ip, dst_port, protocol,
+       sumState(toUInt64(1)) AS rows_state,
+       maxState(timestamp) AS last_seen_state,
+       argMaxState(tuple(nat_ip, nat_port), tuple(timestamp, toString(source_file), source_offset)) AS nat_state
+FROM nat_logs
+GROUP BY log_date, source_id, src_ip, src_port, dst_ip, dst_port, protocol`,
 	}
 }
 

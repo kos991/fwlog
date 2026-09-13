@@ -16,6 +16,8 @@ type IPTag struct {
 	Label    string `json:"label"`
 	Location string `json:"location"`
 	IsManual bool   `json:"is_manual"`
+	Latitude  float64 `json:"latitude,omitempty"`
+	Longitude float64 `json:"longitude,omitempty"`
 }
 
 type IPEngine struct {
@@ -123,6 +125,7 @@ func (e *IPEngine) GetTag(ipStr string) IPTag {
 					location += " / " + city
 				}
 			}
+			return IPTag{IP: ipStr, Label: "公网 IP", Location: location, Latitude: record.Location.Latitude, Longitude: record.Location.Longitude}
 		}
 	}
 

@@ -10,11 +10,18 @@
 /docs/*
 !/docs/superpowers/
 /docs/superpowers/*
+!/docs/superpowers/specs/
+!/docs/superpowers/specs/*.md
 !/docs/superpowers/plans/
 !/docs/superpowers/plans/*.md
+!/docs/superpowers/reports/
+!/docs/superpowers/reports/*.md
 /internal/server/web/dist/
 /fwlog.exe
 /web/src/pages/*.backup
+/.tmp-deploy/
+/.tmp-preview/
+/assets.db*
 
 # Locally downloaded native dependencies used for packaging
 /third_party/

@@ -11,11 +11,15 @@ func TestDashboardAggregateDDLDefinesTablesAndViews(t *testing.T) {
 	for _, want := range []string{
 		"CREATE TABLE IF NOT EXISTS dashboard_daily_totals",
 		"CREATE TABLE IF NOT EXISTS dashboard_daily_ip_counts",
+		"CREATE TABLE IF NOT EXISTS access_trend_daily_flows",
 		"ENGINE = SummingMergeTree",
+		"ENGINE = AggregatingMergeTree",
 		"dashboard_daily_totals_mv",
 		"dashboard_daily_src_ip_mv",
 		"dashboard_daily_dst_ip_mv",
 		"dashboard_daily_dst_subnet_mv",
+		"access_trend_daily_flows_mv",
+		"argMaxState(tuple(nat_ip, nat_port)",
 		"cutIPv6(dst_ip, 8, 1)",
 	} {
 		if !strings.Contains(sql, want) {
@@ -92,7 +96,7 @@ func TestDashboardRankingSQLRejectsUnsupportedDimension(t *testing.T) {
 
 func TestClickHouseDiskUsageIncludesDashboardAggregateTables(t *testing.T) {
 	sql := ClickHouseDiskUsageSQL()
-	for _, want := range []string{"dashboard_daily_totals", "dashboard_daily_ip_counts"} {
+	for _, want := range []string{"dashboard_daily_totals", "dashboard_daily_ip_counts", "access_trend_daily_flows"} {
 		if !strings.Contains(sql, want) {
 			t.Fatalf("磁盘统计缺少 %q: %s", want, sql)
 		}

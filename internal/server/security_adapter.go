@@ -32,8 +32,8 @@ func (s appSecurityService) ChangePassword(r *http.Request) (SessionResponse, er
 
 	s.app.mu.Lock()
 	s.app.passwordHash = passwordHash
-	s.app.sessionToken = ""
 	s.app.mu.Unlock()
+	s.app.invalidateSessions()
 
 	return SessionResponse{Authenticated: false}, nil
 }

@@ -25,6 +25,7 @@ type Config struct {
 	AutoScanJitterSec         int
 	ExportRoot                string
 	ThreatIntelligenceKeyFile string
+	JWTKeyFile                string
 }
 
 type CIDRAliasSetting struct {

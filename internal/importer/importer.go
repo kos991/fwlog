@@ -313,6 +313,7 @@ func dropLogSourceDatePartitionsSQL(sourceID string, date time.Time) []string {
 		dropSourceDatePartitionSQL("nat_logs", sourceID, date),
 		dropSourceDatePartitionSQL("dashboard_daily_totals", sourceID, date),
 		dropSourceDatePartitionSQL("dashboard_daily_ip_counts", sourceID, date),
+		dropSourceDatePartitionSQL("access_trend_daily_flows", sourceID, date),
 	}
 }
 

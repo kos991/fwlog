@@ -16,21 +16,32 @@ func (a *App) Router() http.Handler {
 	dashboardSummaryHandler := NewDashboardSummaryHandler(appDashboardService{app: a})
 	dashboardRankingsHandler := NewDashboardRankingsHandler(appDashboardService{app: a})
 	progressHandler := NewIngestProgressHandler(appDashboardService{app: a})
+	accessTrendHandler := NewAccessTrendHandler(appDashboardService{app: a})
 	passwordHandler := NewPasswordHandler(appSecurityService{app: a})
 	ipReloadHandler := NewIPDataReloadHandler(appSecurityService{app: a})
 	threatIntelligenceHandler := threatIntelligenceHandler(a)
+	mfaHandler := a.mfaHandler()
 
-	mux.Handle("/api/query", methodHandler(http.MethodGet, a.requireAuth(queryHandler)))
+	mux.Handle("/api/query", methodHandler(http.MethodGet, a.requireAuth(a.requireExternalAPIEnabled(queryHandler))))
+	mux.Handle("/api/mcp", methodHandler(http.MethodPost, a.requireBearerAuth(a.requireMCPEnabled(a.mcpHandler()))))
 	mux.Handle("/api/health-dashboard", methodHandler(http.MethodGet, a.requireAuth(dashboardHandler)))
 	mux.Handle("/api/health-dashboard/summary", methodHandler(http.MethodGet, a.requireAuth(dashboardSummaryHandler)))
 	mux.Handle("/api/health-dashboard/rankings", methodHandler(http.MethodGet, a.requireAuth(dashboardRankingsHandler)))
 	mux.Handle("/api/ingest-progress", methodHandler(http.MethodGet, a.requireAuth(progressHandler)))
+	mux.Handle("/api/access-trend", methodHandler(http.MethodGet, a.requireAuth(accessTrendHandler)))
 	mux.Handle("/api/password", methodHandler(http.MethodPost, a.requireAuth(passwordHandler)))
 	mux.Handle("/api/ip-data/reload", methodHandler(http.MethodPost, a.requireAuth(ipReloadHandler)))
 	mux.Handle("/api/settings", a.requireAuth(settingsHandler(a)))
 	mux.Handle("/api/receiver/status", methodHandler(http.MethodGet, a.requireAuth(a.receiverStatusHandler())))
 	mux.Handle("/api/session", methodHandler(http.MethodGet, a.sessionHandler()))
+	mux.Handle("/api/setup/status", methodHandler(http.MethodGet, a.setupStatusHandler()))
+	mux.Handle("/api/setup", methodHandler(http.MethodPost, a.setupHandler()))
 	mux.Handle("/api/login", methodHandler(http.MethodPost, a.loginHandler()))
+	mux.Handle("/api/mfa/status", methodHandler(http.MethodGet, a.requireAuth(mfaHandler)))
+	mux.Handle("/api/mfa/setup", methodHandler(http.MethodPost, a.requireAuth(mfaHandler)))
+	mux.Handle("/api/mfa/enable", methodHandler(http.MethodPost, a.requireAuth(mfaHandler)))
+	mux.Handle("/api/mfa/disable", methodHandler(http.MethodPost, a.requireAuth(mfaHandler)))
+	mux.Handle("/api/mfa/recovery-codes", methodHandler(http.MethodPost, a.requireAuth(mfaHandler)))
 	mux.Handle("/api/logout", methodHandler(http.MethodPost, a.requireAuth(a.logoutHandler())))
 	mux.Handle("/api/sync", methodHandler(http.MethodPost, a.requireAuth(a.importHandler(false))))
 	mux.Handle("/api/rebuild", methodHandler(http.MethodPost, a.requireAuth(a.importHandler(true))))
@@ -45,7 +56,7 @@ func (a *App) Router() http.Handler {
 
 	mux.Handle("/", newStaticHandler())
 
-	return a.loggingMiddleware(mux)
+	return a.loggingMiddleware(extensionCORSMiddleware(mux))
 }
 
 func (a *App) loggingMiddleware(next http.Handler) http.Handler {

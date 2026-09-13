@@ -27,6 +27,10 @@ func NewIngestProgressHandler(service serverhandlers.IngestProgressServicer) htt
 	return serverhandlers.NewIngestProgressHandler(service)
 }
 
+func NewAccessTrendHandler(service serverhandlers.AccessTrendServicer) http.Handler {
+	return serverhandlers.NewAccessTrendHandler(service)
+}
+
 func NewPasswordHandler(service serverhandlers.SecurityServicer) http.Handler {
 	return serverhandlers.NewPasswordHandler(service)
 }

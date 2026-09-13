@@ -13,29 +13,52 @@ type rankingCacheState struct {
 	LoadedAt time.Time
 }
 
-type rankingCacheEntry struct {
-	value       DashboardMetrics
+type responseCacheEntry[T any] struct {
+	value       T
 	loadedAt    time.Time
 	loading     chan struct{}
 	lastAttempt time.Time
 	lastErr     error
 }
 
+type responseCache[T any] struct {
+	mu           sync.Mutex
+	ttl          time.Duration
+	now          func() time.Time
+	staleOnError bool
+	entries      map[string]*responseCacheEntry[T]
+}
+
 type rankingCache struct {
-	mu      sync.Mutex
-	ttl     time.Duration
-	now     func() time.Time
-	entries map[string]*rankingCacheEntry
+	*responseCache[DashboardMetrics]
+}
+
+type accessTrendCache struct {
+	*responseCache[AccessTrendSnapshot]
 }
 
 func newRankingCache(ttl time.Duration) *rankingCache {
+	return &rankingCache{responseCache: newResponseCache[DashboardMetrics](ttl, true)}
+}
+
+func newAccessTrendCache(ttl time.Duration) *accessTrendCache {
+	return &accessTrendCache{responseCache: newResponseCache[AccessTrendSnapshot](ttl, false)}
+}
+
+func newResponseCache[T any](ttl time.Duration, staleOnError bool) *responseCache[T] {
 	if ttl <= 0 {
 		ttl = dashboardRankingCacheTTL
 	}
-	return &rankingCache{ttl: ttl, now: time.Now, entries: make(map[string]*rankingCacheEntry)}
+	return &responseCache[T]{
+		ttl:          ttl,
+		now:          time.Now,
+		staleOnError: staleOnError,
+		entries:      make(map[string]*responseCacheEntry[T]),
+	}
 }
 
-func (c *rankingCache) Get(ctx context.Context, key string, loader func(context.Context) (DashboardMetrics, error)) (DashboardMetrics, rankingCacheState, error) {
+func (c *responseCache[T]) Get(ctx context.Context, key string, loader func(context.Context) (T, error)) (T, rankingCacheState, error) {
+	var zero T
 	if c == nil {
 		value, err := loader(ctx)
 		return value, rankingCacheState{}, err
@@ -45,7 +68,7 @@ func (c *rankingCache) Get(ctx context.Context, key string, loader func(context.
 		c.mu.Lock()
 		entry := c.entries[key]
 		if entry == nil {
-			entry = &rankingCacheEntry{}
+			entry = &responseCacheEntry[T]{}
 			c.entries[key] = entry
 		}
 		if entry.loading != nil {
@@ -55,7 +78,7 @@ func (c *rankingCache) Get(ctx context.Context, key string, loader func(context.
 			case <-wait:
 				continue
 			case <-ctx.Done():
-				return DashboardMetrics{}, rankingCacheState{}, ctx.Err()
+				return zero, rankingCacheState{}, ctx.Err()
 			}
 		}
 		if !entry.loadedAt.IsZero() && now.Sub(entry.loadedAt) < c.ttl {
@@ -63,7 +86,7 @@ func (c *rankingCache) Get(ctx context.Context, key string, loader func(context.
 			c.mu.Unlock()
 			return value, state, nil
 		}
-		if entry.lastErr != nil && !entry.loadedAt.IsZero() && now.Sub(entry.lastAttempt) < time.Second {
+		if c.staleOnError && entry.lastErr != nil && !entry.loadedAt.IsZero() && now.Sub(entry.lastAttempt) < time.Second {
 			value, state := entry.value, rankingCacheState{Stale: true, LoadedAt: entry.loadedAt}
 			c.mu.Unlock()
 			return value, state, nil
@@ -89,16 +112,25 @@ func (c *rankingCache) Get(ctx context.Context, key string, loader func(context.
 		if err == nil {
 			return value, rankingCacheState{LoadedAt: loadedAt}, nil
 		}
-		if hasValue {
+		if c.staleOnError && hasValue {
 			return staleValue, rankingCacheState{Stale: true, LoadedAt: loadedAt}, nil
 		}
-		return DashboardMetrics{}, rankingCacheState{}, err
+		return zero, rankingCacheState{}, err
 	}
 }
 
-func (c *rankingCache) nowOrDefault() func() time.Time {
+func (c *responseCache[T]) nowOrDefault() func() time.Time {
 	if c != nil && c.now != nil {
 		return c.now
 	}
 	return time.Now
+}
+
+func (c *responseCache[T]) Clear() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.entries = make(map[string]*responseCacheEntry[T])
+	c.mu.Unlock()
 }

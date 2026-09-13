@@ -7,6 +7,10 @@ import { ingestStatusText } from '../uiCopy';
 
 const { Text } = Typography;
 
+type IncrementalProgressPageProps = {
+  embedded?: boolean;
+};
+
 type DateState = {
   source_id?: string;
   log_date?: string;
@@ -49,7 +53,7 @@ function progressStatus(status?: string) {
   return 'active';
 }
 
-export function IncrementalProgressPage() {
+export function IncrementalProgressPage({ embedded = false }: IncrementalProgressPageProps) {
   const [includeReady, setIncludeReady] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [data, setData] = React.useState<ProgressResponse | null>(null);
@@ -79,19 +83,28 @@ export function IncrementalProgressPage() {
   const nextScanText = autoScanEnabled ? data?.next_auto_scan_at || '计算中' : '未启用';
   const scanPolicyLabel = autoScanEnabled ? '扫描策略' : '触发方式';
   const scanPolicyText = autoScanEnabled ? data?.auto_scan_policy || '配置待完善' : '仅手动触发';
+  const progressActions = (
+    <Space>
+      <Switch checked={includeReady} onChange={setIncludeReady} checkedChildren="显示已完成" unCheckedChildren="仅未完成" />
+      <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()} aria-label="刷新处理进度" />
+    </Space>
+  );
 
   return (
-    <div className="page-stack">
-      <section className="page-header">
-        <div>
-          <span className="eyebrow">日志处理状态</span>
-          <h1>入库进度</h1>
+    <div className={embedded ? 'page-stack progress-page progress-page--embedded' : 'page-stack progress-page'}>
+      {embedded ? (
+        <div className="section-head progress-page-toolbar">
+          <h3>处理进度</h3>
+          {progressActions}
         </div>
-        <Space>
-          <Switch checked={includeReady} onChange={setIncludeReady} checkedChildren="显示已完成" unCheckedChildren="仅未完成" />
-          <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()} />
-        </Space>
-      </section>
+      ) : (
+        <section className="page-header">
+          <div>
+          <h1>接收进度</h1>
+          </div>
+          {progressActions}
+        </section>
+      )}
 
       <section className="ops-section progress-current-card">
         <div className="section-head">

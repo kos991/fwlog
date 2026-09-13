@@ -3,6 +3,7 @@ package clickhouse
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"net/netip"
 	"strings"
@@ -336,9 +337,12 @@ func (s *ClickHouseStore) databaseHealth(ctx context.Context, diskUsedBytes uint
 		&health.ActiveMerges,
 		&health.ActiveParts,
 		&health.TotalRows,
+		&health.DiskTotalBytes,
+		&health.DiskAvailableBytes,
 	); err != nil {
 		return DatabaseHealth{}, err
 	}
+	health.DiskAvailablePercent = diskAvailablePercent(health.DiskTotalBytes, health.DiskAvailableBytes)
 
 	if health.ActiveMerges > 0 {
 		health.Status = "busy"
@@ -353,8 +357,17 @@ func databaseHealthSQL() string {
     (SELECT count() FROM system.processes),
     (SELECT count() FROM system.merges WHERE database = currentDatabase()),
     (SELECT count() FROM system.parts WHERE active AND database = currentDatabase()),
-    (SELECT coalesce(sum(rows), 0) FROM dashboard_daily_totals)
+    (SELECT coalesce(sum(rows), 0) FROM dashboard_daily_totals),
+    (SELECT total_space FROM system.disks WHERE name = 'default'),
+    (SELECT free_space FROM system.disks WHERE name = 'default')
 SETTINGS max_threads = 1`
+}
+
+func diskAvailablePercent(total, available uint64) float64 {
+	if total == 0 {
+		return 0
+	}
+	return math.Round(float64(available)/float64(total)*1000) / 10
 }
 
 func ClickHouseDiskUsageSQL() string {
@@ -362,7 +375,7 @@ func ClickHouseDiskUsageSQL() string {
 FROM system.parts
 WHERE active
   AND database = currentDatabase()
-  AND table IN ('nat_logs', 'dashboard_daily_totals', 'dashboard_daily_ip_counts', 'ingest_dates', 'ingest_files', 'app_settings', 'log_sources', 'threat_intelligence_results')`
+  AND table IN ('nat_logs', 'dashboard_daily_totals', 'dashboard_daily_ip_counts', 'access_trend_daily_flows', 'ingest_dates', 'ingest_files', 'app_settings', 'log_sources', 'threat_intelligence_results')`
 }
 
 func (s *ClickHouseStore) countRowsForDate(ctx context.Context, date time.Time) (uint64, error) {

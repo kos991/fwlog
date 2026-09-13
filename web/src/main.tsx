@@ -1,27 +1,37 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { ConfigProvider, Spin, message } from 'antd';
+import { ConfigProvider, message } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { AppLayout, type RouteKey } from './layout/AppLayout';
 import { LoginPage } from './pages/LoginPage';
+import { SetupPage } from './pages/SetupPage';
 import { HealthDashboard } from './pages/HealthDashboard';
 import { LogSearchPage } from './pages/LogSearchPage';
-import { IncrementalProgressPage } from './pages/IncrementalProgressPage';
+import { LogReceptionPage } from './pages/LogReceptionPage';
 import { SystemMaintenancePage } from './pages/SystemMaintenancePage';
 import { UpgradePreviewPage } from './pages/UpgradePreviewPage';
 import { apiGet, apiPost, setOnUnauthorized } from './api';
 import './styles.css';
 
+const AccessTrendPreview = React.lazy(async () => {
+  const module = await import('./pages/AccessTrendPreview');
+  return { default: module.AccessTrendPreview };
+});
+
 type SessionResponse = {
   authenticated?: boolean;
   ok?: boolean;
 };
+type SetupStatus = { required: boolean; username?: string };
 
 function App() {
   const [active, setActive] = React.useState<RouteKey>('dashboard');
   const [authenticated, setAuthenticated] = React.useState(false);
-  const [checkingSession, setCheckingSession] = React.useState(true);
+  const [setupRequired, setSetupRequired] = React.useState(false);
+  const [setupError, setSetupError] = React.useState('');
   const isUpgradePreview = new URLSearchParams(window.location.search).get('preview') === 'upgrade';
+  const isAccessPreview = new URLSearchParams(window.location.search).get('preview') === 'access';
+  const isLoginPreview = new URLSearchParams(window.location.search).get('preview') === 'login';
 
   const refreshSession = React.useCallback(async () => {
     try {
@@ -29,8 +39,17 @@ function App() {
       setAuthenticated(Boolean(session.authenticated ?? session.ok));
     } catch {
       setAuthenticated(false);
-    } finally {
-      setCheckingSession(false);
+    }
+  }, []);
+
+  const refreshStartup = React.useCallback(async () => {
+    try {
+      const [setup, session] = await Promise.all([apiGet<SetupStatus>('/api/setup/status'), apiGet<SessionResponse>('/api/session')]);
+      setSetupRequired(Boolean(setup.required));
+      setAuthenticated(Boolean(session.authenticated ?? session.ok));
+      setSetupError('');
+    } catch (error) {
+      setSetupError(error instanceof Error ? error.message : '无法读取系统状态');
     }
   }, []);
 
@@ -40,12 +59,9 @@ function App() {
   }, []);
 
   React.useEffect(() => {
-    if (isUpgradePreview) {
-      setCheckingSession(false);
-      return;
-    }
-    void refreshSession();
-  }, [isUpgradePreview, refreshSession]);
+    if (isUpgradePreview || isLoginPreview) return;
+    void refreshStartup();
+  }, [isLoginPreview, isUpgradePreview, refreshStartup]);
 
   const logout = React.useCallback(async () => {
     try {
@@ -61,9 +77,16 @@ function App() {
     return <UpgradePreviewPage />;
   }
 
-  if (checkingSession) {
-    return <Spin fullscreen tip="正在检查登录状态" />;
+  if (isAccessPreview) {
+    return <React.Suspense fallback={<div className="app-loading" />}> <AccessTrendPreview /> </React.Suspense>;
   }
+
+  if (isLoginPreview) {
+    return <LoginPage onSuccess={() => undefined} />;
+  }
+
+  if (setupError) return <div className="app-loading setup-startup-error">{setupError}</div>;
+  if (setupRequired) return <SetupPage onComplete={() => { setSetupRequired(false); void refreshSession(); }} />;
 
   if (!authenticated) {
     return <LoginPage onSuccess={refreshSession} />;
@@ -71,10 +94,11 @@ function App() {
 
   return (
     <AppLayout active={active} onChange={setActive} onLogout={logout}>
-      {active === 'dashboard' && <HealthDashboard onOpenProgress={() => setActive('progress')} />}
-      {active === 'search' && <LogSearchPage onOpenProgress={() => setActive('progress')} />}
-      {active === 'progress' && <IncrementalProgressPage />}
-      {active === 'maintenance' && <SystemMaintenancePage onRequireLogin={() => setAuthenticated(false)} />}
+      {active === 'dashboard' && <HealthDashboard onOpenProgress={() => setActive('reception')} />}
+      {active === 'search' && <LogSearchPage onOpenProgress={() => setActive('reception')} />}
+      {active === 'reception' && <LogReceptionPage onRequireLogin={() => setAuthenticated(false)} />}
+      {active === 'organize' && <SystemMaintenancePage scope="organize" onRequireLogin={() => setAuthenticated(false)} />}
+      {active === 'maintenance' && <SystemMaintenancePage scope="system" onRequireLogin={() => setAuthenticated(false)} />}
     </AppLayout>
   );
 }

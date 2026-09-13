@@ -121,14 +121,17 @@ type MemoryHealth struct {
 }
 
 type DatabaseHealth struct {
-	Status        string `json:"status"`
-	Version       string `json:"version"`
-	ActiveQueries uint64 `json:"active_queries"`
-	ActiveMerges  uint64 `json:"active_merges"`
-	ActiveParts   uint64 `json:"active_parts"`
-	TotalRows     uint64 `json:"total_rows"`
-	DiskUsedBytes uint64 `json:"disk_used_bytes"`
-	Description   string `json:"description"`
+	Status               string  `json:"status"`
+	Version              string  `json:"version"`
+	ActiveQueries        uint64  `json:"active_queries"`
+	ActiveMerges         uint64  `json:"active_merges"`
+	ActiveParts          uint64  `json:"active_parts"`
+	TotalRows            uint64  `json:"total_rows"`
+	DiskUsedBytes        uint64  `json:"disk_used_bytes"`
+	DiskTotalBytes       uint64  `json:"disk_total_bytes"`
+	DiskAvailableBytes   uint64  `json:"disk_available_bytes"`
+	DiskAvailablePercent float64 `json:"disk_available_percent"`
+	Description          string  `json:"description"`
 }
 
 type SystemHealth struct {
@@ -159,6 +162,27 @@ type DashboardMetrics struct {
 	AutoScanPolicy          string
 	AutoScanEnabled         bool
 	AutoScanMode            string
+}
+
+type AccessTrendPoint struct {
+	ID           string    `json:"id"`
+	TargetIP     string    `json:"target_ip"`
+	TargetRegion string    `json:"target_region"`
+	Count        uint64    `json:"count"`
+	Mode         string    `json:"mode"`
+	Coord        []float64 `json:"coord,omitempty"`
+}
+
+type AccessTrendSummary struct {
+	Total    uint64 `json:"total"`
+	Domestic uint64 `json:"domestic"`
+	Overseas uint64 `json:"overseas"`
+	Unknown  uint64 `json:"unknown"`
+}
+
+type AccessTrendResponse struct {
+	Points  []AccessTrendPoint `json:"points"`
+	Summary AccessTrendSummary `json:"summary"`
 }
 
 type IPDataStatus struct {
