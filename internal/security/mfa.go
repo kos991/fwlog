@@ -121,6 +121,7 @@ func ConsumeRecoveryCode(hashes []string, code string) ([]string, bool) {
 
 type JWTClaims struct {
 	AMR     []string `json:"amr"`
+	Scope   string   `json:"scope,omitempty"`
 	Version uint64   `json:"ver"`
 	jwt.RegisteredClaims
 }
@@ -152,6 +153,10 @@ func NewJWTManager(key []byte, ttl time.Duration) (*JWTManager, error) {
 }
 
 func (m *JWTManager) Issue(subject string, amr []string, now time.Time) (string, error) {
+	return m.IssueScoped(subject, amr, "", now, 0)
+}
+
+func (m *JWTManager) IssueScoped(subject string, amr []string, scope string, now time.Time, ttl time.Duration) (string, error) {
 	if strings.TrimSpace(subject) == "" {
 		return "", errors.New("JWT subject 不能为空")
 	}
@@ -161,10 +166,13 @@ func (m *JWTManager) Issue(subject string, amr []string, now time.Time) (string,
 	}
 	m.mu.RLock()
 	version := m.version
-	ttl := m.ttl
+	defaultTTL := m.ttl
 	key := append([]byte(nil), m.key...)
 	m.mu.RUnlock()
-	claims := JWTClaims{AMR: append([]string(nil), amr...), Version: version, RegisteredClaims: jwt.RegisteredClaims{
+	if ttl <= 0 {
+		ttl = defaultTTL
+	}
+	claims := JWTClaims{AMR: append([]string(nil), amr...), Scope: strings.TrimSpace(scope), Version: version, RegisteredClaims: jwt.RegisteredClaims{
 		Subject:   subject,
 		ID:        base64.RawURLEncoding.EncodeToString(jtiRaw[:]),
 		IssuedAt:  jwt.NewNumericDate(now),
@@ -188,7 +196,7 @@ func (m *JWTManager) Parse(token string, now time.Time) (*JWTClaims, error) {
 		return nil, err
 	}
 	claims, ok := parsed.Claims.(*JWTClaims)
-	if !ok || !parsed.Valid || claims.Version != version || claims.Subject == "" {
+	if !ok || !parsed.Valid || claims.Subject == "" || (claims.Scope == "" && claims.Version != version) {
 		return nil, errors.New("JWT 无效")
 	}
 	return claims, nil

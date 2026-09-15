@@ -186,6 +186,9 @@ function mockResponse<T>(path: string, init: RequestInit): T {
   if (path.startsWith('/api/mfa/disable')) {
     return { enabled: false, configured: false, recovery_codes: 0 } as T;
   }
+  if (path === '/api/mcp/token' && init.method === 'POST') {
+    return { access_token: 'preview-mcp-token', token_type: 'Bearer', expires_at: '2026-10-15T12:00:00+08:00' } as T;
+  }
   if (path.startsWith('/api/logout')) {
     return { authenticated: false } as T;
   }

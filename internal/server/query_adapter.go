@@ -31,6 +31,8 @@ func (s appQueryService) Query(r *http.Request) (QueryResponse, error) {
 	if err := query.ValidateQueryProtection(req, pageOptions); err != nil {
 		return QueryResponse{}, err
 	}
+	displaySourceID := req.SourceID
+	req.SourceID = s.app.storageSourceID(displaySourceID)
 
 	release, err := s.acquireQuerySlot(r.Context())
 	if err != nil {
@@ -49,6 +51,7 @@ func (s appQueryService) Query(r *http.Request) (QueryResponse, error) {
 		return QueryResponse{}, err
 	}
 
+	states = s.app.configuredDateStates(states, displaySourceID)
 	visibility := query.BuildVisibleRanges(req.Start, req.End, states)
 	querySQL, args, err := query.BuildQuerySQL(req, visibility)
 	if err != nil {
@@ -82,7 +85,6 @@ func (s appQueryService) Query(r *http.Request) (QueryResponse, error) {
 		}
 		return QueryResponse{}, err
 	}
-	s.enrichRecords(records)
 	nextCursor := ""
 	if hasMore {
 		nextCursor, err = nextCursorFromRecords(records)
@@ -90,6 +92,8 @@ func (s appQueryService) Query(r *http.Request) (QueryResponse, error) {
 			return QueryResponse{}, err
 		}
 	}
+	s.enrichRecords(records)
+	s.app.mapRecordSourceIDs(records)
 
 	return QueryResponse{
 		Records:     records,
@@ -101,6 +105,20 @@ func (s appQueryService) Query(r *http.Request) (QueryResponse, error) {
 		QueryTimeMS: time.Since(startedAt).Milliseconds(),
 		Visibility:  visibility,
 	}, nil
+}
+
+func (a *App) mapRecordSourceIDs(records []map[string]any) {
+	byStorageID := make(map[string]LogSource)
+	for _, source := range a.currentLogSources() {
+		byStorageID[effectiveStorageSourceID(source)] = source
+	}
+	for _, record := range records {
+		storageSourceID, _ := record["source_id"].(string)
+		if source, exists := byStorageID[storageSourceID]; exists {
+			record["source_id"] = source.SourceID
+			record["log_tag"] = source.LogTag
+		}
+	}
 }
 
 func (s appQueryService) acquireQuerySlot(ctx context.Context) (func(), error) {

@@ -44,6 +44,7 @@ func (s appDashboardService) DashboardSummary(r *http.Request) (HealthDashboardR
 	if err != nil {
 		return HealthDashboardResponse{}, err
 	}
+	states = s.app.configuredDateStates(states, "")
 	metrics, err := store.DashboardSummaryMetrics(ctx)
 	if err != nil {
 		return HealthDashboardResponse{}, err
@@ -61,8 +62,9 @@ func (s appDashboardService) DashboardRankings(r *http.Request) (HealthDashboard
 	ctx, cancel := context.WithTimeout(r.Context(), dashboardTimeout)
 	defer cancel()
 	since := dashboardMetricsSince(r)
-	sourceID := strings.TrimSpace(r.URL.Query().Get("source_id"))
-	key := fmt.Sprintf("%s|%s", r.URL.Query().Get("metrics_range"), sourceID)
+	displaySourceID := strings.TrimSpace(r.URL.Query().Get("source_id"))
+	sourceID := s.app.storageSourceID(displaySourceID)
+	key := fmt.Sprintf("%s|%s", r.URL.Query().Get("metrics_range"), displaySourceID)
 	if key == "|" {
 		key = fmt.Sprintf("%s|%s", since.Format("2006-01-02"), sourceID)
 	}
@@ -98,6 +100,7 @@ func (s appDashboardService) IngestProgress(r *http.Request) (IngestProgressResp
 	if err != nil {
 		return IngestProgressResponse{}, err
 	}
+	states = s.app.configuredDateStates(states, "")
 	return dashboard.BuildIngestProgress(states, includeReady, s.withAutoScanPlan(DashboardMetrics{})), nil
 }
 

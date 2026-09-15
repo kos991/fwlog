@@ -1,5 +1,15 @@
 import assert from 'node:assert/strict';
 import { buildIngestProgressView } from '../src/ingestPresentation.ts';
+import fs from 'node:fs';
+import path from 'node:path';
+import test from 'node:test';
+
+test('接收进度只展示当前启用日志来源的历史状态', () => {
+  const page = fs.readFileSync(path.resolve('src/pages/IncrementalProgressPage.tsx'), 'utf8');
+  if (!page.includes('function configuredSourceIDs') || !page.includes('const visibleDates = (data?.dates || []).filter')) {
+    throw new Error('progress page must filter date states by configured source IDs');
+  }
+});
 
 const view = buildIngestProgressView({
   status: 'importing',

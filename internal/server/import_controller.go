@@ -166,6 +166,46 @@ func (a *App) currentLogSources() []LogSource {
 	return []LogSource{legacyLogSourceFromSettings(settings, a.cfg)}
 }
 
+func effectiveStorageSourceID(source LogSource) string {
+	if sourceID := strings.TrimSpace(source.StorageSourceID); sourceID != "" {
+		return sourceID
+	}
+	return source.SourceID
+}
+
+func (a *App) storageSourceID(displaySourceID string) string {
+	displaySourceID = strings.TrimSpace(displaySourceID)
+	for _, source := range a.currentLogSources() {
+		if source.SourceID == displaySourceID {
+			return effectiveStorageSourceID(source)
+		}
+	}
+	return displaySourceID
+}
+
+func (a *App) configuredDateStates(states []DateIngestState, displaySourceID string) []DateIngestState {
+	sources := a.currentLogSources()
+	byStorageID := make(map[string]LogSource, len(sources))
+	for _, source := range sources {
+		if displaySourceID != "" && source.SourceID != displaySourceID {
+			continue
+		}
+		byStorageID[effectiveStorageSourceID(source)] = source
+	}
+
+	configured := make([]DateIngestState, 0, len(states))
+	for _, state := range states {
+		source, exists := byStorageID[state.SourceID]
+		if !exists {
+			continue
+		}
+		state.SourceID = source.SourceID
+		state.LogTag = source.LogTag
+		configured = append(configured, state)
+	}
+	return configured
+}
+
 func (a *App) legacyLogSource() LogSource {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -185,6 +225,7 @@ func legacyLogSourceFromSettings(settings map[string]string, cfg Config) LogSour
 
 type logSourcePayload struct {
 	SourceID             string `json:"source_id"`
+	StorageSourceID      string `json:"storage_source_id"`
 	SerialNumber         string `json:"serial_number"`
 	LogDir               string `json:"log_dir"`
 	LogTag               string `json:"log_tag"`
@@ -247,6 +288,7 @@ func normalizeLogSourcePayloads(payload []logSourcePayload, enabledOnly bool) []
 	sources := make([]LogSource, 0, len(payload))
 	for _, item := range payload {
 		sourceID := strings.TrimSpace(item.SourceID)
+		storageSourceID := strings.TrimSpace(item.StorageSourceID)
 		serialNumber := strings.TrimSpace(item.SerialNumber)
 		logDir := strings.TrimSpace(item.LogDir)
 		logTag := strings.TrimSpace(item.LogTag)
@@ -262,6 +304,9 @@ func normalizeLogSourcePayloads(payload []logSourcePayload, enabledOnly bool) []
 		}
 		if sourceID == "" {
 			sourceID = "default"
+		}
+		if storageSourceID == "" {
+			storageSourceID = sourceID
 		}
 		if sourceType == "rsyslog" {
 			if listenHost == "" {
@@ -287,6 +332,7 @@ func normalizeLogSourcePayloads(payload []logSourcePayload, enabledOnly bool) []
 		}
 		sources = append(sources, LogSource{
 			SourceID:             sourceID,
+			StorageSourceID:      storageSourceID,
 			SerialNumber:         serialNumber,
 			LogDir:               logDir,
 			LogTag:               logTag,
@@ -329,9 +375,14 @@ func (a *App) startBackgroundImportSources(rebuild bool, targetDate importTarget
 		return ImportStartResult{}
 	}
 	return a.imports.Start(context.Background(), sources, func(parent context.Context, source LogSource) error {
+		displaySourceID := source.SourceID
+		if storageSourceID := strings.TrimSpace(source.StorageSourceID); storageSourceID != "" {
+			source.SourceID = storageSourceID
+		}
 		start := time.Now()
 		a.logger.Info("import source started",
-			"source_id", source.SourceID,
+			"source_id", displaySourceID,
+			"storage_source_id", source.SourceID,
 			"log_dir", source.LogDir,
 			"log_tag", source.LogTag,
 			"rebuild", rebuild,
@@ -357,7 +408,8 @@ func (a *App) startBackgroundImportSources(rebuild bool, targetDate importTarget
 
 		if err != nil {
 			a.logger.Error("import source failed",
-				"source_id", source.SourceID,
+				"source_id", displaySourceID,
+				"storage_source_id", source.SourceID,
 				"error", err,
 				"duration_sec", duration.Seconds(),
 			)
@@ -365,7 +417,8 @@ func (a *App) startBackgroundImportSources(rebuild bool, targetDate importTarget
 		}
 
 		a.logger.Info("import source completed",
-			"source_id", source.SourceID,
+			"source_id", displaySourceID,
+			"storage_source_id", source.SourceID,
 			"imported_dates", len(imported),
 			"skipped_dates", len(skipped),
 			"duration_sec", duration.Seconds(),

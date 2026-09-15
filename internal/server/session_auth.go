@@ -385,8 +385,8 @@ func (a *App) isAuthenticated(r *http.Request) bool {
 	a.mu.RUnlock()
 	if manager != nil {
 		if token := bearerToken(r); token != "" {
-			if _, err := manager.Parse(token, time.Now()); err == nil {
-				return true
+			if claims, err := manager.Parse(token, time.Now()); err == nil {
+				return claims.Scope == ""
 			}
 			return false
 		}

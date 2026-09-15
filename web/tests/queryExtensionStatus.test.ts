@@ -8,6 +8,26 @@ const require = createRequire(import.meta.url);
 const { summarizeReceiverStatus, availablePercent } = require('../../chrome-extension/status-metrics.js');
 const { buildDateAvailability, monthCells, parseDateTimeInput } = require('../../chrome-extension/date-availability.js');
 
+test('query extension uses the Manifest V3 action and service worker model', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.resolve('../chrome-extension/manifest.json'), 'utf8')) as {
+    manifest_version?: number;
+    action?: { default_popup?: string };
+    background?: { service_worker?: string };
+    permissions?: string[];
+    content_security_policy?: { extension_pages?: string };
+    browser_action?: unknown;
+    background_page?: unknown;
+  };
+
+  assert.equal(manifest.manifest_version, 3);
+  assert.equal(manifest.action?.default_popup, 'popup.html');
+  assert.equal(manifest.background?.service_worker, 'background.js');
+  assert.deepEqual(manifest.permissions, ['storage']);
+  assert.equal(manifest.content_security_policy?.extension_pages, "script-src 'self'; object-src 'self'");
+  assert.equal(manifest.browser_action, undefined);
+  assert.equal(manifest.background_page, undefined);
+});
+
 test('query extension summarizes all receiver sources without treating lifetime counts as daily counts', () => {
   const status = summarizeReceiverStatus({
     edge: {
@@ -74,17 +94,24 @@ test('query extension uses the approved compact result and telemetry layout', ()
   const styles = fs.readFileSync(path.resolve('../chrome-extension/popup.css'), 'utf8');
 
   assert.match(html, /class="tab-indicator"/);
+  assert.match(html, /id="plugin-version"/);
   assert.match(html, /id="date-picker" class="date-picker"/);
   assert.match(html, /date-availability\.js/);
   assert.match(html, /id="body" class="result-list"/);
+  assert.match(html, /id="source-id"/);
   assert.match(html, /id="page-number"/);
   assert.match(html, /class="telemetry"/);
   assert.doesNotMatch(html, /<table|class="system-metrics"/);
   assert.match(script, /function renderLogRecord\(row\)/);
+  assert.match(script, /destinationGeo\(row\)/);
+  assert.match(script, /class="geo-label"/);
   assert.match(script, /\/api\/ingest-progress\?range=all&include_ready=true/);
   assert.match(script, /parseDateTimeInput/);
+  assert.match(script, /source_id: \$\('source-id'\)/);
+  assert.match(script, /function renderSourceStatus/);
   assert.match(script, /aria-expanded/);
   assert.match(styles, /--font-data: "Cascadia Mono"/);
+  assert.match(styles, /grid-template-columns: 88px 62px/);
   assert.match(styles, /grid-template-columns: minmax\(0, 1fr\) 64px/);
   assert.match(styles, /\.calendar-legend/);
 });

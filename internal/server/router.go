@@ -24,6 +24,7 @@ func (a *App) Router() http.Handler {
 
 	mux.Handle("/api/query", methodHandler(http.MethodGet, a.requireAuth(a.requireExternalAPIEnabled(queryHandler))))
 	mux.Handle("/api/mcp", methodHandler(http.MethodPost, a.requireBearerAuth(a.requireMCPEnabled(a.mcpHandler()))))
+	mux.Handle("/api/mcp/token", methodHandler(http.MethodPost, a.requireAuth(a.requireMCPEnabled(a.mcpTokenHandler()))))
 	mux.Handle("/api/health-dashboard", methodHandler(http.MethodGet, a.requireAuth(dashboardHandler)))
 	mux.Handle("/api/health-dashboard/summary", methodHandler(http.MethodGet, a.requireAuth(dashboardSummaryHandler)))
 	mux.Handle("/api/health-dashboard/rankings", methodHandler(http.MethodGet, a.requireAuth(dashboardRankingsHandler)))

@@ -29,18 +29,9 @@ test('Chrome 插件登录页使用紧凑本地点阵地球', () => {
   const extensionRoot = path.resolve('..', 'chrome-extension');
   const html = fs.readFileSync(path.join(extensionRoot, 'popup.html'), 'utf8');
   const styles = fs.readFileSync(path.join(extensionRoot, 'popup.css'), 'utf8');
-  const globe = fs.readFileSync(path.join(extensionRoot, 'login-globe.js'), 'utf8');
-
-  assert.match(html, /<section id="login"[\s\S]*class="login-globe"[\s\S]*<canvas id="login-globe-canvas"/);
-  assert.match(html, /<script type="module" src="login-globe\.js"><\/script>/);
-  assert.match(globe, /from '\.\/vendor\/three\.module\.min\.js'/);
-  assert.match(globe, /globe-land-points\.json/);
-  assert.match(globe, /prefers-reduced-motion/);
-  assert.match(globe, /MutationObserver/);
-  assert.match(globe, /visibilitychange/);
-  assert.doesNotMatch(globe, /https?:\/\//);
-  assert.match(styles, /\.login-globe\s*\{[^}]*height:\s*76px;/s);
-  assert.match(styles, /\.login-globe canvas\s*\{[^}]*width:\s*112px;[^}]*height:\s*112px;/s);
+  assert.doesNotMatch(html, /login-globe/);
+  assert.doesNotMatch(html, /login-globe\.js/);
+  assert.doesNotMatch(styles, /login-globe/);
   assert.match(styles, /html, body\s*\{[^}]*width:\s*360px;/s);
   assert.ok(fs.existsSync(path.join(extensionRoot, 'vendor', 'three.module.min.js')));
   assert.ok(fs.existsSync(path.join(extensionRoot, 'globe-land-points.json')));

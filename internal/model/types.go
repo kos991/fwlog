@@ -36,6 +36,7 @@ func (s *IngestStatus) Scan(value any) error {
 
 type LogSource struct {
 	SourceID             string    `json:"source_id"`
+	StorageSourceID      string    `json:"storage_source_id,omitempty"`
 	SerialNumber         string    `json:"serial_number,omitempty"`
 	LogDir               string    `json:"log_dir"`
 	LogTag               string    `json:"log_tag"`
@@ -138,6 +139,14 @@ type SystemHealth struct {
 	CPU      CPUHealth      `json:"cpu"`
 	Memory   MemoryHealth   `json:"memory"`
 	Database DatabaseHealth `json:"database"`
+	HostDisk DiskHealth     `json:"host_disk"`
+}
+
+type DiskHealth struct {
+	Path             string  `json:"path"`
+	TotalBytes       uint64  `json:"total_bytes"`
+	AvailableBytes   uint64  `json:"available_bytes"`
+	AvailablePercent float64 `json:"available_percent"`
 }
 
 type DashboardMetrics struct {

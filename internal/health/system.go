@@ -27,6 +27,7 @@ func CollectSystemHealth(database DatabaseHealth) SystemHealth {
 		CPU:      collectCPUHealth(),
 		Memory:   collectMemoryHealth(),
 		Database: database,
+		HostDisk: collectDiskHealth("/data"),
 	}
 }
 

@@ -6,3 +6,4 @@ type SystemHealth = model.SystemHealth
 type CPUHealth = model.CPUHealth
 type MemoryHealth = model.MemoryHealth
 type DatabaseHealth = model.DatabaseHealth
+type DiskHealth = model.DiskHealth

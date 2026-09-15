@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -117,5 +118,107 @@ func TestSettingsHandlerKeepsOldSettingsWhenPersistenceFails(t *testing.T) {
 	}
 	if got := app.getSettings()["log_sources"]; got != original {
 		t.Fatalf("failed persistence changed log_sources: %q", got)
+	}
+}
+
+func TestLogSourcePathsChangedIgnoresMetadataChanges(t *testing.T) {
+	previous := `[{"source_id":"fw-a","serial_number":"SN-001","log_tag":"edge-a","log_dir":"/data/fw-a","enabled":true,"source_type":"file"}]`
+	next := `[{"source_id":"fw-renamed","serial_number":"SN-002","log_tag":"edge-renamed","log_dir":"/data/fw-a","enabled":false,"source_type":"file"}]`
+	if logSourcePathsChanged(previous, next) {
+		t.Fatal("metadata-only source changes must not be treated as path changes")
+	}
+}
+
+func TestLogSourcePathsChangedDetectsDirectoryChanges(t *testing.T) {
+	previous := `[{"source_id":"fw-a","log_tag":"edge-a","log_dir":"/data/fw-a","enabled":true,"source_type":"file"}]`
+	next := `[{"source_id":"fw-a","log_tag":"edge-renamed","log_dir":"/data/fw-b","enabled":true,"source_type":"file"}]`
+	if !logSourcePathsChanged(previous, next) {
+		t.Fatal("log directory changes must be treated as path changes")
+	}
+}
+
+func TestLogSourcePathsChangedIgnoresSourceOrder(t *testing.T) {
+	previous := `[{"source_id":"fw-a","log_dir":"/data/fw-a","source_type":"file"},{"source_id":"fw-b","log_dir":"/data/fw-b","source_type":"file"}]`
+	next := `[{"source_id":"renamed-b","log_dir":"/data/fw-b","source_type":"file"},{"source_id":"renamed-a","log_dir":"/data/fw-a","source_type":"file"}]`
+	if logSourcePathsChanged(previous, next) {
+		t.Fatal("reordering sources must not be treated as a path change")
+	}
+}
+
+func TestNormalizeLogSourcePreservesStableStorageIdentity(t *testing.T) {
+	sources := normalizeLogSourcePayloads([]logSourcePayload{{
+		SourceID: "W-1", StorageSourceID: "legacy-source", LogDir: "/data/fw-a", SourceType: "file",
+	}}, false)
+	if len(sources) != 1 || sources[0].SourceID != "W-1" || sources[0].StorageSourceID != "legacy-source" {
+		t.Fatalf("normalized source identity = %#v", sources)
+	}
+}
+
+func TestNormalizeSettingsInheritsStorageIdentityWhenLegacySourceIsRenamed(t *testing.T) {
+	app := NewApp(LoadConfig())
+	app.applyNormalizedSettings(map[string]string{
+		"log_sources": `[{"source_id":"外网","log_tag":"旧名称","log_dir":"/data/fw-a","enabled":true,"source_type":"file"}]`,
+	})
+
+	updates, err := app.normalizeSettingsPayload(map[string]any{
+		"log_sources": `[{"source_id":"W-1","log_tag":"新名称","log_dir":"/data/fw-a","enabled":true,"source_type":"file"}]`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sources []LogSource
+	if err := json.Unmarshal([]byte(updates["log_sources"]), &sources); err != nil {
+		t.Fatal(err)
+	}
+	if len(sources) != 1 || sources[0].SourceID != "W-1" || sources[0].StorageSourceID != "外网" {
+		t.Fatalf("renamed source identity = %#v", sources)
+	}
+}
+
+func TestNormalizeSettingsKeepsStorageIdentityForMetadataEdit(t *testing.T) {
+	app := NewApp(LoadConfig())
+	app.applyNormalizedSettings(map[string]string{
+		"log_sources": `[{"source_id":"W-1","storage_source_id":"外网","log_tag":"旧名称","log_dir":"/data/fw-a","enabled":true,"source_type":"file"}]`,
+	})
+
+	updates, err := app.normalizeSettingsPayload(map[string]any{
+		"log_sources": `[{"source_id":"W-1","log_tag":"新名称","log_dir":"/data/fw-a","enabled":false,"source_type":"file"}]`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sources []LogSource
+	if err := json.Unmarshal([]byte(updates["log_sources"]), &sources); err != nil {
+		t.Fatal(err)
+	}
+	if len(sources) != 1 || sources[0].StorageSourceID != "外网" {
+		t.Fatalf("edited source identity = %#v", sources)
+	}
+}
+
+func TestConfiguredDateStatesMapsStorageIdentityToDisplayIdentity(t *testing.T) {
+	app := NewApp(LoadConfig())
+	app.updateSettings(map[string]any{"log_sources": []any{map[string]any{
+		"source_id": "W-1", "storage_source_id": "legacy-source", "log_tag": "边界防火墙", "log_dir": "/data/fw-a", "enabled": true,
+	}}})
+
+	states := app.configuredDateStates([]DateIngestState{
+		{SourceID: "legacy-source", LogTag: "旧名称", Status: StatusReady},
+		{SourceID: "removed-source", LogTag: "已删除来源", Status: StatusReady},
+	}, "")
+	if len(states) != 1 || states[0].SourceID != "W-1" || states[0].LogTag != "边界防火墙" {
+		t.Fatalf("mapped states = %#v", states)
+	}
+}
+
+func TestMapRecordSourceIDsUsesConfiguredDisplayIdentity(t *testing.T) {
+	app := NewApp(LoadConfig())
+	app.updateSettings(map[string]any{"log_sources": []any{map[string]any{
+		"source_id": "W-1", "storage_source_id": "legacy-source", "log_tag": "边界防火墙", "log_dir": "/data/fw-a", "enabled": true,
+	}}})
+	records := []map[string]any{{"source_id": "legacy-source", "log_tag": "旧名称"}}
+	app.mapRecordSourceIDs(records)
+	if records[0]["source_id"] != "W-1" || records[0]["log_tag"] != "边界防火墙" {
+		t.Fatalf("mapped record = %#v", records[0])
 	}
 }

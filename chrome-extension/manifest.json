@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "FWLOG 查询结果",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "仅查询并查看 FWLOG 防火墙 NAT 日志结果。",
   "action": {
     "default_title": "FWLOG 查询",
@@ -13,6 +13,9 @@
   },
   "background": {
     "service_worker": "background.js"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
   },
   "icons": {
     "16": "icons/icon-16.png",

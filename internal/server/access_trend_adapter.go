@@ -40,8 +40,9 @@ func (s appDashboardService) AccessTrend(r *http.Request) (AccessTrendResponse, 
 
 	ctx, cancel := context.WithTimeout(r.Context(), accessTrendTimeout)
 	defer cancel()
-	sourceID := strings.TrimSpace(r.URL.Query().Get("source_id"))
-	key := accessTrendCacheKey(from, until, sourceID)
+	displaySourceID := strings.TrimSpace(r.URL.Query().Get("source_id"))
+	sourceID := s.app.storageSourceID(displaySourceID)
+	key := accessTrendCacheKey(from, until, displaySourceID)
 	snapshot, _, err := s.app.accessTrendCache.Get(ctx, key, func(loadCtx context.Context) (AccessTrendSnapshot, error) {
 		rows, loadErr := store.AccessTrendRows(loadCtx, from, until, sourceID)
 		if loadErr != nil {

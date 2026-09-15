@@ -38,6 +38,10 @@ type ProgressResponse = DateState & {
   sources?: DateState[];
 };
 
+type SettingsResponse = {
+  log_sources?: Array<{ source_id?: string; enabled?: boolean }> | string;
+};
+
 function formatCount(value?: number) {
   return new Intl.NumberFormat('zh-CN').format(value ?? 0);
 }
@@ -53,23 +57,51 @@ function progressStatus(status?: string) {
   return 'active';
 }
 
+function configuredSourceIDs(value: SettingsResponse['log_sources']): string[] {
+  let sources: Array<{ source_id?: string; enabled?: boolean }> = [];
+  if (Array.isArray(value)) {
+    sources = value;
+  } else if (typeof value === 'string' && value.trim()) {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (Array.isArray(parsed)) sources = parsed as Array<{ source_id?: string; enabled?: boolean }>;
+    } catch {
+      sources = [];
+    }
+  }
+  return sources
+    .filter((source) => source.enabled !== false && source.source_id)
+    .map((source) => String(source.source_id));
+}
+
 export function IncrementalProgressPage({ embedded = false }: IncrementalProgressPageProps) {
   const [includeReady, setIncludeReady] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [data, setData] = React.useState<ProgressResponse | null>(null);
+  const [activeSourceIDs, setActiveSourceIDs] = React.useState<string[] | null>(null);
 
   const load = React.useCallback(async () => {
     try {
       setLoading(true);
-      setData(await apiGet<ProgressResponse>(`/api/ingest-progress${buildQueryString({ range: 'all', include_ready: includeReady })}`));
+      const [progress, settings] = await Promise.all([
+        apiGet<ProgressResponse>(`/api/ingest-progress${buildQueryString({ range: 'all', include_ready: includeReady })}`),
+        activeSourceIDs === null ? apiGet<SettingsResponse>('/api/settings') : Promise.resolve(null),
+      ]);
+      if (settings) setActiveSourceIDs(configuredSourceIDs(settings.log_sources));
+      setData(progress);
     } catch (error) {
       message.error(error instanceof Error ? error.message : '加载入库进度失败');
     } finally {
       setLoading(false);
     }
-  }, [includeReady]);
+  }, [activeSourceIDs, includeReady]);
 
-  const anyImporting = Boolean(data?.sources?.some((source) => source.status === 'importing') || data?.status === 'importing');
+  const isActiveSource = React.useCallback((sourceID?: string) => (
+    activeSourceIDs === null || activeSourceIDs.includes(String(sourceID || ''))
+  ), [activeSourceIDs]);
+  const visibleDates = (data?.dates || []).filter((row) => isActiveSource(row.source_id));
+  const visibleSources = (data?.sources || []).filter((source) => isActiveSource(source.source_id));
+  const anyImporting = Boolean(data?.sources?.some((source) => isActiveSource(source.source_id) && source.status === 'importing') || (isActiveSource(data?.source_id) && data?.status === 'importing'));
 
   React.useEffect(() => {
     void load();
@@ -167,7 +199,7 @@ export function IncrementalProgressPage({ embedded = false }: IncrementalProgres
             <span>进度</span>
             <span>当前文件 / 错误信息</span>
           </div>
-          {(data?.dates || []).map((row) => {
+          {visibleDates.map((row) => {
             const rowProgressView = buildIngestProgressView(row);
             return (
               <div className="progress-list-row" key={`${row.source_id || 'default'}-${row.log_date}`}>

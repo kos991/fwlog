@@ -297,11 +297,6 @@ export function LogSearchPage(_props: LogSearchPageProps) {
         configuredSources.forEach((source) => {
           if (source.source_id) sourceMap.set(source.source_id, source);
         });
-        states.forEach((state) => {
-          if (state.source_id && !sourceMap.has(state.source_id)) {
-            sourceMap.set(state.source_id, { source_id: state.source_id, log_tag: state.log_tag });
-          }
-        });
         setDateStates(states);
         setCidrAliases(parseCidrAliases(settings.cidr_aliases));
         setLogSourceOptions(Array.from(sourceMap.values())

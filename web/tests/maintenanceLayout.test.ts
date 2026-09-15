@@ -108,6 +108,13 @@ test('API 与 MCP 合并到系统设置并提供持久化开关', () => {
   assert.match(page, /name="mcp_enabled"[\s\S]*valuePropName="checked"/);
   assert.match(page, /日志查询 API/);
   assert.match(page, /MCP 接口/);
+  assert.match(page, /apiPost<MCPTokenResponse>\('\/api\/mcp\/token'\)/);
+  assert.match(page, /headers: \{ Authorization: `\$\{token\.token_type\} \$\{token\.access_token\}` \}/);
+  assert.match(page, /onClick=\{\(\) => void downloadMCPConfig\(\)\}/);
+  assert.doesNotMatch(page, /mcpServers: \{ fwlog:/);
+  assert.match(page, /storage_source_id\?: string/);
+  assert.match(page, /const previousSource = sourceEditor\.index === null \? undefined : savedLogSources\[sourceEditor\.index\]/);
+  assert.match(page, /\.\.\.previousSource,[\s\S]*\.\.\.values/);
   assert.match(page, /\/api\/query/);
   assert.match(page, /\/api\/mcp/);
   assert.match(page, /interface-download-button/);

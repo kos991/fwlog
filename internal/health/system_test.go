@@ -44,3 +44,10 @@ func TestCPUUsagePercentRejectsInvalidCounterMovement(t *testing.T) {
 		})
 	}
 }
+
+func TestCollectSystemHealthIncludesHostDiskPath(t *testing.T) {
+	got := CollectSystemHealth(DatabaseHealth{})
+	if got.HostDisk.Path != "/data" {
+		t.Fatalf("host disk path = %q, want /data", got.HostDisk.Path)
+	}
+}

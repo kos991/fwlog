@@ -10,6 +10,7 @@ let dateInputsEdited = false;
 let calendarTarget = 'start';
 let calendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let dateAvailability = { dates: {}, readyDates: [], firstReady: '', latestReady: '' };
+let configuredSources = [];
 
 const ENABLED_ICONS = { 16: 'icons/icon-16.png', 32: 'icons/icon-32.png', 48: 'icons/icon-48.png', 128: 'icons/icon-128.png' };
 const DISABLED_ICONS = { 16: 'icons/icon-disabled-16.png', 32: 'icons/icon-disabled-32.png', 48: 'icons/icon-disabled-48.png', 128: 'icons/icon-disabled-128.png' };
@@ -20,6 +21,49 @@ const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const $ = (id) => document.getElementById(id);
 const show = (id, visible) => { $(id).hidden = !visible; };
 const errorText = (target, error) => { $(target).textContent = error instanceof Error ? error.message : String(error); };
+
+const manifestVersion = globalThis.chrome?.runtime?.getManifest?.()?.version;
+if (manifestVersion && $('plugin-version')) $('plugin-version').textContent = `v${manifestVersion}`;
+
+function parseConfiguredSources(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string' || !value.trim()) return [];
+  try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed : []; } catch { return []; }
+}
+
+function sourceDisplayName(source) {
+  const tag = String(source.log_tag || '').trim();
+  const id = String(source.source_id || '').trim();
+  return tag && id && tag !== id ? `${tag} (${id})` : tag || id || '\u672a\u547d\u540d\u6765\u6e90';
+}
+
+function renderLogSourceOptions(sources) {
+  const select = $('source-id');
+  if (!select) return;
+  const current = select.value;
+  select.innerHTML = '<option value="">\u5168\u90e8\u5df2\u542f\u7528\u65e5\u5fd7\u6765\u6e90</option>';
+  const seen = new Set();
+  sources.filter((source) => source.enabled !== false && source.source_id).forEach((source) => {
+    if (seen.has(source.source_id)) return;
+    seen.add(source.source_id);
+    const option = document.createElement('option');
+    option.value = source.source_id;
+    option.textContent = sourceDisplayName(source);
+    select.appendChild(option);
+  });
+  if ([...select.options].some((option) => option.value === current)) select.value = current;
+}
+
+async function loadConfiguredSources() {
+  try {
+    const response = await fetch(`${await apiBase()}/api/settings`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!response.ok) return [];
+    const settings = await response.json();
+    configuredSources = parseConfiguredSources(settings.log_sources).filter((source) => source.enabled !== false);
+    renderLogSourceOptions(configuredSources);
+    return configuredSources;
+  } catch { return []; }
+}
 
 async function apiBase() {
   if (globalThis.chrome?.storage?.local) {
@@ -136,6 +180,7 @@ async function activateQuery(nextToken, persist = true) {
   setDefaultDates();
   setWorkspacePage('search', false);
   if (pluginEnabled) setConnectionStatus('connected', '已连接');
+  void loadConfiguredSources();
   void loadDateAvailability();
 }
 
@@ -358,6 +403,21 @@ function renderReceiverHealth(payload) {
   setReceiverHealth('active', '日志接收正常', `${status.running}/${status.configured} 服务运行`, `本次接收 ${count} 条`, last);
 }
 
+function renderSourceStatus(sources, receiverPayload) {
+  const container = $('source-status-list');
+  if (!container) return;
+  const receiver = receiverPayload || {};
+  const rows = sources.map((source) => {
+    const isRealtime = source.source_type === 'rsyslog';
+    const state = isRealtime ? receiver[source.source_id] : null;
+    const status = isRealtime ? (state?.running ? '\u8fd0\u884c\u4e2d' : state?.error ? '\u5f02\u5e38' : '\u672a\u542f\u52a8') : '\u5df2\u914d\u7f6e';
+    const kind = isRealtime ? '\u5b9e\u65f6\u63a5\u6536' : '\u672c\u5730\u6587\u4ef6';
+    const stateClass = isRealtime && state?.running ? 'active' : isRealtime && state?.error ? 'failed' : 'idle';
+    return `<div class="source-status-row"><span>${escapeHTML(sourceDisplayName(source))}</span><small>${kind}</small><strong data-state="${stateClass}">${status}</strong></div>`;
+  });
+  container.innerHTML = rows.join('') || '<div class="source-status-empty">\u6682\u65e0\u5df2\u542f\u7528\u65e5\u5fd7\u6765\u6e90</div>';
+}
+
 async function loadSystemMetrics() {
   $('metric-cpu').textContent = '--';
   $('metric-memory').textContent = '--';
@@ -372,9 +432,10 @@ async function loadSystemMetrics() {
   if (!pluginEnabled || !token) return;
   try {
     const headers = { Authorization: `Bearer ${token}` };
-    const [healthResponse, receiverResponse] = await Promise.all([
+    const [healthResponse, receiverResponse, settingsResponse] = await Promise.all([
       fetch(`${base}/api/health-dashboard/summary?range=all`, { headers }),
       fetch(`${base}/api/receiver/status`, { headers }),
+      fetch(`${base}/api/settings`, { headers }).catch(() => null),
     ]);
     if (healthResponse.status === 401 || receiverResponse.status === 401) {
       token = '';
@@ -391,13 +452,23 @@ async function loadSystemMetrics() {
     setPercentMetric('metric-memory', 'metric-memory-bar', data.system_health?.memory?.used_percent);
     const database = data.system_health?.database || {};
     $('metric-database').textContent = formatBytes(database.disk_used_bytes ?? data.data_health?.clickhouse_disk_used_bytes);
-    $('metric-disk-available').textContent = database.disk_available_bytes == null ? '--' : formatBytes(database.disk_available_bytes);
-    const diskPercent = Number.isFinite(Number(database.disk_available_percent))
-      ? Number(database.disk_available_percent)
-      : availablePercent(database.disk_total_bytes, database.disk_available_bytes);
+    const hostDisk = data.system_health?.host_disk || {};
+    const diskAvailable = hostDisk.available_bytes ?? database.disk_available_bytes;
+    $('metric-disk-available').textContent = diskAvailable == null ? '--' : formatBytes(diskAvailable);
+    const diskPercent = Number.isFinite(Number(hostDisk.available_percent))
+      ? Number(hostDisk.available_percent)
+      : availablePercent(hostDisk.total_bytes, diskAvailable) ?? (Number.isFinite(Number(database.disk_available_percent))
+        ? Number(database.disk_available_percent)
+        : availablePercent(database.disk_total_bytes, database.disk_available_bytes));
     $('metric-disk-bar').style.width = diskPercent == null ? '0' : `${Math.min(100, Math.max(0, diskPercent))}%`;
-    if (receiverResponse.ok) renderReceiverHealth(await receiverResponse.json());
+    const receiverPayload = receiverResponse.ok ? await receiverResponse.json() : {};
+    if (receiverResponse.ok) renderReceiverHealth(receiverPayload);
     else setReceiverHealth('failed', '接收状态读取失败', '--', `HTTP ${receiverResponse.status}`, '--');
+    if (settingsResponse?.ok) {
+      configuredSources = parseConfiguredSources((await settingsResponse.json()).log_sources).filter((source) => source.enabled !== false);
+      renderLogSourceOptions(configuredSources);
+    }
+    renderSourceStatus(configuredSources, receiverPayload);
   } catch {
     setConnectionStatus('failed', '连接失败');
     setReceiverHealth('failed', '状态读取失败', '--', '无法连接 FWLOG 查询服务', '--');
@@ -414,7 +485,7 @@ function collectValues() {
   if (start > end) throw new Error('结束时间不能早于开始时间');
   $('start').value = toInputDateTime(start);
   $('end').value = toInputDateTime(end);
-  return { start, end, ip: $('ip').value.trim(), page_size: '50' };
+  return { start, end, ip: $('ip').value.trim(), source_id: $('source-id')?.value || '', page_size: '50' };
 }
 async function runQuery(page = 1, cursor = '') {
   if (!pluginEnabled) throw new Error('插件已停用');
@@ -460,6 +531,14 @@ function protocolLabel(value) {
   return protocol;
 }
 
+function destinationGeo(row) {
+  const value = String(row.dst_geo || '').trim();
+  if (value) return value;
+  const ip = String(row.dst_ip || '').trim();
+  if (/^(10\.|127\.|192\.168\.|172\.(?:1[6-9]|2\d|3[0-1])\.)/.test(ip) || ip === '::1' || /^(?:fc|fd|fe80):/i.test(ip)) return '内网';
+  return '未知公网';
+}
+
 function endpoint(ip, port, highlighted = false) {
   const value = String(ip || '-');
   const address = highlighted ? `<mark>${escapeHTML(value)}</mark>` : escapeHTML(value);
@@ -469,12 +548,13 @@ function endpoint(ip, port, highlighted = false) {
 function renderLogRecord(row) {
   const matchIP = queryState.values?.ip || '';
   const active = /^(create|accept|allow)$/i.test(String(row.action || ''));
+  const geo = destinationGeo(row);
   return `<article class="log-item">
     <button class="log-summary" type="button" aria-expanded="false">
-      <span class="flow-line"><i${active ? '' : ' class="muted-dot"'}></i><b>${endpoint(row.src_ip, row.src_port, row.src_ip === matchIP)}<span class="route-arrow">→</span>${endpoint(row.dst_ip, row.dst_port, row.dst_ip === matchIP)}</b><em>${escapeHTML(protocolLabel(row.protocol))}</em></span>
+      <span class="flow-line"><i${active ? '' : ' class="muted-dot"'}></i><b>${endpoint(row.src_ip, row.src_port, row.src_ip === matchIP)}<span class="route-arrow">→</span>${endpoint(row.dst_ip, row.dst_port, row.dst_ip === matchIP)}</b><em>${escapeHTML(protocolLabel(row.protocol))}</em><small class="geo-label" title="目标地区：${escapeHTML(geo)}">${escapeHTML(geo)}</small></span>
       <span class="meta-line"><span><time>${escapeHTML(compactTimestamp(row.timestamp))}</time><span class="separator">·</span>NAT <code>${endpoint(row.nat_ip, row.nat_port, row.nat_ip === matchIP)}</code><span class="separator">·</span>${escapeHTML(row.source_id || '未标识来源')}</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></span>
     </button>
-    <div class="log-details"><div><span>完整时间</span><b>${escapeHTML(row.timestamp)}</b><span>动作</span><b>${escapeHTML(row.action)}</b><span>日志标识</span><b>${escapeHTML(row.log_tag)}</b><span>来源 ID</span><b>${escapeHTML(row.source_id)}</b></div></div>
+    <div class="log-details"><div><span>完整时间</span><b>${escapeHTML(row.timestamp)}</b><span>动作</span><b>${escapeHTML(row.action)}</b><span>目标地区</span><b>${escapeHTML(geo)}</b><span>日志标识</span><b>${escapeHTML(row.log_tag)}</b><span>来源 ID</span><b>${escapeHTML(row.source_id)}</b></div></div>
   </article>`;
 }
 

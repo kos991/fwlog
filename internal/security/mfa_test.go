@@ -67,3 +67,26 @@ func TestJWTSessionExpiryAndInvalidation(t *testing.T) {
 		t.Fatal("invalidated JWT was accepted")
 	}
 }
+
+func TestJWTScopedTokenUsesIndependentTTL(t *testing.T) {
+	manager, err := NewJWTManager([]byte("01234567890123456789012345678901"), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	token, err := manager.IssueScoped("mcp-client", []string{"admin-download"}, "mcp", now, 30*24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims, err := manager.Parse(token, now.Add(29*24*time.Hour))
+	if err != nil || claims.Scope != "mcp" {
+		t.Fatalf("Parse() = %#v, %v", claims, err)
+	}
+	if _, err := manager.Parse(token, now.Add(31*24*time.Hour)); err == nil {
+		t.Fatal("expired scoped JWT was accepted")
+	}
+	manager.InvalidateAll()
+	if _, err := manager.Parse(token, now.Add(time.Hour)); err != nil {
+		t.Fatalf("session invalidation revoked scoped JWT: %v", err)
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -37,6 +38,12 @@ func settingsHandler(app *App) http.Handler {
 				})
 				return
 			}
+			previousLogSources := ""
+			if _, changed := updates["log_sources"]; changed {
+				app.mu.RLock()
+				previousLogSources = app.settings["log_sources"]
+				app.mu.RUnlock()
+			}
 			if err := app.saveNormalizedSettings(r.Context(), updates); err != nil {
 				writeJSONStatus(w, http.StatusInternalServerError, map[string]any{
 					"error":   "settings_save_failed",
@@ -47,7 +54,7 @@ func settingsHandler(app *App) http.Handler {
 			app.applyNormalizedSettings(updates)
 			app.reloadIPDataFromSettings()
 			app.applyReceiverFromSettings()
-			if _, changed := updates["log_sources"]; changed {
+			if next, changed := updates["log_sources"]; changed && logSourcePathsChanged(previousLogSources, next) {
 				app.triggerRSyslogArchive()
 			}
 			writeJSON(w, app.getSettings())
@@ -59,6 +66,48 @@ func settingsHandler(app *App) http.Handler {
 			})
 		}
 	})
+}
+
+// logSourcePathsChanged deliberately ignores source names and receiver metadata.
+// Editing those fields must not start archive processing; directory changes do.
+func logSourcePathsChanged(previousRaw, nextRaw string) bool {
+	return !logSourcePaths(previousRaw).equal(logSourcePaths(nextRaw))
+}
+
+type logSourcePathSet []string
+
+func (s logSourcePathSet) equal(other logSourcePathSet) bool {
+	if len(s) != len(other) {
+		return false
+	}
+	for index := range s {
+		if s[index] != other[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func logSourcePaths(raw string) logSourcePathSet {
+	var payload []logSourcePayload
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &payload); err != nil {
+		if strings.TrimSpace(raw) == "" {
+			return nil
+		}
+		return logSourcePathSet{strings.TrimSpace(raw)}
+	}
+
+	sources := normalizeLogSourcePayloads(payload, false)
+	paths := make(logSourcePathSet, 0, len(sources))
+	for _, source := range sources {
+		paths = append(paths, strings.Join([]string{
+			strings.TrimSpace(source.LogDir),
+			strings.TrimSpace(source.SpoolDir),
+			strings.TrimSpace(source.ArchiveDir),
+		}, "\x00"))
+	}
+	sort.Strings(paths)
+	return paths
 }
 
 func (a *App) applyReceiverFromSettings() {
@@ -131,15 +180,57 @@ func (a *App) normalizeSettingsPayload(payload map[string]any) (map[string]strin
 			if err := json.Unmarshal([]byte(normalized), &sources); err != nil {
 				return nil, fmt.Errorf("解析日志源配置: %w", err)
 			}
+			a.mu.RLock()
+			previousRaw := a.settings["log_sources"]
+			a.mu.RUnlock()
+			sources = inheritStorageSourceIDs(sources, previousRaw)
 			if err := validateLogSources(sources); err != nil {
 				return nil, err
 			}
-			updates[key] = normalized
+			encoded, err := json.Marshal(sources)
+			if err != nil {
+				return nil, fmt.Errorf("编码日志源配置: %w", err)
+			}
+			updates[key] = string(encoded)
 			continue
 		}
 		updates[key] = stringifySettingValue(value)
 	}
 	return updates, nil
+}
+
+func inheritStorageSourceIDs(sources []LogSource, previousRaw string) []LogSource {
+	var previousPayload []logSourcePayload
+	if err := json.Unmarshal([]byte(strings.TrimSpace(previousRaw)), &previousPayload); err != nil {
+		return sources
+	}
+	previous := normalizeLogSourcePayloads(previousPayload, false)
+	bySourceID := make(map[string]LogSource, len(previous))
+	byPath := make(map[string][]LogSource, len(previous))
+	for _, source := range previous {
+		bySourceID[source.SourceID] = source
+		key := logSourceStoragePath(source)
+		byPath[key] = append(byPath[key], source)
+	}
+	for index := range sources {
+		if prior, exists := bySourceID[sources[index].SourceID]; exists {
+			sources[index].StorageSourceID = effectiveStorageSourceID(prior)
+			continue
+		}
+		matches := byPath[logSourceStoragePath(sources[index])]
+		if len(matches) == 1 {
+			sources[index].StorageSourceID = effectiveStorageSourceID(matches[0])
+		}
+	}
+	return sources
+}
+
+func logSourceStoragePath(source LogSource) string {
+	return strings.Join([]string{
+		strings.TrimSpace(source.LogDir),
+		strings.TrimSpace(source.SpoolDir),
+		strings.TrimSpace(source.ArchiveDir),
+	}, "\x00")
 }
 
 func stringifySettingValue(value any) string {

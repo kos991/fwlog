@@ -146,3 +146,42 @@ func TestMCPClientLoginReturnsBearerToken(t *testing.T) {
 		t.Fatalf("MCP login should expose bearer token: %#v", response)
 	}
 }
+
+func TestMCPTokenDownloadCreatesMCPOnlyCredential(t *testing.T) {
+	app := NewApp(LoadConfig())
+	app.updateSettings(map[string]any{mcpEnabledSettingKey: true})
+	router := app.Router()
+	adminToken := bearerTokenForInterfaceTest(t, app)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/mcp/token", nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("download MCP token = %d %s", res.Code, res.Body.String())
+	}
+	var response struct {
+		AccessToken string    `json:"access_token"`
+		TokenType   string    `json:"token_type"`
+		ExpiresAt   time.Time `json:"expires_at"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if response.AccessToken == "" || response.TokenType != "Bearer" || time.Until(response.ExpiresAt) < 29*24*time.Hour {
+		t.Fatalf("unexpected MCP token response: %#v", response)
+	}
+
+	listed := postMCPForInterfaceTest(t, router, response.AccessToken, `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`)
+	if listed.Code != http.StatusOK || !strings.Contains(listed.Body.String(), `"name":"query_logs"`) {
+		t.Fatalf("MCP-only token cannot list tools: %d %s", listed.Code, listed.Body.String())
+	}
+
+	settingsReq := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
+	settingsReq.Header.Set("Authorization", "Bearer "+response.AccessToken)
+	settingsRes := httptest.NewRecorder()
+	router.ServeHTTP(settingsRes, settingsReq)
+	if settingsRes.Code != http.StatusUnauthorized {
+		t.Fatalf("MCP-only token accessed settings: %d %s", settingsRes.Code, settingsRes.Body.String())
+	}
+}

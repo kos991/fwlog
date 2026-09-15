@@ -38,6 +38,13 @@ test('search page exposes log source filter and device identity', () => {
   assert.match(page, /dataIndex: 'source_id'/);
 });
 
+test('search source options only use enabled configured sources', () => {
+  const page = fs.readFileSync(pagePath, 'utf8');
+
+  assert.match(page, /const configuredSources = parseLogSources\(settings\.log_sources\)\.filter\(\(source\) => source\.enabled !== false\);/);
+  assert.doesNotMatch(page, /states\.forEach\(\(state\) => \{[\s\S]*sourceMap\.set\(state\.source_id/);
+});
+
 test('search date picker uses compact status markers instead of clipped labels', () => {
   const page = fs.readFileSync(pagePath, 'utf8');
 

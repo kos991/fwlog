@@ -42,6 +42,7 @@ type SystemMaintenancePageProps = {
 
 type LogSourceSetting = {
   source_id?: string;
+  storage_source_id?: string;
   serial_number?: string;
   log_tag?: string;
   log_dir?: string;
@@ -54,6 +55,12 @@ type LogSourceSetting = {
   archive_dir?: string;
   archive_retention_days?: number | string;
   enabled?: boolean;
+};
+
+type MCPTokenResponse = {
+  access_token: string;
+  token_type: string;
+  expires_at: string;
 };
 
 type ReceiverStatus = {
@@ -376,6 +383,20 @@ export function SystemMaintenancePage({ onRequireLogin, scope = 'system', embedd
     return applied;
   }
 
+  async function downloadMCPConfig() {
+    try {
+      const token = await apiPost<MCPTokenResponse>('/api/mcp/token');
+      downloadTextFile('fwlog-mcp-config.json', JSON.stringify({
+        type: 'http',
+        url: interfaceEndpoint('/api/mcp'),
+        headers: { Authorization: `${token.token_type} ${token.access_token}` },
+      }, null, 2));
+      message.success(`MCP 接入配置已生成，有效期至 ${dayjs(token.expires_at).format('YYYY-MM-DD HH:mm')}`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '生成 MCP 接入配置失败');
+    }
+  }
+
   function openSourceEditor(type: 'file' | 'rsyslog', index: number | null = null) {
     const source = index === null ? undefined : savedLogSources[index];
     const sourceID = source?.source_id || nextSourceID(type === 'rsyslog' ? 'rsyslog' : 'source', savedLogSources);
@@ -408,7 +429,9 @@ export function SystemMaintenancePage({ onRequireLogin, scope = 'system', embedd
     if (!sourceEditor) return;
     try {
       const values = await sourceForm.validateFields();
+      const previousSource = sourceEditor.index === null ? undefined : savedLogSources[sourceEditor.index];
       const source = normalizeLogSourceSetting({
+        ...previousSource,
         ...values,
         source_type: sourceEditor.type,
         listen_host: sourceEditor.type === 'rsyslog' ? '0.0.0.0' : undefined,
@@ -1193,7 +1216,7 @@ export function SystemMaintenancePage({ onRequireLogin, scope = 'system', embedd
                         <div className="interface-settings-meta">
                           <span><LockOutlined /> Bearer JWT</span>
                           <span className="interface-settings-endpoint"><code>{interfaceEndpoint('/api/mcp')}</code><Tooltip title="复制接口地址"><Button type="text" size="small" icon={<CopyOutlined />} aria-label="复制 MCP 接口地址" onClick={() => void copyInterfaceEndpoint(interfaceEndpoint('/api/mcp'))} /></Tooltip></span>
-                          <Button className="interface-download-button" type="default" size="small" icon={<DownloadOutlined />} onClick={() => downloadTextFile('fwlog-mcp-config.json', JSON.stringify({ mcpServers: { fwlog: { url: interfaceEndpoint('/api/mcp'), transport: 'streamable-http', headers: { Authorization: 'Bearer <JWT>' } } } }, null, 2))}>下载接入配置</Button>
+                          <Button className="interface-download-button" type="default" size="small" icon={<DownloadOutlined />} onClick={() => void downloadMCPConfig()}>下载接入配置</Button>
                         </div>
                       </div>
                       <Form.Item name="mcp_enabled" valuePropName="checked" noStyle>
