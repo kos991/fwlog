@@ -19,7 +19,7 @@ func TestClickHouseDDLContainsCoreTables(t *testing.T) {
 
 	for _, table := range []string{"app_settings", "log_sources", "ingest_dates", "ingest_files", "nat_logs", "threat_intelligence_results"} {
 		if !strings.Contains(sql, "CREATE TABLE IF NOT EXISTS "+table) {
-			t.Fatalf("DDL 缺少�?%s:\n%s", table, sql)
+			t.Fatalf("DDL 缺少表 %s:\n%s", table, sql)
 		}
 	}
 }
@@ -28,10 +28,10 @@ func TestNatLogsDDLUsesExpectedPartitionAndOrderKey(t *testing.T) {
 	sql := natLogsTableDDL("nat_logs", true)
 
 	if !strings.Contains(sql, "PARTITION BY (source_id, log_date)") {
-		t.Fatalf("nat_logs 必须�?log_date 分区:\n%s", sql)
+		t.Fatalf("nat_logs 必须按 log_date 分区:\n%s", sql)
 	}
 	if !strings.Contains(sql, "ORDER BY (log_date, source_id, src_ip, timestamp)") {
-		t.Fatalf("nat_logs 必须使用指定排序�?\n%s", sql)
+		t.Fatalf("nat_logs 必须使用指定排序键:\n%s", sql)
 	}
 	if strings.Contains(sql, "Nullable(") {
 		t.Fatalf("DDL 不能使用 Nullable:\n%s", sql)
@@ -74,7 +74,7 @@ func TestNormalizePartitionKey(t *testing.T) {
 }
 
 func TestNatLogsMigrationSQLPreservesBackupAndCopiesRows(t *testing.T) {
-	statements := strings.Join(natLogsMigrationSQL(), "\n")
+	statements := strings.Join(natLogsMigrationSQLForSource(true), "\n")
 	for _, want := range []string{"CREATE TABLE nat_logs_dual_stack", "PARTITION BY (source_id, log_date)", "INSERT INTO nat_logs_dual_stack", "FROM nat_logs", "RENAME TABLE nat_logs TO nat_logs_ipv4_backup, nat_logs_dual_stack TO nat_logs"} {
 		if !strings.Contains(statements, want) {
 			t.Fatalf("migration SQL missing %q:\n%s", want, statements)
@@ -83,7 +83,7 @@ func TestNatLogsMigrationSQLPreservesBackupAndCopiesRows(t *testing.T) {
 }
 
 func TestNatLogsMigrationSQLConvertsIPv4ColumnsWithoutDroppingOldTable(t *testing.T) {
-	statements := strings.Join(natLogsMigrationSQL(), "\n")
+	statements := strings.Join(natLogsMigrationSQLForSource(true), "\n")
 
 	for _, want := range []string{
 		"CREATE TABLE nat_logs_dual_stack",
@@ -99,7 +99,7 @@ func TestNatLogsMigrationSQLConvertsIPv4ColumnsWithoutDroppingOldTable(t *testin
 }
 
 func TestNatLogsMigrationSQLDisablesInteractiveQueryLimits(t *testing.T) {
-	copySQL := natLogsMigrationSQL()[1]
+	copySQL := natLogsMigrationSQLForSource(true)[1]
 	for _, want := range []string{"max_execution_time = 0", "max_rows_to_read = 0"} {
 		if !strings.Contains(copySQL, want) {
 			t.Fatalf("migration copy SQL must override %q: %s", want, copySQL)
@@ -168,71 +168,6 @@ func TestDiskAvailablePercent(t *testing.T) {
 	}
 }
 
-func TestDistributionSQLFiltersByLogDate(t *testing.T) {
-	since := time.Date(2026, 6, 4, 15, 30, 0, 0, time.Local)
-	sql, args, err := distributionSQL("src_ip", since, "fw-a")
-	if err != nil {
-		t.Fatalf("distributionSQL returned error: %v", err)
-	}
-
-	if !strings.Contains(sql, "log_date >= ?") {
-		t.Fatalf("distribution SQL should filter by log_date: %s", sql)
-	}
-	if !strings.Contains(sql, "source_id = ?") {
-		t.Fatalf("distribution SQL should filter by source_id: %s", sql)
-	}
-	if !strings.Contains(sql, "GROUP BY toString(address)") || !strings.Contains(sql, "LIMIT 10") {
-		t.Fatalf("distribution SQL missing ranking clauses: %s", sql)
-	}
-	if len(args) != 3 || args[0] != "src_ip" {
-		t.Fatalf("args = %#v, want since and source args", args)
-	}
-	got, ok := args[1].(time.Time)
-	if !ok || !got.Equal(startOfDay(since)) {
-		t.Fatalf("since arg = %#v, want start of day %v", args[1], startOfDay(since))
-	}
-	if args[2] != "fw-a" {
-		t.Fatalf("source arg = %#v, want fw-a", args[2])
-	}
-}
-
-func TestDistributionSQLRejectsUnsupportedColumn(t *testing.T) {
-	if _, _, err := distributionSQL("source_file", time.Time{}, ""); err == nil {
-		t.Fatalf("unsupported distribution column should return error")
-	}
-}
-
-func TestDestinationSubnetDistributionSQLCoversAllTraffic(t *testing.T) {
-	since := time.Date(2026, 7, 1, 18, 0, 0, 0, time.Local)
-	sql, args := destinationSubnetDistributionSQL(since, "fw-a")
-
-	for _, want := range []string{
-		"log_date >= ?",
-		"source_id = ?",
-		"dashboard_daily_ip_counts",
-		"dimension = ?",
-		"sum(rows)",
-	} {
-		if !strings.Contains(sql, want) {
-			t.Fatalf("destination subnet SQL missing %q: %s", want, sql)
-		}
-	}
-	if strings.Contains(sql, "LIMIT 10") {
-		t.Fatalf("destination subnet SQL must cover all traffic: %s", sql)
-	}
-	if len(args) != 3 || args[0] != "dst_subnet" || args[2] != "fw-a" {
-		t.Fatalf("destination subnet args = %#v", args)
-	}
-}
-
-func TestDestinationSubnetDistributionSQLUsesIPv4Slash24AndIPv6Slash64(t *testing.T) {
-	sql, _ := destinationSubnetDistributionSQL(time.Time{}, "")
-
-	if strings.Contains(sql, "FROM nat_logs") {
-		t.Fatalf("destination subnet SQL must use the pre-aggregated subnet dimension: %s", sql)
-	}
-}
-
 func TestIPStringUnmapsIPv4AndKeepsIPv6(t *testing.T) {
 	tests := []struct {
 		name string
@@ -253,7 +188,7 @@ func TestIPStringUnmapsIPv4AndKeepsIPv6(t *testing.T) {
 }
 
 func TestQueryNATLogsPageSQLUsesFastPathWithoutTimeSort(t *testing.T) {
-	sql, args := queryNATLogsPageSQL("SELECT * FROM nat_logs WHERE log_date = ?", []any{"2026-06-10"}, QueryPageOptions{Page: 2, PageSize: 50}, QuerySortFast)
+	sql, args := queryNATLogsPageSQL("SELECT * FROM nat_logs WHERE log_date = ?", []any{"2026-06-10"}, QueryPageOptions{Page: 2, PageSize: 50}, QuerySortMode("fast"))
 
 	if strings.Contains(sql, "ORDER BY timestamp DESC") {
 		t.Fatalf("fast path should not force timestamp sort: %s", sql)
@@ -261,8 +196,8 @@ func TestQueryNATLogsPageSQLUsesFastPathWithoutTimeSort(t *testing.T) {
 	if !strings.Contains(sql, "LIMIT ? OFFSET ?") {
 		t.Fatalf("page SQL missing limit/offset: %s", sql)
 	}
-	if got := args; len(got) != 3 || got[1] != 50 || got[2] != 50 {
-		t.Fatalf("args = %#v, want original args plus limit and offset", got)
+	if got := args; len(got) != 3 || got[1] != 51 || got[2] != 50 {
+		t.Fatalf("args = %#v, want original args plus lookahead limit and offset", got)
 	}
 }
 
@@ -272,8 +207,8 @@ func TestQueryNATLogsPageSQLFallsBackWhenPageSizeIsZero(t *testing.T) {
 	if !strings.Contains(sql, "ORDER BY timestamp ASC, source_id ASC, source_file ASC, source_offset ASC") || !strings.Contains(sql, "LIMIT ? OFFSET ?") {
 		t.Fatalf("zero page size should still be paged: %s", sql)
 	}
-	if len(args) != 3 || args[1] != 50 || args[2] != 50 {
-		t.Fatalf("args = %#v, want original args plus fallback limit and offset", args)
+	if len(args) != 3 || args[1] != 51 || args[2] != 50 {
+		t.Fatalf("args = %#v, want original args plus fallback lookahead limit and offset", args)
 	}
 }
 
@@ -285,6 +220,13 @@ func TestQueryNATLogsPageSQLKeepsTimeSortForFilteredSearch(t *testing.T) {
 	}
 	if !strings.Contains(sql, "LIMIT ? OFFSET ?") {
 		t.Fatalf("page SQL missing limit/offset: %s", sql)
+	}
+}
+
+func TestQueryNATLogsPageSQLLooksAheadOnLegacyPages(t *testing.T) {
+	_, args := queryNATLogsPageSQL("SELECT * FROM nat_logs WHERE log_date = ?", []any{"2026-06-10"}, QueryPageOptions{Page: 2, PageSize: 25}, QuerySortTimeAsc)
+	if len(args) != 3 || args[1] != 26 || args[2] != 25 {
+		t.Fatalf("args = %#v, want page-size-plus-one lookahead and offset", args)
 	}
 }
 

@@ -1,24 +1,19 @@
 package importer
 
 import (
-	"fmt"
 	"net/netip"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
-var (
-	defaultIPv4Addr    = netip.MustParseAddr("0.0.0.0")
-	natLineTimePattern = regexp.MustCompile(`^(\d{4}\s+[A-Za-z]{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})`)
-	syslogTimePattern  = regexp.MustCompile(`^(?:<\d+>)?%?([A-Za-z]{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})`)
-	syslogYearPattern  = regexp.MustCompile(`^(?:<\d+>)?%?([A-Za-z]{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(\d{4})`)
-)
+var defaultIPv4Addr = netip.MustParseAddr("0.0.0.0")
 
 const (
 	natLabelSrcIP    = "源IP:"
-	natLabelSrcPort  = "源端�?"
+	natLabelSrcPort  = "源端口:"
 	natLabelDstIP    = "目的IP:"
 	natLabelDstPort  = "目的端口:"
 	natLabelProtocol = "协议:"
@@ -164,29 +159,85 @@ func parseFortiGateLine(line string, row *NATLogRow) bool {
 	if !strings.Contains(line, "srcip=") || !strings.Contains(line, "dstip=") {
 		return false
 	}
-	fields := make(map[string]string)
-	for _, token := range strings.Fields(line) {
+	// Later duplicates win and keys are case-insensitive, matching a lowercased key map.
+	var srcIP, srcPort, transIP, natIP, transPort, natPort, dstIP, dstPort, protocol, action, dateValue, timeValue string
+	for rest := line; ; {
+		var token string
+		token, rest = nextUnicodeField(rest)
+		if token == "" {
+			break
+		}
 		key, value, ok := strings.Cut(token, "=")
-		if ok && key != "" {
-			fields[strings.ToLower(key)] = strings.Trim(value, "\"'")
+		if !ok || key == "" {
+			continue
+		}
+		value = strings.Trim(value, "\"'")
+		switch strings.ToLower(key) {
+		case "srcip":
+			srcIP = value
+		case "srcport":
+			srcPort = value
+		case "transip":
+			transIP = value
+		case "natip":
+			natIP = value
+		case "transport":
+			transPort = value
+		case "natport":
+			natPort = value
+		case "dstip":
+			dstIP = value
+		case "dstport":
+			dstPort = value
+		case "protocol":
+			protocol = value
+		case "action":
+			action = value
+		case "date":
+			dateValue = value
+		case "time":
+			timeValue = value
 		}
 	}
-	row.SrcIP = parseIPOrDefault(fields["srcip"], row.SrcIP)
-	row.SrcPort = parseUint16(fields["srcport"])
-	row.NATIP = parseIPOrDefault(firstNonEmpty(fields["transip"], fields["natip"]), row.NATIP)
-	row.NATPort = parseUint16(firstNonEmpty(fields["transport"], fields["natport"]))
-	row.DstIP = parseIPOrDefault(fields["dstip"], row.DstIP)
-	row.DstPort = parseUint16(fields["dstport"])
-	row.Protocol = normalizeProtocol(fields["protocol"])
-	if action := fields["action"]; action != "" {
+	row.SrcIP = parseIPOrDefault(srcIP, row.SrcIP)
+	row.SrcPort = parseUint16(srcPort)
+	row.NATIP = parseIPOrDefault(firstNonEmpty(transIP, natIP), row.NATIP)
+	row.NATPort = parseUint16(firstNonEmpty(transPort, natPort))
+	row.DstIP = parseIPOrDefault(dstIP, row.DstIP)
+	row.DstPort = parseUint16(dstPort)
+	row.Protocol = normalizeProtocol(protocol)
+	if action != "" {
 		row.Action = action
 	}
-	if dateValue, timeValue := fields["date"], fields["time"]; dateValue != "" && timeValue != "" {
+	if dateValue != "" && timeValue != "" {
 		if ts, err := time.ParseInLocation("2006-01-02 15:04:05", dateValue+" "+timeValue, time.Local); err == nil {
 			row.Timestamp = ts
 		}
 	}
 	return true
+}
+
+// nextUnicodeField returns the next field as split by strings.Fields without allocating a slice.
+func nextUnicodeField(s string) (field, rest string) {
+	start := -1
+	for i := 0; i < len(s); {
+		r, size := rune(s[i]), 1
+		if r >= utf8.RuneSelf {
+			r, size = utf8.DecodeRuneInString(s[i:])
+		}
+		if unicode.IsSpace(r) {
+			if start >= 0 {
+				return s[start:i], s[i:]
+			}
+		} else if start < 0 {
+			start = i
+		}
+		i += size
+	}
+	if start < 0 {
+		return "", ""
+	}
+	return s[start:], ""
 }
 
 func extractDelimitedField(line, label string) string {
@@ -249,23 +300,39 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+// parseNATTimestamp recognizes, in order:
+//
+//	^\d{4}\s+[A-Za-z]{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}
+//	^(?:<\d+>)?%?[A-Za-z]{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4}
+//	^(?:<\d+>)?%?[A-Za-z]{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}
+//
+// Matching is hand-written because regexp submatching dominated per-line parse cost.
 func parseNATTimestamp(line string, fallbackDate time.Time) (time.Time, bool) {
-	if matches := natLineTimePattern.FindStringSubmatch(line); len(matches) == 2 {
-		ts, err := time.ParseInLocation("2006 Jan 2 15:04:05", matches[1], time.Local)
-		if err == nil {
-			return ts, true
+	if digitsAt(line, 0, 4) {
+		if start := skipRegexpSpace(line, 4); start > 4 {
+			if end := matchClock(line, start); end >= 0 {
+				ts, err := time.ParseInLocation("2006 Jan 2 15:04:05", line[:end], time.Local)
+				if err == nil {
+					return ts, true
+				}
+			}
 		}
 	}
 
-	if matches := syslogYearPattern.FindStringSubmatch(line); len(matches) == 3 {
-		ts, err := time.ParseInLocation("Jan 2 15:04:05 2006", matches[1]+" "+matches[2], time.Local)
-		if err == nil {
-			return ts, true
-		}
+	start := syslogClockStart(line)
+	end := -1
+	if start >= 0 {
+		end = matchClock(line, start)
 	}
-
-	if matches := syslogTimePattern.FindStringSubmatch(line); len(matches) == 2 {
-		ts, err := parseSyslogTimestamp(matches[1], fallbackDate)
+	if end >= 0 {
+		clock := line[start:end]
+		if yearStart := skipRegexpSpace(line, end); yearStart > end && digitsAt(line, yearStart, 4) {
+			ts, err := time.ParseInLocation("Jan 2 15:04:05 2006", clock+" "+line[yearStart:yearStart+4], time.Local)
+			if err == nil {
+				return ts, true
+			}
+		}
+		ts, err := parseSyslogTimestamp(clock, fallbackDate)
 		if err == nil {
 			return ts, true
 		}
@@ -274,13 +341,95 @@ func parseNATTimestamp(line string, fallbackDate time.Time) (time.Time, bool) {
 	return fallbackDate, !fallbackDate.IsZero()
 }
 
+// syslogClockStart consumes the optional `(?:<\d+>)?%?` prefix.
+func syslogClockStart(line string) int {
+	i := 0
+	if i < len(line) && line[i] == '<' {
+		j := i + 1
+		for j < len(line) && isASCIIDigit(line[j]) {
+			j++
+		}
+		if j == i+1 || j >= len(line) || line[j] != '>' {
+			return -1
+		}
+		i = j + 1
+	}
+	if i < len(line) && line[i] == '%' {
+		i++
+	}
+	return i
+}
+
+// matchClock matches `[A-Za-z]{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}` at line[i:] and returns its end, or -1.
+func matchClock(line string, i int) int {
+	if i+3 > len(line) || !isASCIILetter(line[i]) || !isASCIILetter(line[i+1]) || !isASCIILetter(line[i+2]) {
+		return -1
+	}
+	i += 3
+	next := skipRegexpSpace(line, i)
+	if next == i {
+		return -1
+	}
+	i = next
+	digits := 0
+	for digits < 2 && i < len(line) && isASCIIDigit(line[i]) {
+		i++
+		digits++
+	}
+	if digits == 0 {
+		return -1
+	}
+	next = skipRegexpSpace(line, i)
+	if next == i {
+		return -1
+	}
+	i = next
+	if !digitsAt(line, i, 2) || i+8 > len(line) || line[i+2] != ':' || !digitsAt(line, i+3, 2) || line[i+5] != ':' || !digitsAt(line, i+6, 2) {
+		return -1
+	}
+	return i + 8
+}
+
+// skipRegexpSpace skips RE2 `\s` characters ([\t\n\f\r ]).
+func skipRegexpSpace(s string, i int) int {
+	for i < len(s) {
+		switch s[i] {
+		case '\t', '\n', '\f', '\r', ' ':
+			i++
+		default:
+			return i
+		}
+	}
+	return i
+}
+
+func digitsAt(s string, i, n int) bool {
+	if i < 0 || i+n > len(s) {
+		return false
+	}
+	for _, c := range []byte(s[i : i+n]) {
+		if !isASCIIDigit(c) {
+			return false
+		}
+	}
+	return true
+}
+
+func isASCIIDigit(c byte) bool { return c >= '0' && c <= '9' }
+
+func isASCIILetter(c byte) bool { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') }
+
 func parseSyslogTimestamp(value string, fallbackDate time.Time) (time.Time, error) {
 	baseYear := fallbackDate.Year()
 	if fallbackDate.IsZero() {
 		baseYear = time.Now().In(time.Local).Year()
 	}
 
-	ts, err := time.ParseInLocation("2006 Jan 2 15:04:05", fmt.Sprintf("%04d %s", baseYear, value), time.Local)
+	var buffer [64]byte
+	stamp := appendZeroPaddedYear(buffer[:0], baseYear)
+	stamp = append(stamp, ' ')
+	stamp = append(stamp, value...)
+	ts, err := time.ParseInLocation("2006 Jan 2 15:04:05", string(stamp), time.Local)
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -295,6 +444,25 @@ func parseSyslogTimestamp(value string, fallbackDate time.Time) (time.Time, erro
 		return ts.AddDate(1, 0, 0), nil
 	}
 	return ts, nil
+}
+
+// appendZeroPaddedYear formats like fmt's %04d.
+func appendZeroPaddedYear(dst []byte, year int) []byte {
+	if year < 0 {
+		dst = append(dst, '-')
+		year = -year
+		if year < 100 {
+			dst = append(dst, '0')
+		}
+		if year < 10 {
+			dst = append(dst, '0')
+		}
+		return strconv.AppendInt(dst, int64(year), 10)
+	}
+	for limit := 1000; limit > 1 && year < limit; limit /= 10 {
+		dst = append(dst, '0')
+	}
+	return strconv.AppendInt(dst, int64(year), 10)
 }
 
 func parseIP(raw string) (netip.Addr, bool) {

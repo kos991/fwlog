@@ -119,6 +119,45 @@ func TestBuildVisibleRangesMatchesLogDateByCalendarDateAcrossLocations(t *testin
 	}
 }
 
+func TestBuildVisibleRangesKeepsSourceStatesIndependent(t *testing.T) {
+	start := time.Date(2026, 6, 30, 8, 0, 0, 0, time.Local)
+	end := time.Date(2026, 6, 30, 9, 0, 0, 0, time.Local)
+	visibility := BuildVisibleRanges(start, end, []DateIngestState{
+		{SourceID: "fw-ready", LogDate: dateOnly(2026, 6, 30), Status: StatusReady},
+		{SourceID: "fw-failed", LogDate: dateOnly(2026, 6, 30), Status: StatusFailed},
+	})
+
+	if len(visibility.QueriedRanges) != 1 || visibility.QueriedRanges[0].SourceID != "fw-ready" {
+		t.Fatalf("queried ranges = %#v, want only ready source", visibility.QueriedRanges)
+	}
+	sql, args, err := BuildQuerySQL(QueryRequest{}, visibility)
+	if err != nil {
+		t.Fatalf("BuildQuerySQL returned error: %v", err)
+	}
+	if !strings.Contains(sql, "log_date = ? AND source_id = ? AND timestamp >= ? AND timestamp <= ?") {
+		t.Fatalf("query must scope a visible range to its source: %s", sql)
+	}
+	if len(args) != 4 || args[1] != "fw-ready" {
+		t.Fatalf("query args = %#v, want ready source identity", args)
+	}
+}
+
+func TestBuildVisibleRangesUsesCalendarDayAcrossDST(t *testing.T) {
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	day := time.Date(2026, 3, 8, 0, 0, 0, 0, loc)
+	visibility := BuildVisibleRanges(day, day.AddDate(0, 0, 1).Add(-time.Second), []DateIngestState{{
+		LogDate: day,
+		Status:  StatusReady,
+	}})
+	wantEnd := time.Date(2026, 3, 8, 23, 59, 59, 0, loc)
+	if len(visibility.QueriedRanges) != 1 || !visibility.QueriedRanges[0].EndTime.Equal(wantEnd) {
+		t.Fatalf("DST day range = %#v, want end %v", visibility.QueriedRanges, wantEnd)
+	}
+}
+
 func TestBuildVisibleRangesSkipsNonQueryableStatuses(t *testing.T) {
 	start := dateOnly(2026, 6, 28)
 	end := endOfDay(2026, 7, 3)

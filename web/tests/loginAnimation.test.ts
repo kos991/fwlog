@@ -41,7 +41,6 @@ test('login page separates authentication from the decorative globe scene', () =
   const layout = read('src/layout/AppLayout.tsx');
 
   assert.match(page, /<LoginDataFlowScene\s*\/>/);
-  assert.doesNotMatch(page, /LoginGlobeScene/);
   assert.match(page, /playSuccess/);
   assert.match(page, /playError/);
   assert.match(page, /passwordInputRef/);

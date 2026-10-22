@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -97,7 +96,7 @@ func NewApp(cfg Config) *App {
 		jwtManager:        jwtManager,
 		mfaChallenges:     make(map[string]time.Time),
 		loginSem:          make(chan struct{}, maxConcurrentLogins),
-		imports:           NewImportCoordinator(cfg.Workers, defaultConcurrentWrites),
+		imports:           NewImportCoordinator(cfg.Workers, cfg.Workers),
 		receiver:          receiverpkg.NewManager(),
 		archiver:          receiverpkg.NewArchiver(),
 		rsyslogArchiveNow: time.Now,
@@ -146,24 +145,13 @@ func (a *App) Connect(ctx context.Context) error {
 	a.mu.Lock()
 	a.applySavedSettingsLocked(savedSettings)
 	// 首次安装允许无密码启动，由公开初始化接口完成管理员创建。
-	// 首次安装允许无密码启动，由公开初始化接口完成管理员创建。
-	passwordConfigured := true
 	a.store = store
 	a.mu.Unlock()
-	if false && !passwordConfigured {
-		return errors.New("管理员密码未初始化：请设置 ADMIN_PASSWORD 后重启，或恢复已保存的管理员密码配置")
-	}
 	a.reloadIPDataFromSettings()
 	a.applyReceiverFromSettings()
 
 	a.logger.Info("application ready", "settings_count", len(savedSettings))
 	return nil
-}
-
-func (a *App) applySavedSettings(savedSettings map[string]string) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.applySavedSettingsLocked(savedSettings)
 }
 
 func (a *App) applySavedSettingsLocked(savedSettings map[string]string) {

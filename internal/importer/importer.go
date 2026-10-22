@@ -80,24 +80,30 @@ func (i *Importer) AppendBatch(ctx context.Context, rows []NATLogRow) error {
 			return err
 		}
 
-		for _, row := range rows {
-			if err := batch.Append(
-				row.SourceID,
-				row.LogTag,
-				row.LogDate,
-				row.Timestamp,
-				row.SrcIP,
-				row.SrcPort,
-				row.DstIP,
-				row.DstPort,
-				row.NATIP,
-				row.NATPort,
-				row.Protocol,
-				row.Action,
-				row.SourceFile,
-				row.SourceOffset,
-				row.BatchID,
-			); err != nil {
+		// Pointers avoid boxing each value into an interface (one heap allocation per column per row);
+		// the driver copies pointed-to values on Append and does not retain the argument slice.
+		// LowCardinality columns must stay values because the driver uses the appended interface
+		// value as its dictionary map key, so their boxed strings are reused while unchanged.
+		var logTag, protocol, action, sourceFile boxedString
+		args := make([]any, 15)
+		for index := range rows {
+			row := &rows[index]
+			args[0] = &row.SourceID
+			args[1] = logTag.box(row.LogTag)
+			args[2] = &row.LogDate
+			args[3] = &row.Timestamp
+			args[4] = &row.SrcIP
+			args[5] = &row.SrcPort
+			args[6] = &row.DstIP
+			args[7] = &row.DstPort
+			args[8] = &row.NATIP
+			args[9] = &row.NATPort
+			args[10] = protocol.box(row.Protocol)
+			args[11] = action.box(row.Action)
+			args[12] = sourceFile.box(row.SourceFile)
+			args[13] = &row.SourceOffset
+			args[14] = &row.BatchID
+			if err := batch.Append(args...); err != nil {
 				return err
 			}
 		}
@@ -107,6 +113,21 @@ func (i *Importer) AppendBatch(ctx context.Context, rows []NATLogRow) error {
 		return i.writeGate.WithWriteSlot(ctx, write)
 	}
 	return write()
+}
+
+// boxedString caches the interface conversion of the most recent string so repeated values
+// do not allocate a new interface box per row.
+type boxedString struct {
+	value string
+	boxed any
+}
+
+func (b *boxedString) box(value string) any {
+	if b.boxed == nil || b.value != value {
+		b.value = value
+		b.boxed = value
+	}
+	return b.boxed
 }
 
 func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.Time) error {
@@ -136,7 +157,11 @@ func (i *Importer) ImportDate(ctx context.Context, source LogSource, date time.T
 
 	for _, statement := range dropLogSourceDatePartitionsSQL(source.SourceID, date) {
 		if err := writer.Exec(ctx, statement); err != nil {
-			return fmt.Errorf("clear rebuild partition: %w", err)
+			clearErr := fmt.Errorf("clear rebuild partition: %w", err)
+			if markErr := i.markDateFailed(ctx, source, date, now, 0, clearErr); markErr != nil {
+				return errors.Join(clearErr, markErr)
+			}
+			return clearErr
 		}
 	}
 	i.sleepOrDefault()(time.Second)
@@ -304,10 +329,6 @@ func terminalStateTimestamp(previous, current time.Time) time.Time {
 	return current
 }
 
-func dropLogSourceDatePartitionSQL(sourceID string, date time.Time) string {
-	return dropSourceDatePartitionSQL("nat_logs", sourceID, date)
-}
-
 func dropLogSourceDatePartitionsSQL(sourceID string, date time.Time) []string {
 	return []string{
 		dropSourceDatePartitionSQL("nat_logs", sourceID, date),
@@ -362,6 +383,7 @@ func (i *Importer) importFile(ctx context.Context, source LogSource, date time.T
 	rows := make([]NATLogRow, 0, batchSize)
 	var offset uint64
 	batchID := fmt.Sprintf("%s-%s", source.SourceID, date.Format("20060102"))
+	sourceFile := filepath.Base(file.Path)
 	for scanner.Scan() {
 		if err := ctx.Err(); err != nil {
 			return result, err
@@ -374,7 +396,7 @@ func (i *Importer) importFile(ctx context.Context, source LogSource, date time.T
 			SourceID:     source.SourceID,
 			LogTag:       source.LogTag,
 			LogDate:      date,
-			SourceFile:   filepath.Base(file.Path),
+			SourceFile:   sourceFile,
 			SourceOffset: offset,
 			BatchID:      batchID,
 		}

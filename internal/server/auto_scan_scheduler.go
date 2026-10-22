@@ -50,20 +50,21 @@ func (a *App) runDueAutoScan(ctx context.Context, now time.Time) bool {
 		return false
 	}
 
-	go a.recordCompletedAutoScan(ctx, scheduledAt, len(result.Accepted) == len(sources), result.Done)
+	go a.recordCompletedAutoScan(ctx, scheduledAt, len(result.Accepted) == len(sources), result.Succeeded)
 	return true
 }
 
-func (a *App) recordCompletedAutoScan(ctx context.Context, scheduledAt time.Time, allSourcesAccepted bool, done <-chan struct{}) {
-	if done != nil {
+func (a *App) recordCompletedAutoScan(ctx context.Context, scheduledAt time.Time, allSourcesAccepted bool, succeeded <-chan bool) {
+	allSucceeded := true
+	if succeeded != nil {
 		select {
 		case <-ctx.Done():
 			return
-		case <-done:
+		case allSucceeded = <-succeeded:
 		}
 	}
-	if !allSourcesAccepted {
-		a.logger.Warn("auto scan not recorded: some sources were already running")
+	if !allSourcesAccepted || !allSucceeded {
+		a.logger.Warn("auto scan not recorded: not all source imports succeeded")
 		return
 	}
 

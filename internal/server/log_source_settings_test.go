@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"fwlog/internal/config"
 )
 
 func TestNormalizeRSyslogSourceUsesArchiveDirectoryAsLogDirectory(t *testing.T) {
@@ -60,6 +62,16 @@ func TestValidateLogSourcesRejectsDuplicateEndpointRoute(t *testing.T) {
 	}
 }
 
+func TestValidateLogSourcesRejectsDuplicateStorageIdentity(t *testing.T) {
+	err := validateLogSources([]LogSource{
+		{SourceID: "display-a", StorageSourceID: "stored", SourceType: "file"},
+		{SourceID: "display-b", StorageSourceID: "stored", SourceType: "file"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "重复的存储 ID") {
+		t.Fatalf("validateLogSources error = %v", err)
+	}
+}
+
 func TestValidateLogSourcesRejectsInvalidClientNetwork(t *testing.T) {
 	err := validateLogSources([]LogSource{{
 		SourceID: "a", SourceType: "rsyslog", ListenProtocol: "tcp", ListenHost: "0.0.0.0", ListenPort: 5514,
@@ -81,7 +93,7 @@ func TestValidateLogSourcesRejectsRelativeArchiveDirectory(t *testing.T) {
 }
 
 func TestSettingsHandlerRejectsInvalidLogSourcesWithoutChangingSettings(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	original := `[{"source_id":"fw-a","log_dir":"/data/fw-a","log_tag":"A","enabled":true,"source_type":"file"}]`
 	app.settings["log_sources"] = original
 
@@ -100,7 +112,7 @@ func TestSettingsHandlerRejectsInvalidLogSourcesWithoutChangingSettings(t *testi
 }
 
 func TestSettingsHandlerKeepsOldSettingsWhenPersistenceFails(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	original := `[{"source_id":"fw-a","log_dir":"/data/fw-a","log_tag":"A","enabled":true,"source_type":"file"}]`
 	app.settings["log_sources"] = original
 	app.settingsSaver = func(context.Context, map[string]string) error {
@@ -155,7 +167,7 @@ func TestNormalizeLogSourcePreservesStableStorageIdentity(t *testing.T) {
 }
 
 func TestNormalizeSettingsInheritsStorageIdentityWhenLegacySourceIsRenamed(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.applyNormalizedSettings(map[string]string{
 		"log_sources": `[{"source_id":"外网","log_tag":"旧名称","log_dir":"/data/fw-a","enabled":true,"source_type":"file"}]`,
 	})
@@ -176,7 +188,7 @@ func TestNormalizeSettingsInheritsStorageIdentityWhenLegacySourceIsRenamed(t *te
 }
 
 func TestNormalizeSettingsKeepsStorageIdentityForMetadataEdit(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.applyNormalizedSettings(map[string]string{
 		"log_sources": `[{"source_id":"W-1","storage_source_id":"外网","log_tag":"旧名称","log_dir":"/data/fw-a","enabled":true,"source_type":"file"}]`,
 	})
@@ -197,7 +209,7 @@ func TestNormalizeSettingsKeepsStorageIdentityForMetadataEdit(t *testing.T) {
 }
 
 func TestConfiguredDateStatesMapsStorageIdentityToDisplayIdentity(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.updateSettings(map[string]any{"log_sources": []any{map[string]any{
 		"source_id": "W-1", "storage_source_id": "legacy-source", "log_tag": "边界防火墙", "log_dir": "/data/fw-a", "enabled": true,
 	}}})
@@ -212,7 +224,7 @@ func TestConfiguredDateStatesMapsStorageIdentityToDisplayIdentity(t *testing.T) 
 }
 
 func TestMapRecordSourceIDsUsesConfiguredDisplayIdentity(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.updateSettings(map[string]any{"log_sources": []any{map[string]any{
 		"source_id": "W-1", "storage_source_id": "legacy-source", "log_tag": "边界防火墙", "log_dir": "/data/fw-a", "enabled": true,
 	}}})

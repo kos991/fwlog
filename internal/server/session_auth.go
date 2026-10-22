@@ -2,9 +2,7 @@ package server
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/subtle"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -337,14 +335,6 @@ func loginSource(r *http.Request) string {
 		return "unknown"
 	}
 	return r.RemoteAddr
-}
-
-func newSessionToken() (string, error) {
-	var raw [32]byte
-	if _, err := rand.Read(raw[:]); err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(raw[:]), nil
 }
 
 func (a *App) cookieSecureFlag() bool {

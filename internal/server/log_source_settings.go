@@ -13,6 +13,7 @@ var logSourceIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 func validateLogSources(sources []LogSource) error {
 	ids := make(map[string]struct{}, len(sources))
+	storageIDs := make(map[string]string, len(sources))
 	routes := make(map[string]map[string]string)
 
 	for _, source := range sources {
@@ -23,6 +24,12 @@ func validateLogSources(sources []LogSource) error {
 			return fmt.Errorf("设备 ID %q 重复", source.SourceID)
 		}
 		ids[source.SourceID] = struct{}{}
+
+		storageID := effectiveStorageSourceID(source)
+		if previous, exists := storageIDs[storageID]; exists {
+			return fmt.Errorf("日志源 %q 和 %q 使用了重复的存储 ID %q", previous, source.SourceID, storageID)
+		}
+		storageIDs[storageID] = source.SourceID
 
 		if source.SourceType != "rsyslog" {
 			continue

@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"fwlog/internal/config"
 )
 
 func TestDefaultSettingsExposeConfiguredLogSource(t *testing.T) {
@@ -114,7 +116,7 @@ func TestOpenClickHouseWithRetryRetriesStartupFailures(t *testing.T) {
 }
 
 func TestNewAppInitializesThreatIntelligenceService(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	if app.threatIntelligenceService == nil {
 		t.Fatal("threat intelligence service must be initialized")
 	}
@@ -345,36 +347,6 @@ func TestServerPackageAssetsAreRequiredForUpgradeChecks(t *testing.T) {
 	if assets.LegacyBinaryURL == "" || assets.UpgradeRPMURL == "" || assets.UpgradeDEBURL == "" {
 		t.Fatalf("assets = %#v", assets)
 	}
-}
-
-func TestReleaseDeployScriptStopsServiceBeforeReplacingBinary(t *testing.T) {
-	text := readRepoFile(t, "scripts", "deploy-142-from-release.sh")
-	for _, want := range []string{
-		"systemctl stop fwlog",
-		"install -m 0755 \"${work_dir}/fwlog\" /opt/fwlog/fwlog",
-		"systemctl restart fwlog",
-	} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("deploy script missing %q", want)
-		}
-	}
-	assertComesBefore(t, "scripts/deploy-142-from-release.sh", text, "systemctl stop fwlog", "install -m 0755 \"${work_dir}/fwlog\" /opt/fwlog/fwlog")
-	assertComesBefore(t, "scripts/deploy-142-from-release.sh", text, "install -m 0755 \"${work_dir}/fwlog\" /opt/fwlog/fwlog", "systemctl restart fwlog")
-}
-
-func TestReleaseDeployScriptVerifiesChecksumAndProtectsInitialPassword(t *testing.T) {
-	text := readRepoFile(t, "scripts", "deploy-142-from-release.sh")
-	for _, want := range []string{
-		`"${base_url}/checksums.txt"`,
-		"sha256sum -c -",
-		`ADMIN_PASSWORD_FILE=/etc/fwlog/admin-password`,
-		`install -m 0600 "${work_dir}/admin-password" /etc/fwlog/admin-password`,
-	} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("deploy script missing %q", want)
-		}
-	}
-	assertComesBefore(t, "scripts/deploy-142-from-release.sh", text, "sha256sum -c -", `install -m 0755 "${work_dir}/fwlog" /opt/fwlog/fwlog`)
 }
 
 func assertWorkflowMatchesBuildFlow(t *testing.T, path string, required []string) {

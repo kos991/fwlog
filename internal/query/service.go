@@ -96,6 +96,7 @@ type VisibleRange struct {
 	StartTime time.Time    `json:"start_time"`
 	EndTime   time.Time    `json:"end_time"`
 	Status    IngestStatus `json:"status"`
+	SourceID  string       `json:"-"`
 }
 
 type SkippedLogDate struct {
@@ -230,11 +231,12 @@ func BuildVisibleRanges(start, end time.Time, states []DateIngestState) QueryVis
 		return visibility
 	}
 
-	stateByDate := make(map[string]DateIngestState, len(states))
+	statesByDate := make(map[string][]DateIngestState)
 	for _, state := range states {
 		dayStart := startOfDay(state.LogDate)
 		state.LogDate = dayStart
-		stateByDate[dateKey(dayStart)] = state
+		key := dateKey(dayStart)
+		statesByDate[key] = append(statesByDate[key], state)
 	}
 
 	for day := startOfDay(start); !day.After(end); day = day.AddDate(0, 0, 1) {
@@ -244,8 +246,8 @@ func BuildVisibleRanges(start, end time.Time, states []DateIngestState) QueryVis
 			continue
 		}
 
-		state, ok := stateByDate[dateKey(day)]
-		if !ok {
+		dayStates := statesByDate[dateKey(day)]
+		if len(dayStates) == 0 {
 			visibility.SkippedDates = append(visibility.SkippedDates, SkippedLogDate{
 				LogDate: day,
 				Reason:  missingStateReason,
@@ -253,36 +255,40 @@ func BuildVisibleRanges(start, end time.Time, states []DateIngestState) QueryVis
 			continue
 		}
 
-		switch state.Status {
-		case StatusReady:
-			visibility.QueriedRanges = append(visibility.QueriedRanges, VisibleRange{
-				LogDate:   day,
-				StartTime: rangeStart,
-				EndTime:   rangeEnd,
-				Status:    state.Status,
-			})
-		case StatusImporting:
-			if state.MaxVisibleTimestamp.IsZero() || state.MaxVisibleTimestamp.Before(rangeStart) {
-				appendSkippedDate(&visibility, day, state.Status, noVisibleImportReason)
-				continue
-			}
+		for _, state := range dayStates {
+			switch state.Status {
+			case StatusReady:
+				visibility.QueriedRanges = append(visibility.QueriedRanges, VisibleRange{
+					LogDate:   day,
+					StartTime: rangeStart,
+					EndTime:   rangeEnd,
+					Status:    state.Status,
+					SourceID:  state.SourceID,
+				})
+			case StatusImporting:
+				if state.MaxVisibleTimestamp.IsZero() || state.MaxVisibleTimestamp.Before(rangeStart) {
+					appendSkippedDate(&visibility, day, state.Status, noVisibleImportReason)
+					continue
+				}
 
-			visibleEnd := minTime(rangeEnd, state.MaxVisibleTimestamp)
-			visibility.QueriedRanges = append(visibility.QueriedRanges, VisibleRange{
-				LogDate:   day,
-				StartTime: rangeStart,
-				EndTime:   visibleEnd,
-				Status:    state.Status,
-			})
-			if visibleEnd.Before(rangeEnd) {
-				visibility.Partial = true
+				visibleEnd := minTime(rangeEnd, state.MaxVisibleTimestamp)
+				visibility.QueriedRanges = append(visibility.QueriedRanges, VisibleRange{
+					LogDate:   day,
+					StartTime: rangeStart,
+					EndTime:   visibleEnd,
+					Status:    state.Status,
+					SourceID:  state.SourceID,
+				})
+				if visibleEnd.Before(rangeEnd) {
+					visibility.Partial = true
+				}
+			case StatusPending, StatusFailed:
+				appendSkippedDate(&visibility, day, state.Status, notReadyReason)
+			case StatusIdle, StatusScanning, StatusSucceeded, StatusNoData, "":
+				appendSkippedDate(&visibility, day, state.Status, notQueryableReason)
+			default:
+				appendSkippedDate(&visibility, day, state.Status, notQueryableReason)
 			}
-		case StatusPending, StatusFailed:
-			appendSkippedDate(&visibility, day, state.Status, notReadyReason)
-		case StatusIdle, StatusScanning, StatusSucceeded, StatusNoData, "":
-			appendSkippedDate(&visibility, day, state.Status, notQueryableReason)
-		default:
-			appendSkippedDate(&visibility, day, state.Status, notQueryableReason)
 		}
 	}
 
@@ -303,13 +309,18 @@ func BuildQuerySQL(req QueryRequest, visibility QueryVisibility) (string, []any,
 	var sql strings.Builder
 	sql.WriteString("SELECT * FROM nat_logs WHERE (")
 
-	args := make([]any, 0, len(visibility.QueriedRanges)*3+8)
+	args := make([]any, 0, len(visibility.QueriedRanges)*4+8)
 	for i, visibleRange := range visibility.QueriedRanges {
 		if i > 0 {
 			sql.WriteString(" OR ")
 		}
-		sql.WriteString("(log_date = ? AND timestamp >= ? AND timestamp <= ?)")
-		args = append(args, visibleRange.LogDate, visibleRange.StartTime, visibleRange.EndTime)
+		if visibleRange.SourceID == "" {
+			sql.WriteString("(log_date = ? AND timestamp >= ? AND timestamp <= ?)")
+			args = append(args, visibleRange.LogDate, visibleRange.StartTime, visibleRange.EndTime)
+			continue
+		}
+		sql.WriteString("(log_date = ? AND source_id = ? AND timestamp >= ? AND timestamp <= ?)")
+		args = append(args, visibleRange.LogDate, visibleRange.SourceID, visibleRange.StartTime, visibleRange.EndTime)
 	}
 	sql.WriteString(")")
 
@@ -418,7 +429,7 @@ func dateKey(ts time.Time) string {
 }
 
 func endOfDayTime(ts time.Time) time.Time {
-	return startOfDay(ts).Add(24*time.Hour - time.Second)
+	return startOfDay(ts).AddDate(0, 0, 1).Add(-time.Second)
 }
 
 func maxTime(a, b time.Time) time.Time {

@@ -140,7 +140,7 @@ func TestImportDateSuccessDropsSourceDatePartitionSleepsAndMarksReady(t *testing
 	dir := t.TempDir()
 	logDate := time.Date(2026, 7, 2, 0, 0, 0, 0, time.Local)
 	logFile := filepath.Join(dir, "edge-fw.log-20260702")
-	line := "2026 Jul 2 12:00:01 源IP: 10.0.0.1 源端�? 1234 目的IP: 10.0.0.2 目的端口: 80 协议: TCP 转换后的IP: 10.0.0.3 转换后的端口: 8080 动作: ALLOW"
+	line := "2026 Jul 2 12:00:01 源IP: 10.0.0.1 源端口: 1234 目的IP: 10.0.0.2 目的端口: 80 协议: TCP 转换后的IP: 10.0.0.3 转换后的端口: 8080 动作: ALLOW"
 	if err := os.WriteFile(logFile, []byte(line+"\n"), 0o644); err != nil {
 		t.Fatalf("write log file: %v", err)
 	}
@@ -243,18 +243,6 @@ func TestImportDateSuccessDropsSourceDatePartitionSleepsAndMarksReady(t *testing
 	}
 }
 
-func TestDropLogSourceDatePartitionSQLSeparatesSources(t *testing.T) {
-	date := time.Date(2026, 7, 2, 0, 0, 0, 0, time.Local)
-	a := dropLogSourceDatePartitionSQL("fw-a", date)
-	b := dropLogSourceDatePartitionSQL("fw-b", date)
-	if a == b {
-		t.Fatalf("source partitions must differ: %q", a)
-	}
-	if strings.Contains(a, "DROP PARTITION '2026-07-02'") {
-		t.Fatalf("partition drop must not be date-only: %q", a)
-	}
-}
-
 func TestTerminalStateTimestampAdvancesPastSecondPrecision(t *testing.T) {
 	previous := time.Date(2026, 7, 14, 10, 0, 0, 900_000_000, time.Local)
 	current := previous.Add(50 * time.Millisecond)
@@ -274,7 +262,7 @@ func TestTerminalStateTimestampAdvancesPastSecondPrecision(t *testing.T) {
 func TestImportDateUpdatesDateProgressAfterEachFile(t *testing.T) {
 	dir := t.TempDir()
 	logDate := time.Date(2026, 7, 2, 0, 0, 0, 0, time.Local)
-	line := "2026 Jul 2 12:00:01 源IP: 10.0.0.1 源端�? 1234 目的IP: 10.0.0.2 目的端口: 80 协议: TCP 转换后的IP: 10.0.0.3 转换后的端口: 8080 动作: ALLOW"
+	line := "2026 Jul 2 12:00:01 源IP: 10.0.0.1 源端口: 1234 目的IP: 10.0.0.2 目的端口: 80 协议: TCP 转换后的IP: 10.0.0.3 转换后的端口: 8080 动作: ALLOW"
 	for _, name := range []string{"edge-a.log-20260702", "edge-b.log-20260702"} {
 		path := filepath.Join(dir, name)
 		if err := os.WriteFile(path, []byte(line+"\n"), 0o644); err != nil {
@@ -336,7 +324,7 @@ func TestImportDateMarksDateFailedWhenAppendBatchFails(t *testing.T) {
 	dir := t.TempDir()
 	logDate := time.Date(2026, 7, 2, 0, 0, 0, 0, time.Local)
 	logFile := filepath.Join(dir, "edge-fw.log-20260702")
-	line := "2026 Jul 2 12:00:01 源IP: 10.0.0.1 源端�? 1234 目的IP: 10.0.0.2 目的端口: 80 协议: TCP 转换后的IP: 10.0.0.3 转换后的端口: 8080 动作: ALLOW"
+	line := "2026 Jul 2 12:00:01 源IP: 10.0.0.1 源端口: 1234 目的IP: 10.0.0.2 目的端口: 80 协议: TCP 转换后的IP: 10.0.0.3 转换后的端口: 8080 动作: ALLOW"
 	if err := os.WriteFile(logFile, []byte(line+"\n"), 0o644); err != nil {
 		t.Fatalf("write log file: %v", err)
 	}
@@ -386,18 +374,14 @@ func TestImportDateMarksDateFailedWhenAppendBatchFails(t *testing.T) {
 	if lastFile.RetryCount != 1 {
 		t.Fatalf("file retry count = %d, want 1", lastFile.RetryCount)
 	}
-	if lastFile.NextRetryAt.IsZero() {
-		t.Fatal("file next retry at should be set")
+	if !lastFile.NextRetryAt.After(now) {
+		t.Fatal("file next retry at should be scheduled after the failure")
 	}
 	if lastFile.Error == "" {
 		t.Fatal("file error should be set")
 	}
-	if !ShouldRetryDate(DateIngestState{
-		Status:      lastDate.Status,
-		RetryCount:  lastDate.RetryCount,
-		NextRetryAt: lastDate.NextRetryAt,
-	}, now.Add(2*time.Minute)) {
-		t.Fatal("failed date should remain retryable within retry budget")
+	if !lastDate.NextRetryAt.After(now) {
+		t.Fatal("failed date should stay scheduled for a later retry within the retry budget")
 	}
 }
 
@@ -435,6 +419,34 @@ func TestImportDateWithoutFilesMarksDateFailed(t *testing.T) {
 	}
 }
 
+func TestImportDateMarksDateFailedWhenPartitionDropFails(t *testing.T) {
+	dir := t.TempDir()
+	logDate := time.Date(2026, 7, 2, 0, 0, 0, 0, time.Local)
+	logFile := filepath.Join(dir, "edge-fw.log-20260702")
+	if err := os.WriteFile(logFile, []byte("2026 Jul 2 12:00:01 "+natLabelSrcIP+" 10.0.0.1 "+natLabelDstIP+" 10.0.0.2\n"), 0o644); err != nil {
+		t.Fatalf("write log file: %v", err)
+	}
+	if err := os.Chtimes(logFile, logDate.Add(12*time.Hour), logDate.Add(12*time.Hour)); err != nil {
+		t.Fatalf("set mod time: %v", err)
+	}
+	states := &fakeImportStateRecorder{latestDate: DateIngestState{Status: StatusReady}, dateFound: true}
+	importer := &Importer{
+		store:  &ClickHouseStore{},
+		writer: &fakeClickHouseWriter{execErr: errors.New("drop failed")},
+		states: states,
+		now:    func() time.Time { return logDate.Add(24 * time.Hour) },
+		sleep:  func(time.Duration) {},
+	}
+
+	err := importer.ImportDate(context.Background(), LogSource{SourceID: "fw-a", LogTag: "edge", LogDir: dir}, logDate)
+	if err == nil || !strings.Contains(err.Error(), "drop failed") {
+		t.Fatalf("ImportDate error = %v, want partition drop failure", err)
+	}
+	if len(states.dateStates) != 1 || states.dateStates[0].Status != StatusFailed {
+		t.Fatalf("date states = %#v, want failed state after a partial-clear risk", states.dateStates)
+	}
+}
+
 func TestImportDateRequiresStateStore(t *testing.T) {
 	dir := t.TempDir()
 	logDate := time.Date(2026, 7, 2, 0, 0, 0, 0, time.Local)
@@ -463,7 +475,7 @@ func TestImportDateFailureIncrementsExistingRetryCounts(t *testing.T) {
 	dir := t.TempDir()
 	logDate := time.Date(2026, 7, 2, 0, 0, 0, 0, time.Local)
 	logFile := filepath.Join(dir, "edge-fw.log-20260702")
-	line := "2026 Jul 2 12:00:01 源IP: 10.0.0.1 源端�? 1234 目的IP: 10.0.0.2 目的端口: 80 协议: TCP"
+	line := "2026 Jul 2 12:00:01 源IP: 10.0.0.1 源端口: 1234 目的IP: 10.0.0.2 目的端口: 80 协议: TCP"
 	if err := os.WriteFile(logFile, []byte(line+"\n"), 0o644); err != nil {
 		t.Fatalf("write log file: %v", err)
 	}
@@ -610,7 +622,15 @@ type fakeBatch struct {
 
 func (f *fakeBatch) Abort() error { return nil }
 func (f *fakeBatch) Append(v ...any) error {
-	f.appended = append(f.appended, append([]any(nil), v...))
+	// The real driver copies values on Append; importer reuses its row buffer, so dereference pointers here.
+	values := make([]any, len(v))
+	for index, value := range v {
+		if ref := reflect.ValueOf(value); ref.Kind() == reflect.Pointer && !ref.IsNil() {
+			value = ref.Elem().Interface()
+		}
+		values[index] = value
+	}
+	f.appended = append(f.appended, values)
 	return nil
 }
 func (f *fakeBatch) AppendStruct(any) error        { return nil }

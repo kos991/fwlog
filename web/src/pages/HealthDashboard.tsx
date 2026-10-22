@@ -407,7 +407,7 @@ function toDateKey(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
-export function formatTrendDateLabel(date: string) {
+function formatTrendDateLabel(date: string) {
   const parsed = parseDateKey(date);
   if (!parsed) {
     return date;
@@ -428,7 +428,7 @@ export function recentDateKeys(days = 14, now = new Date()) {
   });
 }
 
-export function buildTrendSeries(
+function buildTrendSeries(
   points: LogTrendPoint[] | undefined,
   selectedSource: string,
 ): TrendSeries {
@@ -592,7 +592,7 @@ function TrafficTrendPanel({
   );
 }
 
-export function buildCountTicks(maxValue: number): number[] {
+function buildCountTicks(maxValue: number): number[] {
   if (!Number.isFinite(maxValue) || maxValue <= 0) {
     return [0];
   }

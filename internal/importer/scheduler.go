@@ -12,16 +12,3 @@ func NextRetryAt(retryCount uint8, now time.Time) time.Time {
 		return now.Add(15 * time.Minute)
 	}
 }
-
-func ShouldRetryDate(state DateIngestState, now time.Time) bool {
-	if state.Status != StatusFailed {
-		return false
-	}
-	if state.RetryCount >= 3 {
-		return false
-	}
-	if state.NextRetryAt.IsZero() {
-		return true
-	}
-	return !state.NextRetryAt.After(now)
-}

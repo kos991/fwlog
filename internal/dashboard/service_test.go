@@ -3,6 +3,9 @@ package dashboard
 import (
 	"testing"
 	"time"
+
+	"fwlog/internal/importer"
+	"fwlog/internal/ip"
 )
 
 func TestBuildIngestProgressShowsProblemDatesByDefault(t *testing.T) {
@@ -186,7 +189,7 @@ func TestBuildSourceIngestProgressUsesLatestStateInsteadOfHistoricalFailure(t *t
 }
 
 func TestEnrichGeoDistributionMetricsAggregatesDestinationCountries(t *testing.T) {
-	engine := NewIPEngine()
+	engine := ip.NewIPEngine()
 	engine.AddOverride("8.8.8.8", "Google DNS", "美国 / Mountain View")
 	engine.AddOverride("1.1.1.1", "Cloudflare DNS", "美国 / Los Angeles")
 	engine.AddOverride("114.114.114.114", "114 DNS", "中国 / 江苏")
@@ -216,7 +219,7 @@ func TestEnrichGeoDistributionMetricsAggregatesDestinationCountries(t *testing.T
 func TestBuildAutoScanPlanForDailyTime(t *testing.T) {
 	now := time.Date(2026, 7, 4, 8, 30, 0, 0, time.Local)
 
-	plan := BuildAutoScanPlan(map[string]string{
+	plan := importer.BuildAutoScanPlan(map[string]string{
 		"auto_scan_enabled":  "true",
 		"auto_scan_mode":     "daily",
 		"auto_scan_times":    "01:00,09:30",
@@ -234,7 +237,7 @@ func TestBuildAutoScanPlanForDailyTime(t *testing.T) {
 func TestBuildAutoScanPlanUsesConfiguredScanTimeOnly(t *testing.T) {
 	now := time.Date(2026, 7, 4, 8, 30, 0, 0, time.Local)
 
-	plan := BuildAutoScanPlan(map[string]string{
+	plan := importer.BuildAutoScanPlan(map[string]string{
 		"auto_scan_enabled":      "true",
 		"auto_scan_mode":         "interval",
 		"auto_scan_times":        "01:00",
@@ -254,7 +257,7 @@ func TestBuildAutoScanPlanUsesConfiguredScanTimeOnly(t *testing.T) {
 }
 
 func TestEnrichGeoDistributionMetricsGroupsUnknownPublicIPsAsUnknownCountry(t *testing.T) {
-	engine := NewIPEngine()
+	engine := ip.NewIPEngine()
 
 	metrics := enrichGeoDistributionMetrics(DashboardMetrics{
 		TopDestinationIPs: []DistributionItem{

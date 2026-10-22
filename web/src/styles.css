@@ -3359,10 +3359,6 @@ body {
     opacity: 0 !important;
   }
 
-  .login-globe-scene__canvas {
-    transition: none;
-  }
-
   .brand-mark__particle {
     display: none;
   }

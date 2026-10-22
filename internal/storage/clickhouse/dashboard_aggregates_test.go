@@ -33,7 +33,6 @@ func TestDashboardAggregateDDLDefinesTablesAndViews(t *testing.T) {
 
 func TestDashboardSummaryQueriesOnlyUseAggregateTables(t *testing.T) {
 	queries := []string{
-		DashboardTotalRowsSQL(),
 		DashboardRowsForDateSQL(),
 		ClickHouseLogTrendSQL(),
 	}

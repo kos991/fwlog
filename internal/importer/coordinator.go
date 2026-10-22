@@ -13,9 +13,10 @@ const (
 )
 
 type ImportStartResult struct {
-	Accepted []string        `json:"accepted_sources"`
-	Busy     []string        `json:"busy_sources"`
-	Done     <-chan struct{} `json:"-"`
+	Accepted  []string        `json:"accepted_sources"`
+	Busy      []string        `json:"busy_sources"`
+	Done      <-chan struct{} `json:"-"`
+	Succeeded <-chan bool     `json:"-"`
 }
 
 type sourceWorkerFunc func(context.Context, LogSource) error
@@ -43,7 +44,8 @@ func NewImportCoordinator(maxSources, maxWrites int) *ImportCoordinator {
 
 func (c *ImportCoordinator) Start(ctx context.Context, sources []LogSource, worker sourceWorkerFunc) ImportStartResult {
 	done := make(chan struct{})
-	result := ImportStartResult{Accepted: make([]string, 0, len(sources)), Busy: make([]string, 0), Done: done}
+	succeeded := make(chan bool, 1)
+	result := ImportStartResult{Accepted: make([]string, 0, len(sources)), Busy: make([]string, 0), Done: done, Succeeded: succeeded}
 	c.mu.Lock()
 	accepted := make([]LogSource, 0, len(sources))
 	for _, source := range sources {
@@ -56,25 +58,29 @@ func (c *ImportCoordinator) Start(ctx context.Context, sources []LogSource, work
 		result.Accepted = append(result.Accepted, source.SourceID)
 	}
 	c.mu.Unlock()
-	var workers sync.WaitGroup
-	workers.Add(len(accepted))
+	workerResults := make(chan bool, len(accepted))
 	for _, source := range accepted {
 		go func(source LogSource) {
-			defer workers.Done()
-			c.runSource(ctx, source, worker)
+			workerResults <- c.runSource(ctx, source, worker)
 		}(source)
 	}
 	go func() {
-		workers.Wait()
+		allSucceeded := true
+		for range accepted {
+			allSucceeded = <-workerResults && allSucceeded
+		}
+		succeeded <- allSucceeded
+		close(succeeded)
 		close(done)
 	}()
 	return result
 }
 
-func (c *ImportCoordinator) runSource(ctx context.Context, source LogSource, worker sourceWorkerFunc) {
+func (c *ImportCoordinator) runSource(ctx context.Context, source LogSource, worker sourceWorkerFunc) (succeeded bool) {
 	defer c.release(source.SourceID)
 	defer func() {
 		if recovered := recover(); recovered != nil {
+			succeeded = false
 			fmt.Fprintf(os.Stderr, "import source %s panic: %v\n", source.SourceID, recovered)
 		}
 	}()
@@ -82,11 +88,13 @@ func (c *ImportCoordinator) runSource(ctx context.Context, source LogSource, wor
 	case c.sourceSem <- struct{}{}:
 		defer func() { <-c.sourceSem }()
 	case <-ctx.Done():
-		return
+		return false
 	}
 	if err := worker(ctx, source); err != nil {
 		fmt.Fprintf(os.Stderr, "import source %s failed: %v\n", source.SourceID, err)
+		return false
 	}
+	return true
 }
 
 func (c *ImportCoordinator) WithWriteSlot(ctx context.Context, write func() error) error {
@@ -97,13 +105,6 @@ func (c *ImportCoordinator) WithWriteSlot(ctx context.Context, write func() erro
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-}
-
-func (c *ImportCoordinator) IsRunning(sourceID string) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	_, exists := c.running[sourceID]
-	return exists
 }
 
 func (c *ImportCoordinator) release(sourceID string) {

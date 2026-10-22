@@ -29,10 +29,6 @@ func normalizePartitionKey(value string) string {
 	return value
 }
 
-func natLogsMigrationSQL() []string {
-	return natLogsMigrationSQLForSource(true)
-}
-
 func natLogsMigrationSQLForSource(ipv4Source bool) []string {
 	srcIP := "src_ip"
 	dstIP := "dst_ip"

@@ -29,10 +29,6 @@ func GenerateTOTPSecret() (string, error) {
 	return secret.Secret(), nil
 }
 
-func GenerateTOTPCode(secret string, now time.Time) (string, error) {
-	return totp.GenerateCode(secret, now)
-}
-
 func ValidateTOTP(secret, code string, now time.Time) bool {
 	if strings.TrimSpace(secret) == "" || len(strings.TrimSpace(code)) != 6 {
 		return false

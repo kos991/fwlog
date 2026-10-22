@@ -41,12 +41,6 @@ export type ThreatAnalysisResponse = {
   previous_result?: ThreatIntelligenceResult;
 };
 
-export function visibleThreatProviders(statuses: ThreatProviderStatus[]): ThreatProviderStatus[] {
-  return statuses.filter(
-    (item) => item.enabled && item.configured && !item.credential_error && item.last_test_status !== 'failed',
-  );
-}
-
 const VERDICT_TEXT: Record<ThreatIntelligenceResult['verdict'], string> = {
   malicious: '恶意',
   suspicious: '可疑',

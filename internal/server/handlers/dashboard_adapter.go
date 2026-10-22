@@ -6,13 +6,6 @@ import (
 	"fwlog/internal/dashboard"
 )
 
-type DashboardServicer interface {
-	HealthDashboard(r *http.Request) (dashboard.HealthDashboardResponse, error)
-	DashboardSummary(r *http.Request) (dashboard.HealthDashboardResponse, error)
-	DashboardRankings(r *http.Request) (dashboard.HealthDashboardResponse, error)
-	IngestProgress(r *http.Request) (dashboard.IngestProgressResponse, error)
-}
-
 type HealthDashboardServicer interface {
 	HealthDashboard(r *http.Request) (dashboard.HealthDashboardResponse, error)
 }

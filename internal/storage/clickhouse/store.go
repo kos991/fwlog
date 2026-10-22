@@ -38,7 +38,6 @@ func (s *ClickHouseStore) Exec(ctx context.Context, query string, args ...any) e
 type QuerySortMode string
 
 const (
-	QuerySortFast     QuerySortMode = "fast"
 	QuerySortTimeAsc  QuerySortMode = "time_asc"
 	QuerySortTimeDesc QuerySortMode = "time_desc"
 )
@@ -148,10 +147,7 @@ func (s *ClickHouseStore) QueryNATLogs(ctx context.Context, baseSQL string, args
 	defer rows.Close()
 
 	pageSize := normalizeQueryPageSize(options.PageSize)
-	limit := pageSize
-	if usesCursorPagination(options) {
-		limit++
-	}
+	limit := pageSize + 1
 	records := make([]map[string]any, 0, limit)
 	for rows.Next() {
 		var (
@@ -217,7 +213,7 @@ func (s *ClickHouseStore) QueryNATLogs(ctx context.Context, baseSQL string, args
 	if err := rows.Err(); err != nil {
 		return nil, false, err
 	}
-	hasMore := usesCursorPagination(options) && len(records) > pageSize
+	hasMore := len(records) > pageSize
 	if hasMore {
 		records = records[:pageSize]
 	}
@@ -262,7 +258,7 @@ func queryNATLogsPageSQL(baseSQL string, args []any, options QueryPageOptions, s
 		return sql, queryArgs
 	}
 	sql += " LIMIT ? OFFSET ?"
-	queryArgs = append(queryArgs, pageSize, offset)
+	queryArgs = append(queryArgs, pageSize+1, offset)
 	return sql, queryArgs
 }
 
@@ -422,61 +418,6 @@ func (s *ClickHouseStore) dailyLogTrend(ctx context.Context, now time.Time) ([]L
 		return nil, err
 	}
 	return trend, nil
-}
-
-func (s *ClickHouseStore) distribution(ctx context.Context, column string, since time.Time, sourceID string) ([]DistributionItem, error) {
-	sql, args, err := distributionSQL(column, since, sourceID)
-	if err != nil {
-		return nil, err
-	}
-
-	rows, err := s.conn.Query(ctx, sql, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	items := make([]DistributionItem, 0, 10)
-	for rows.Next() {
-		var item DistributionItem
-		if err := rows.Scan(&item.Name, &item.Value); err != nil {
-			return nil, err
-		}
-		if column != "log_tag" {
-			item.Name = normalizeIPAddress(item.Name)
-		}
-		items = append(items, item)
-	}
-	return items, rows.Err()
-}
-
-func (s *ClickHouseStore) destinationSubnetDistribution(ctx context.Context, since time.Time, sourceID string) ([]DistributionItem, error) {
-	sql, args := destinationSubnetDistributionSQL(since, sourceID)
-	rows, err := s.conn.Query(ctx, sql, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	items := make([]DistributionItem, 0, 1024)
-	for rows.Next() {
-		var item DistributionItem
-		if err := rows.Scan(&item.Name, &item.Value); err != nil {
-			return nil, err
-		}
-		item.Name = normalizeIPAddress(item.Name)
-		items = append(items, item)
-	}
-	return items, rows.Err()
-}
-
-func destinationSubnetDistributionSQL(since time.Time, sourceID string) (string, []any) {
-	sql, args, _ := dashboardRankingSQL("dst_subnet", since, sourceID)
-	return sql, args
-}
-
-func distributionSQL(column string, since time.Time, sourceID string) (string, []any, error) {
-	return dashboardRankingSQL(column, since, sourceID)
 }
 
 func ipString(ip net.IP) string {
