@@ -40,10 +40,6 @@ type Status struct {
 	LastArchiveAt    time.Time `json:"last_archive_at"`
 }
 
-func (s Status) PortString() string {
-	return intToString(s.Port)
-}
-
 type endpointListener struct {
 	key       endpointKey
 	manager   *Manager

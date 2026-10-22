@@ -13,14 +13,8 @@ type LogSource struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-type AppSettings map[string]string
-
 func AppSettingsSQL() string {
 	return `SELECT key, value FROM app_settings FINAL`
-}
-
-func EnabledLogSourcesSQL() string {
-	return `SELECT source_id, log_dir, log_tag, enabled, updated_at FROM log_sources FINAL WHERE enabled = 1`
 }
 
 func SettingsUpsertSQL() string {

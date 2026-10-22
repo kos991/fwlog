@@ -10,11 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"fwlog/internal/config"
 	"fwlog/internal/threatintel"
 )
 
 func TestThreatIntelligenceSettingsAreProtectedFromGenericSettings(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.settings["threat_intelligence.threatbook.credential"] = "v1:ciphertext"
 	if _, ok := app.getSettings()["threat_intelligence.threatbook.credential"]; ok {
 		t.Fatal("credential leaked")
@@ -174,7 +175,7 @@ func TestThreatIntelligenceSettingsConfigStoreRetainsOverwritesAndClearsCredenti
 }
 
 func TestThreatIntelligenceSettingsConfigStoreDoesNotApplyWhenPersistenceFails(t *testing.T) {
-	cfg := LoadConfig()
+	cfg := config.LoadConfig()
 	cfg.ThreatIntelligenceKeyFile = filepath.Join(t.TempDir(), "threat-intelligence.key")
 	app := NewApp(cfg)
 	app.settings[threatIntelSettingKey(threatintel.ProviderThreatBook, "enabled")] = "false"
@@ -321,7 +322,7 @@ func TestThreatIntelligenceSettingsConfigStoreReportsMissingCredentialKeyWithout
 func newThreatIntelSettingsTestApp(t *testing.T) (*App, *map[string]string) {
 	t.Helper()
 
-	cfg := LoadConfig()
+	cfg := config.LoadConfig()
 	cfg.ThreatIntelligenceKeyFile = filepath.Join(t.TempDir(), "threat-intelligence.key")
 	app := NewApp(cfg)
 	saved := map[string]string{}

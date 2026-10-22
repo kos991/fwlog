@@ -25,7 +25,6 @@ const (
 	githubRepoOwner       = "kos991"
 	githubRepoName        = "fwlog"
 	linuxUpgradeAssetName = "fwlog_linux_amd64"
-	installedBinaryPath   = "/opt/fwlog/fwlog"
 )
 
 const (
@@ -45,7 +44,6 @@ var runCommand = func(ctx context.Context, name string, args ...string) ([]byte,
 	return exec.CommandContext(ctx, name, args...).CombinedOutput()
 }
 
-type UpgradeState = upgrade.State
 type UpgradeStatus = upgrade.Status
 
 const (
@@ -282,8 +280,8 @@ func validateUpgradePackageContents(ctx context.Context, pkg upgradePackage) err
 }
 
 func installUpgradePackage(ctx context.Context, pkg upgradePackage) error {
-	commandName := ""
-	commandArgs := make([]string, 0, 2)
+	var commandName string
+	var commandArgs []string
 	switch pkg.Format {
 	case upgradePackageRPM:
 		commandName = "rpm"
@@ -704,61 +702,6 @@ func downloadFile(ctx context.Context, sourceURL, targetPath string) error {
 	if info, statErr := os.Stat(targetPath); statErr == nil && info.Size() > maxUpgradePackageBytes {
 		return fmt.Errorf("升级包超过最大允许大小 %d 字节", maxUpgradePackageBytes)
 	}
-	return nil
-}
-
-func copyFile(sourcePath, targetPath string) error {
-	source, err := os.Open(sourcePath)
-	if err != nil {
-		return err
-	}
-	defer source.Close()
-
-	target, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
-	if err != nil {
-		return err
-	}
-	defer target.Close()
-
-	_, err = io.Copy(target, source)
-	return err
-}
-
-func replaceFileAtomic(sourcePath, targetPath string, mode os.FileMode) error {
-	source, err := os.Open(sourcePath)
-	if err != nil {
-		return err
-	}
-	defer source.Close()
-
-	dir := filepath.Dir(targetPath)
-	temp, err := os.CreateTemp(dir, "."+filepath.Base(targetPath)+".*.new")
-	if err != nil {
-		return err
-	}
-	tempPath := temp.Name()
-	cleanup := true
-	defer func() {
-		if cleanup {
-			_ = os.Remove(tempPath)
-		}
-	}()
-
-	if _, err := io.Copy(temp, source); err != nil {
-		_ = temp.Close()
-		return err
-	}
-	if err := temp.Chmod(mode); err != nil {
-		_ = temp.Close()
-		return err
-	}
-	if err := temp.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tempPath, targetPath); err != nil {
-		return err
-	}
-	cleanup = false
 	return nil
 }
 

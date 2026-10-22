@@ -4,19 +4,23 @@ import { ConfigProvider, message } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { AppLayout, type RouteKey } from './layout/AppLayout';
 import { LoginPage } from './pages/LoginPage';
-import { SetupPage } from './pages/SetupPage';
-import { HealthDashboard } from './pages/HealthDashboard';
-import { LogSearchPage } from './pages/LogSearchPage';
-import { LogReceptionPage } from './pages/LogReceptionPage';
-import { SystemMaintenancePage } from './pages/SystemMaintenancePage';
-import { UpgradePreviewPage } from './pages/UpgradePreviewPage';
 import { apiGet, apiPost, setOnUnauthorized } from './api';
 import './styles.css';
 
+// 代码分割例外：这里的动态 import 不是“运行时才知道模块名”，而是按路由懒加载——静态 import 会把
+// 查询表格（ProTable）、系统维护、图表等整站代码全部并进首屏入口包，静态 import 无法表达“按需加载”。
+// 因此保持 `await import()` 的字面量形式（与既有 AccessTrendPreview 一致），由 Vite 拆成独立 chunk。
+// 登录页是首屏必经路径，保持静态 import。
 const AccessTrendPreview = React.lazy(async () => {
   const module = await import('./pages/AccessTrendPreview');
   return { default: module.AccessTrendPreview };
 });
+const SetupPage = React.lazy(async () => ({ default: (await import('./pages/SetupPage')).SetupPage }));
+const HealthDashboard = React.lazy(async () => ({ default: (await import('./pages/HealthDashboard')).HealthDashboard }));
+const LogSearchPage = React.lazy(async () => ({ default: (await import('./pages/LogSearchPage')).LogSearchPage }));
+const LogReceptionPage = React.lazy(async () => ({ default: (await import('./pages/LogReceptionPage')).LogReceptionPage }));
+const SystemMaintenancePage = React.lazy(async () => ({ default: (await import('./pages/SystemMaintenancePage')).SystemMaintenancePage }));
+const UpgradePreviewPage = React.lazy(async () => ({ default: (await import('./pages/UpgradePreviewPage')).UpgradePreviewPage }));
 
 type SessionResponse = {
   authenticated?: boolean;
@@ -78,7 +82,7 @@ function App() {
   }
 
   if (isAccessPreview) {
-    return <React.Suspense fallback={<div className="app-loading" />}> <AccessTrendPreview /> </React.Suspense>;
+    return <AccessTrendPreview />;
   }
 
   if (isLoginPreview) {
@@ -155,7 +159,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         },
       }}
     >
-      <App />
+      <React.Suspense fallback={<div className="app-loading" />}>
+        <App />
+      </React.Suspense>
     </ConfigProvider>
   </React.StrictMode>,
 );

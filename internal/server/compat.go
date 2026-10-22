@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 
-	"fwlog/internal/config"
 	"fwlog/internal/importer"
 	"fwlog/internal/ip"
 	"fwlog/internal/storage/clickhouse"
@@ -11,10 +10,6 @@ import (
 
 func OpenClickHouse(ctx context.Context, cfg Config) (*ClickHouseStore, error) {
 	return clickhouse.OpenClickHouse(ctx, cfg)
-}
-
-func LoadConfig() Config {
-	return config.LoadConfig()
 }
 
 func NewIPEngine() *IPEngine {

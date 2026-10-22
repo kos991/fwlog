@@ -28,6 +28,17 @@ func TestImportCoordinatorRejectsBusySource(t *testing.T) {
 	waitForSourceIdle(t, c, "fw-a")
 }
 
+func TestImportCoordinatorReportsWorkerFailure(t *testing.T) {
+	c := NewImportCoordinator(1, 1)
+	result := c.Start(context.Background(), []LogSource{{SourceID: "fw-a"}}, func(context.Context, LogSource) error {
+		return context.Canceled
+	})
+	if succeeded := <-result.Succeeded; succeeded {
+		t.Fatal("failed worker must make the import result unsuccessful")
+	}
+	<-result.Done
+}
+
 func TestImportCoordinatorLimitsActiveSources(t *testing.T) {
 	c := NewImportCoordinator(2, 1)
 	release := make(chan struct{})
@@ -96,10 +107,13 @@ func TestImportCoordinatorLimitsWritesAndRecoversPanic(t *testing.T) {
 func waitForSourceIdle(t *testing.T, c *ImportCoordinator, sourceID string) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
-	for c.IsRunning(sourceID) {
-		if time.Now().After(deadline) {
-			t.Fatalf("source %s remained busy", sourceID)
+	for time.Now().Before(deadline) {
+		result := c.Start(context.Background(), []LogSource{{SourceID: sourceID}}, func(context.Context, LogSource) error { return nil })
+		if len(result.Accepted) == 1 {
+			<-result.Done
+			return
 		}
 		time.Sleep(time.Millisecond)
 	}
+	t.Fatalf("source %s remained busy", sourceID)
 }

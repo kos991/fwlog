@@ -17,11 +17,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pquerna/otp/totp"
+
+	"fwlog/internal/config"
 	"fwlog/internal/security"
 )
 
 func TestLoginSupportsDirectMFAMode(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	secret, err := security.GenerateTOTPSecret()
 	if err != nil {
 		t.Fatalf("generate TOTP secret: %v", err)
@@ -31,7 +34,7 @@ func TestLoginSupportsDirectMFAMode(t *testing.T) {
 	app.mfaSecret = secret
 	app.mu.Unlock()
 
-	code, err := security.GenerateTOTPCode(secret, time.Now())
+	code, err := totp.GenerateCode(secret, time.Now())
 	if err != nil {
 		t.Fatalf("generate TOTP code: %v", err)
 	}
@@ -51,7 +54,7 @@ func TestLoginSupportsDirectMFAMode(t *testing.T) {
 }
 
 func TestExtensionLoginReturnsBearerToken(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	hash, err := HashPassword("admin")
 	if err != nil {
 		t.Fatalf("hash password: %v", err)
@@ -82,7 +85,7 @@ func TestExtensionLoginReturnsBearerToken(t *testing.T) {
 // 这些路由测试依赖 `web/dist/index.html` 和打包后的 `/assets/*` 文件；
 // 干净检出环境下请先执行 `cd web && npm run build`，再运行 `go test ./...`。
 func TestRouterRegistersAPIRoutes(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	router := app.Router()
 
 	tests := []struct {
@@ -128,7 +131,7 @@ func TestRouterRegistersAPIRoutes(t *testing.T) {
 }
 
 func TestRouterSupportsChromeExtensionBearerAuthenticationAndCORS(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	manager, err := security.NewJWTManager([]byte(strings.Repeat("k", 32)), time.Hour)
 	if err != nil {
 		t.Fatalf("new jwt manager: %v", err)
@@ -162,7 +165,7 @@ func TestRouterSupportsChromeExtensionBearerAuthenticationAndCORS(t *testing.T) 
 }
 
 func TestRouterServesEmbeddedSPAForNonAPIRoutes(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	router := app.Router()
 
 	for _, path := range []string{"/", "/dashboard", "/workbench/overview"} {
@@ -185,7 +188,7 @@ func TestRouterServesEmbeddedSPAForNonAPIRoutes(t *testing.T) {
 }
 
 func TestRouterServesEmbeddedFrontendAssets(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	router := app.Router()
 
 	indexReq := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -209,7 +212,7 @@ func TestRouterServesEmbeddedFrontendAssets(t *testing.T) {
 }
 
 func TestRouterSessionLifecycle(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	router := app.Router()
 
 	assertSession := func(cookie *http.Cookie, want bool) {
@@ -273,7 +276,7 @@ func TestRouterSessionLifecycle(t *testing.T) {
 }
 
 func TestRouterPasswordChangeRequiresCurrentPassword(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.mu.Lock()
 	app.store = &ClickHouseStore{}
 	app.mu.Unlock()
@@ -342,7 +345,7 @@ func TestRouterPasswordChangeRequiresCurrentPassword(t *testing.T) {
 }
 
 func TestRouterPasswordChangeRejectsInvalidNewPasswordPolicy(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	router := app.Router()
 
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewBufferString(`{"password":"admin"}`))
@@ -370,7 +373,7 @@ func TestRouterPasswordChangeRejectsInvalidNewPasswordPolicy(t *testing.T) {
 }
 
 func TestRouterPasswordChangeAcceptsAnyCharactersAtLeastSixLong(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.mu.Lock()
 	app.store = &ClickHouseStore{}
 	app.mu.Unlock()
@@ -415,13 +418,13 @@ func TestRouterPasswordChangeAcceptsAnyCharactersAtLeastSixLong(t *testing.T) {
 	}
 }
 func TestAppUsesPersistedAdminPasswordHash(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	passwordHash, err := HashPassword("saved-admin-password")
 	if err != nil {
 		t.Fatalf("HashPassword returned error: %v", err)
 	}
 
-	app.applySavedSettings(map[string]string{
+	app.applySavedSettingsLocked(map[string]string{
 		adminPasswordHashSettingKey: passwordHash,
 	})
 
@@ -439,7 +442,7 @@ func TestAppUsesPersistedAdminPasswordHash(t *testing.T) {
 func TestNewAppWithoutAdminPasswordDoesNotEnableKnownDefault(t *testing.T) {
 	t.Setenv("ADMIN_PASSWORD", "")
 
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	if app.verifyPassword("admin") {
 		t.Fatal("ADMIN_PASSWORD 未设置时不能启用固定默认密码")
 	}
@@ -453,16 +456,16 @@ func TestNewAppLoadsAdminPasswordFromProtectedFile(t *testing.T) {
 	}
 	t.Setenv("ADMIN_PASSWORD_FILE", passwordPath)
 
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	if !app.verifyPassword("file-admin-secret") {
 		t.Fatal("应从 ADMIN_PASSWORD_FILE 读取初始管理员密码")
 	}
 }
 
 func TestAppIgnoresMalformedPersistedAdminPasswordHash(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 
-	app.applySavedSettings(map[string]string{
+	app.applySavedSettingsLocked(map[string]string{
 		adminPasswordHashSettingKey: "not-a-password-hash",
 	})
 
@@ -472,7 +475,7 @@ func TestAppIgnoresMalformedPersistedAdminPasswordHash(t *testing.T) {
 }
 
 func TestRouterPasswordChangeReturnsUnauthenticatedJSONWhenSessionMissing(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	router := app.Router()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/password", bytes.NewBufferString(`{"current_password":"admin","new_password":"next-admin"}`))
@@ -489,7 +492,7 @@ func TestRouterPasswordChangeReturnsUnauthenticatedJSONWhenSessionMissing(t *tes
 }
 
 func TestRouterLegacyAPIsReturnNotFound(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	router := app.Router()
 
 	for _, path := range []string{"/api/stats", "/api/dashboard"} {
@@ -534,7 +537,7 @@ func TestDashboardMetricsSinceCanUseSeparateRange(t *testing.T) {
 }
 
 func TestRouterAPIRootDoesNotFallBackToSPA(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	router := app.Router()
 
 	req := httptest.NewRequest(http.MethodGet, "/api", nil)
@@ -550,7 +553,7 @@ func TestRouterAPIRootDoesNotFallBackToSPA(t *testing.T) {
 }
 
 func TestUpdateSettingsStoresStructuredValuesAsJSON(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.updateSettings(map[string]any{
 		"log_sources": []any{
 			map[string]any{
@@ -577,7 +580,7 @@ func TestUpdateSettingsStoresStructuredValuesAsJSON(t *testing.T) {
 }
 
 func TestUpdateSettingsNormalizesRSyslogLogSources(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.updateSettings(map[string]any{
 		"log_sources": []any{
 			map[string]any{
@@ -607,7 +610,7 @@ func TestUpdateSettingsNormalizesRSyslogLogSources(t *testing.T) {
 }
 
 func TestRouterSettingsSaveDoesNotStartImportForEnabledLogSources(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.mu.Lock()
 	app.store = &ClickHouseStore{}
 	app.mu.Unlock()
@@ -644,7 +647,7 @@ func TestRouterSettingsSaveDoesNotStartImportForEnabledLogSources(t *testing.T) 
 }
 
 func TestRouterSettingsAppliesRSyslogReceiver(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.mu.Lock()
 	app.store = &ClickHouseStore{}
 	app.mu.Unlock()
@@ -687,7 +690,7 @@ func TestNormalizeListenProtocolPreservesTCP(t *testing.T) {
 }
 
 func TestRouterSyncUsesAllEnabledLogSources(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.mu.Lock()
 	app.store = &ClickHouseStore{}
 	app.mu.Unlock()
@@ -744,7 +747,7 @@ func freeServerUDPPort(t *testing.T) int {
 }
 
 func TestRouterSyncReturnsInProgressWhenBackgroundImportIsRunning(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.mu.Lock()
 	app.store = &ClickHouseStore{}
 	app.mu.Unlock()
@@ -797,7 +800,7 @@ func TestRouterSyncReturnsInProgressWhenBackgroundImportIsRunning(t *testing.T) 
 }
 
 func TestRouterSyncSelectsOneSourceAndReportsBusy(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.mu.Lock()
 	app.store = &ClickHouseStore{}
 	app.mu.Unlock()
@@ -837,7 +840,7 @@ func TestRouterSyncSelectsOneSourceAndReportsBusy(t *testing.T) {
 }
 
 func TestRouterRebuildReportsBusySourceAsConflict(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.mu.Lock()
 	app.store = &ClickHouseStore{}
 	app.mu.Unlock()
@@ -877,7 +880,7 @@ func TestRouterRebuildReportsBusySourceAsConflict(t *testing.T) {
 }
 
 func TestRouterSyncRejectsUnknownSource(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.mu.Lock()
 	app.store = &ClickHouseStore{}
 	app.mu.Unlock()
@@ -896,7 +899,7 @@ func TestRouterSyncRejectsUnknownSource(t *testing.T) {
 }
 
 func TestRouterSyncExplainsUnavailableLogDatabase(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	router := app.Router()
 	cookie := loginForTest(t, router)
 	req := httptest.NewRequest(http.MethodPost, "/api/sync", nil)
@@ -913,7 +916,7 @@ func TestRouterSyncExplainsUnavailableLogDatabase(t *testing.T) {
 }
 
 func TestRouterSyncExplainsInvalidDateFormat(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.mu.Lock()
 	app.store = &ClickHouseStore{}
 	app.mu.Unlock()
@@ -1003,7 +1006,7 @@ func TestTargetDateRangeDatesReturnsInclusiveDays(t *testing.T) {
 }
 
 func TestCurrentLogSourcesDoesNotFallbackWhenConfiguredSourcesAreDisabled(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.updateSettings(map[string]any{
 		"log_sources": []any{
 			map[string]any{"source_id": "fw-a", "log_tag": "edge-a", "log_dir": "/data/fw-a", "enabled": false},
@@ -1016,7 +1019,7 @@ func TestCurrentLogSourcesDoesNotFallbackWhenConfiguredSourcesAreDisabled(t *tes
 }
 
 func TestRouterReloadIPDataIgnoresMissingCustomMap(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.updateSettings(map[string]any{
 		"custom_ip_map_path": "Z:/missing/custom.csv",
 		"ip_map_enabled":     true,
@@ -1051,7 +1054,7 @@ func TestRouterReloadIPDataIgnoresMissingCustomMap(t *testing.T) {
 }
 
 func TestRouterReloadIPDataLoadsCustomMapFromCurrentSettings(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	dir := t.TempDir()
 	mapPath := filepath.Join(dir, "custom.csv")
 	if err := os.WriteFile(mapPath, []byte("10.0.0.1,办公终端,内网\n"), 0o600); err != nil {
@@ -1101,7 +1104,7 @@ func findEmbeddedAssetPath(t *testing.T, indexHTML string) string {
 }
 
 func TestProtectedAPIsRejectUnauthenticatedRequests(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	router := app.Router()
 
 	protected := []struct {
@@ -1138,7 +1141,7 @@ func TestProtectedAPIsRejectUnauthenticatedRequests(t *testing.T) {
 }
 
 func TestSettingsRejectsAdminPasswordHashKey(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.mu.Lock()
 	app.store = &ClickHouseStore{}
 	app.mu.Unlock()
@@ -1170,7 +1173,7 @@ func TestSettingsRejectsAdminPasswordHashKey(t *testing.T) {
 }
 
 func TestLoginRateLimitsAfterRepeatedFailures(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	router := app.Router()
 
 	for i := 0; i < maxLoginFailures; i++ {
@@ -1193,7 +1196,7 @@ func TestLoginRateLimitsAfterRepeatedFailures(t *testing.T) {
 }
 
 func TestLoginFailuresDoNotLockOutAnotherSource(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	router := app.Router()
 
 	for i := 0; i < maxLoginFailures; i++ {
@@ -1216,7 +1219,7 @@ func TestLoginFailuresDoNotLockOutAnotherSource(t *testing.T) {
 }
 
 func TestLoginRejectsOversizedRequestBody(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	req := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewBufferString(`{"password":"`+strings.Repeat("a", 16*1024)+`"}`))
 	res := httptest.NewRecorder()
 
@@ -1228,7 +1231,7 @@ func TestLoginRejectsOversizedRequestBody(t *testing.T) {
 }
 
 func TestLoginRejectsPasswordBeyondVerificationLimit(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	req := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewBufferString(`{"password":"`+strings.Repeat("a", maxPasswordBytes+1)+`"}`))
 	res := httptest.NewRecorder()
 
@@ -1240,7 +1243,7 @@ func TestLoginRejectsPasswordBeyondVerificationLimit(t *testing.T) {
 }
 
 func TestLoginRejectsWorkWhenConcurrencyBudgetIsFull(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	for i := 0; i < maxConcurrentLogins; i++ {
 		app.loginSem <- struct{}{}
 	}

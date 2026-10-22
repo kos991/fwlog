@@ -88,10 +88,6 @@ GROUP BY log_date, source_id, src_ip, src_port, dst_ip, dst_port, protocol`,
 	}
 }
 
-func DashboardTotalRowsSQL() string {
-	return "SELECT coalesce(sum(rows), 0) FROM dashboard_daily_totals" + dashboardQuerySetting
-}
-
 func DashboardRowsForDateSQL() string {
 	return "SELECT coalesce(sum(rows), 0) FROM dashboard_daily_totals WHERE log_date = ?" + dashboardQuerySetting
 }

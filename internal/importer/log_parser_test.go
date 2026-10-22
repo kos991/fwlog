@@ -7,7 +7,7 @@ import (
 )
 
 func TestParseNATLineWritesDefaultsAndMetadata(t *testing.T) {
-	line := "2026 Jun 28 01:17:18 源IP:192.168.1.10 源端�?12345 目的IP:222.186.177.145 目的端口:443 协议:6 转换后的IP:10.0.0.1 转换后的端口:50000"
+	line := "2026 Jun 28 01:17:18 源IP:192.168.1.10 源端口:12345 目的IP:222.186.177.145 目的端口:443 协议:6 转换后的IP:10.0.0.1 转换后的端口:50000"
 
 	row, ok := ParseNATLine(line, ParseMeta{
 		SourceID:     "src_1",
@@ -30,7 +30,7 @@ func TestParseNATLineWritesDefaultsAndMetadata(t *testing.T) {
 	if row.SourceFile != "/logs/sangfor.log-20260628" || row.SourceOffset != 128 || row.BatchID != "batch_1" {
 		t.Fatalf("source metadata missing: %#v", row)
 	}
-	if row.SrcIP != netip.MustParseAddr("192.168.1.10") || row.DstPort != 443 {
+	if row.SrcIP != netip.MustParseAddr("192.168.1.10") || row.SrcPort != 12345 || row.DstPort != 443 {
 		t.Fatalf("unexpected parsed row: %#v", row)
 	}
 	if row.NATIP != netip.MustParseAddr("10.0.0.1") || row.NATPort != 50000 {
@@ -61,7 +61,7 @@ func TestParseNATLineParsesIPv6Addresses(t *testing.T) {
 }
 
 func TestParseNATLineParsesSyslogTimestampWithArchiveYear(t *testing.T) {
-	line := "Jun 13 23:59:30 localhost nat: 日志类型:NAT日志, NAT类型:snat, 源IP:2.55.80.250, 源端�?37830, 目的IP:47.96.193.154, 目的端口:443, 协议:6, 转换后的IP:58.216.48.6, 转换后的端口:37830"
+	line := "Jun 13 23:59:30 localhost nat: 日志类型:NAT日志, NAT类型:snat, 源IP:2.55.80.250, 源端口:37830, 目的IP:47.96.193.154, 目的端口:443, 协议:6, 转换后的IP:58.216.48.6, 转换后的端口:37830"
 
 	row, ok := ParseNATLine(line, ParseMeta{
 		LogDate: time.Date(2026, 6, 14, 0, 0, 0, 0, time.Local),
@@ -118,7 +118,7 @@ func TestParseNATLineUsesDefaultValuesForMissingFields(t *testing.T) {
 }
 
 func TestParseNATLineDefaultsMissingSourceIP(t *testing.T) {
-	line := "2026 Jun 28 01:17:18 目的IP:222.186.177.145 源端�?12345 目的端口:443"
+	line := "2026 Jun 28 01:17:18 目的IP:222.186.177.145 源端口:12345 目的端口:443"
 
 	row, ok := ParseNATLine(line, ParseMeta{})
 	if !ok {
@@ -133,7 +133,7 @@ func TestParseNATLineDefaultsMissingSourceIP(t *testing.T) {
 }
 
 func TestParseNATLineDefaultsMissingDestinationIP(t *testing.T) {
-	line := "2026 Jun 28 01:17:18 源IP:192.168.1.10 源端�?12345 协议:6"
+	line := "2026 Jun 28 01:17:18 源IP:192.168.1.10 源端口:12345 协议:6"
 
 	row, ok := ParseNATLine(line, ParseMeta{})
 	if !ok {
@@ -195,7 +195,7 @@ func TestParseNATLineNormalizesNumericProtocols(t *testing.T) {
 }
 
 func TestParseNATLineDefaultsInvalidPortsToZero(t *testing.T) {
-	line := "2026 Jun 28 01:17:18 源IP:192.168.1.10 源端�?bad 目的IP:222.186.177.145 目的端口:70000 转换后的端口:-1"
+	line := "2026 Jun 28 01:17:18 源IP:192.168.1.10 源端口:bad 目的IP:222.186.177.145 目的端口:70000 转换后的端口:-1"
 
 	row, ok := ParseNATLine(line, ParseMeta{})
 	if !ok {
@@ -270,8 +270,53 @@ func TestParseNATLineParsesFortiGateKeyValue(t *testing.T) {
 	}
 }
 
+func TestParseNATTimestampMatchesFormerRegexpGrammar(t *testing.T) {
+	fallback := time.Date(2026, 6, 14, 0, 0, 0, 0, time.Local)
+	tests := []struct {
+		line string
+		want time.Time
+	}{
+		{"2026 Jun 28 01:17:18 x", time.Date(2026, 6, 28, 1, 17, 18, 0, time.Local)},
+		{"2026 jun 8 01:17:18", time.Date(2026, 6, 8, 1, 17, 18, 0, time.Local)},
+		// The former regexp accepted tabs, but time.Parse rejected them, so the archive date was used.
+		{"2026\t\tJun 8 01:17:18", fallback},
+		{"<14>Sep  4 18:15:30 2026 USG", time.Date(2026, 9, 4, 18, 15, 30, 0, time.Local)},
+		{"%Sep 4 18:15:32\t2025 H3C", time.Date(2025, 9, 4, 18, 15, 32, 0, time.Local)},
+		{"<14>%Jun 13 23:59:30 host", time.Date(2026, 6, 13, 23, 59, 30, 0, time.Local)},
+		{"Jun 13 23:59:30 20 host", time.Date(2026, 6, 13, 23, 59, 30, 0, time.Local)},
+		// Day 31 is invalid in June, so the year form fails and falls through to the archive-year form, which also fails.
+		{"Jun 31 23:59:30 2026", fallback},
+		{"Jun 123 23:59:30", fallback},
+		{"<>Jun 13 23:59:30", fallback},
+		{"Jun 13 3:59:30", fallback},
+		{"2026Jun 28 01:17:18", fallback},
+		{"x2026 Jun 28 01:17:18", fallback},
+	}
+	for _, tt := range tests {
+		got, ok := parseNATTimestamp(tt.line, fallback)
+		if !ok || !got.Equal(tt.want) {
+			t.Errorf("parseNATTimestamp(%q) = %v, %v; want %v", tt.line, got, ok, tt.want)
+		}
+	}
+	if _, ok := parseNATTimestamp("no timestamp", time.Time{}); ok {
+		t.Fatal("missing timestamp without fallback date should report false")
+	}
+}
+
+func TestParseNATLineFortiGateLaterDuplicateAndUppercaseKeysWin(t *testing.T) {
+	line := "srcip=192.168.1.1 SRCIP=\"192.168.1.2\" dstip=8.8.8.8 NatIP=203.0.113.9 natport=7\u3000Action='deny'"
+	row, ok := ParseNATLine(line, ParseMeta{})
+	if !ok {
+		t.Fatal("FortiGate NAT line should parse")
+	}
+	if row.SrcIP != netip.MustParseAddr("192.168.1.2") || row.NATIP != netip.MustParseAddr("203.0.113.9") ||
+		row.NATPort != 7 || row.Action != "deny" {
+		t.Fatalf("unexpected FortiGate row: %#v", row)
+	}
+}
+
 func BenchmarkParseNATLine(b *testing.B) {
-	line := "2026 Jun 28 01:17:18 源IP:192.168.1.10 源端�?12345 目的IP:222.186.177.145 目的端口:443 协议:6 转换后的IP:10.0.0.1 转换后的端口:50000 动作:允许"
+	line := "2026 Jun 28 01:17:18 源IP:192.168.1.10 源端口:12345 目的IP:222.186.177.145 目的端口:443 协议:6 转换后的IP:10.0.0.1 转换后的端口:50000 动作:允许"
 	meta := ParseMeta{
 		SourceID:     "src_1",
 		LogTag:       "nat_tag",

@@ -155,7 +155,6 @@ func TestDeploymentTemplatesUseCPUSafeImportDefaults(t *testing.T) {
 	for _, path := range []string{
 		"fwlog.service",
 		filepath.Join("packaging", "systemd", "fwlog.service"),
-		filepath.Join("scripts", "deploy-142-from-release.sh"),
 	} {
 		assertFileIncludes(t, path, `Environment="WORKERS=1"`, `Nice=5`)
 		assertFileIncludes(t, path,

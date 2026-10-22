@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"fwlog/internal/config"
 	"fwlog/internal/model"
 	"fwlog/internal/receiver"
 )
@@ -46,7 +47,7 @@ func TestArchiveStatusResultsIncludesSuccessfulIdleSources(t *testing.T) {
 }
 
 func TestRunRSyslogArchiveLoadsRequiredRetentionWindow(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	configureArchiveSource(t, app, model.LogSource{
 		SourceID:             "fw-a",
 		SourceType:           "rsyslog",
@@ -72,7 +73,7 @@ func TestRunRSyslogArchiveLoadsRequiredRetentionWindow(t *testing.T) {
 }
 
 func TestRunRSyslogArchiveSkipsStateQueryForPermanentRetention(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	spoolDir := t.TempDir()
 	configureArchiveSource(t, app, model.LogSource{
 		SourceID: "fw-a", SourceType: "rsyslog", SpoolDir: spoolDir, ArchiveRetentionDays: 0, Enabled: true,
@@ -90,7 +91,7 @@ func TestRunRSyslogArchiveSkipsStateQueryForPermanentRetention(t *testing.T) {
 }
 
 func TestRSyslogArchiveSchedulerRunsImmediately(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	spoolDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(spoolDir, "2026-07-13.log"), []byte("startup scan\n"), 0o644); err != nil {
 		t.Fatal(err)

@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/pquerna/otp/totp"
 )
 
 func TestTOTPSecretAndCode(t *testing.T) {
@@ -11,9 +13,9 @@ func TestTOTPSecretAndCode(t *testing.T) {
 	if err != nil || secret == "" {
 		t.Fatalf("GenerateTOTPSecret() = %q, %v", secret, err)
 	}
-	code, err := GenerateTOTPCode(secret, time.Now())
+	code, err := totp.GenerateCode(secret, time.Now())
 	if err != nil {
-		t.Fatalf("GenerateTOTPCode() error = %v", err)
+		t.Fatalf("totp.GenerateCode() error = %v", err)
 	}
 	if !ValidateTOTP(secret, code, time.Now()) {
 		t.Fatalf("ValidateTOTP() rejected generated code %q", code)

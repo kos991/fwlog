@@ -4,7 +4,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
+
+func dateOnly(year int, month time.Month, day int) time.Time {
+	return time.Date(year, month, day, 0, 0, 0, 0, time.Local)
+}
 
 func TestMain(m *testing.M) {
 	if err := os.Setenv("ADMIN_PASSWORD", "admin"); err != nil {

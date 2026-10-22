@@ -1,6 +1,7 @@
 package receiver
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -33,7 +34,7 @@ func TestManagerReceivesUDPSyslogToSpoolFile(t *testing.T) {
 		t.Fatalf("receiver should be running: %#v", status)
 	}
 
-	conn, err := net.Dial("udp", net.JoinHostPort("127.0.0.1", status.PortString()))
+	conn, err := net.Dial("udp", net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", status.Port)))
 	if err != nil {
 		t.Fatalf("dial receiver: %v", err)
 	}

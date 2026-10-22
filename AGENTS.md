@@ -44,9 +44,11 @@
 
 开始任何修改前，至少先读与本轮任务直接相关的最小上下文：
 
-- 项目总览：`README.md`（当前极简，仅说明 V2 定位；真正的设计依据在下面两项）。
-- 设计文档：`docs/superpowers/specs/*.md`（如 `2026-08-31-threat-intelligence-design.md`）。
-- 实现计划：`docs/superpowers/plans/*.md`（如 `2026-08-31-threat-intelligence.md`）。
+- 项目总览：`README.md`（当前极简，仅说明 V2 定位）。
+- 文档索引：`docs/README.md`（目录职责、命名规则与全部文档入口）。
+- 架构与调用链：`docs/architecture/overview.md`（后端分层、数据流、关键契约）。
+- 设计文档：`docs/specs/*.md`（如 `2026-08-31-threat-intelligence-design.md`）。
+- 实现计划：`docs/plans/*.md`（如 `2026-08-31-threat-intelligence.md`）。
 - 发布 / 升级说明：`release-notes/*.md`。
 - 本轮相关入口、调用链、配置、脚本：`cmd/fwlog/main.go`、`internal/server/*.go`、`internal/storage/clickhouse/*.go`、`web/src/**`、`packaging/build-server-packages.sh` 等，以本轮改动为准。
 
@@ -54,17 +56,21 @@
 
 ## 5. 文档与报告目录规则
 
+- 文档索引：`docs/README.md`，记录目录职责、命名规则与全部文档入口；新增文档前先看它。
 - `README.md` 面向首次接触本项目的使用 / 运维方，当前极简，不建议把实现细节塞进去。
-- `docs/superpowers/specs/*.md` 面向开发方，记录领域模型与关键设计决策。
-- `docs/superpowers/plans/*.md` 面向执行方，记录可执行的实现计划。
-- `{{报告目录}}` 用于保存修复报告、验证记录或交接记录。本项目尚未建立固定报告目录；在确定前使用占位 `{{报告目录}}`，落地前与用户确认并同步 `.gitignore`（当前 `.gitignore` 只放行 `docs/superpowers/plans/*.md`）。
+- `docs/architecture/*.md` 面向开发方，记录调用链、分层与关键契约（当前为 `docs/architecture/overview.md`）。
+- `docs/specs/*.md` 面向开发方，记录领域模型与关键设计决策。
+- `docs/plans/*.md` 面向执行方，记录可执行的实现计划。
+- `docs/reports/` 用于保存修复报告、发布准备报告与验证记录（命名规则见第 6 节）；`.gitignore` 已放行该目录的 `*.md`。
+- `docs/guides/` 预留给运维与构建指南；首个指南落地时再创建目录，不预先造空目录。
+- 新增文档前先确认是否已有合适位置；不要把一次性过程记录塞进用户文档，也不要把长期规则藏在临时报告里。
 - 新增文档前先确认是否已有合适位置；不要把一次性过程记录塞进用户文档，也不要把长期规则藏在临时报告里。
 
 ## 6. 修复报告规则
 
 修复报告只用于记录核心代码、可执行能力、评测闭环或项目行为的实质变化。纯文档修改、README 更新、说明文字修正、技能 / 指令文件调整、格式整理、注释修正，默认不触发修复报告，也不触发版本号变更。
 
-只有本次改动涉及以下任一类型，完成后才需要在 `{{报告目录}}` 下新增或更新修复报告：
+只有本次改动涉及以下任一类型，完成后才需要在 `docs/reports/` 下新增或更新修复报告：
 
 - 功能修复或行为变更。
 - 核心代码、运行入口、任务契约、数据结构、接口协议或可执行能力变化。
@@ -75,13 +81,13 @@
 报告命名规则：
 
 ```text
-{{报告目录}}/fix-report-v{{版本号}}-{{日期}}.md
+docs/reports/fix-report-v{{版本号}}-{{日期}}.md
 ```
 
 如项目需要细分主题，可使用：
 
 ```text
-{{报告目录}}/fix-report-v{{版本号}}-{{日期}}-{{主题slug}}.md
+docs/reports/fix-report-v{{版本号}}-{{日期}}-{{主题slug}}.md
 ```
 
 报告至少覆盖：
@@ -100,12 +106,12 @@
 
 ## 7. 版本号演进规则
 
-- 当前版本：`{{当前版本}}`（待确认；本项目以 GitHub release tag 为准，`release-notes/` 目前最新为 `v2.1.2`）。
+- 当前版本：`v1.0.0`（以 GitHub release tag 为准；`release-notes/` 中 V2 主线为 `v1.0.0.md`，`v2.1.x` 是旧编号历史遗留）。
 - 版本起点：V2 主线（服务名、安装路径、打包产物均为 `fwlog`）。
-- 版本文件：`{{版本文件}}`。本项目实际版本来源有两处，改动时必须保持一致：
+- 版本文件：`internal/server/upgrade_service.go` 的 `var appVersion = "dev"`（编译期默认值）与 `packaging/build-server-packages.sh` 写入的 `/opt/fwlog/VERSION`（安装期）。本项目实际版本来源有两处，改动时必须保持一致：
   - 编译期：`internal/server/upgrade_service.go` 中 `var appVersion = "dev"`；正式包由 release 构建通过 ldflags `-X fwlog/internal/server.appVersion=$version` 注入（见 `.github/workflows/release-build.yml`）。
   - 安装期：`packaging/build-server-packages.sh` 写入 `/opt/fwlog/VERSION`（`VERSION=vX.Y.Z`）与 `/opt/fwlog/RUNTIME_VERSION`（`RUNTIME_VERSION=clickhouse-<ver>`），运行时由 `internal/version/service.go` 读取。
-- README 版本位置：`{{README版本位置}}`（当前 `README.md` 未标注版本；若引入版本号需与 release tag 同步）。
+- README 版本位置：`README.md`（当前只说明“首个正式发布版本从 `v1.0.0` 开始”，未标注具体版本号；若引入具体版本号需与 release tag 同步）。
 - 其他版本位置：`release-notes/vX.Y.Z.md`、release 产物 `latest.json` 的 `app_version`/`runtime_version`、RPM/DEB 包版本号（`fwlog-upgrade_<ver>_amd64.deb` 等）。
 
 版本含义：
@@ -119,7 +125,7 @@
 - 用户没有明确要求 bump 时，默认在当前版本继续修改。
 - 纯文档、说明文字、技能 / 指令文件、格式整理、注释修正默认不修改版本号。
 - 不要为了显得进展大而随意升版；版本号必须对应真实改动。
-- 每次修改项目版本号时，必须同步检查所有写有当前版本号的位置，包括 `{{版本文件}}`、`{{README版本位置}}`、`release-notes/`、修复报告文件名、`latest.json`、用户可见版本显示、RPM/DEB 包版本或其他项目实际版本位置。
+- 每次修改项目版本号时，必须同步检查所有写有当前版本号的位置，包括 `internal/server/upgrade_service.go` 的 `appVersion`、`packaging/build-server-packages.sh` 写入的 `/opt/fwlog/VERSION`、`README.md`、`release-notes/`、修复报告文件名、`latest.json`、用户可见版本显示、RPM/DEB 包版本或其他项目实际版本位置。
 - 如果某些版本位置历史上不一致，必须说明处理方式，不能静默跳过。
 
 ## 8. 保护逻辑与错误处理原则

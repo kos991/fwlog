@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"fwlog/internal/config"
 	"fwlog/internal/threatintel"
 )
 
@@ -15,7 +16,7 @@ func TestThreatIntelligenceResultDoesNotAnalyze(t *testing.T) {
 	service := &fakeThreatIntelligenceService{localResult: &threatintel.Result{
 		Provider: threatintel.ProviderThreatBook, IP: "8.8.8.8", Verdict: "benign",
 	}}
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.threatIntelligenceService = service
 
 	req := httptest.NewRequest(http.MethodGet, "/api/threat-intelligence/providers/threatbook/results?ip=8.8.8.8", nil)
@@ -31,7 +32,7 @@ func TestThreatIntelligenceResultDoesNotAnalyze(t *testing.T) {
 }
 
 func TestThreatIntelligenceRoutesRequireAuthentication(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	router := app.Router()
 	paths := []struct {
 		method string
@@ -54,7 +55,7 @@ func TestThreatIntelligenceRoutesRequireAuthentication(t *testing.T) {
 }
 
 func TestThreatIntelligenceControllerMapsMethodsAndErrors(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	service := &fakeThreatIntelligenceService{analyzeErr: &threatintel.ServiceError{Code: threatintel.ErrorTimeout, Message: "分析超时"}}
 	app.threatIntelligenceService = service
 	app.sessionToken = "test-token"
@@ -85,7 +86,7 @@ func TestThreatIntelligenceControllerMapsMethodsAndErrors(t *testing.T) {
 }
 
 func TestThreatIntelligenceUpdateRejectsCredentialClearConflict(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	service := &fakeThreatIntelligenceService{}
 	app.threatIntelligenceService = service
 	app.sessionToken = "test-token"

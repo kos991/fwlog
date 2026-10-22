@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"fwlog/internal/config"
 	"fwlog/internal/security"
 )
 
@@ -41,7 +42,7 @@ func postMCPForInterfaceTest(t *testing.T, router http.Handler, token, body stri
 }
 
 func TestDefaultInterfaceSettings(t *testing.T) {
-	settings := defaultSettings(LoadConfig())
+	settings := defaultSettings(config.LoadConfig())
 	if settings[externalAPIEnabledSettingKey] != "true" {
 		t.Fatalf("external API default = %q, want true", settings[externalAPIEnabledSettingKey])
 	}
@@ -51,7 +52,7 @@ func TestDefaultInterfaceSettings(t *testing.T) {
 }
 
 func TestExternalAPISwitchOnlyBlocksBearerQuery(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.updateSettings(map[string]any{externalAPIEnabledSettingKey: false})
 	router := app.Router()
 	token := bearerTokenForInterfaceTest(t, app)
@@ -75,7 +76,7 @@ func TestExternalAPISwitchOnlyBlocksBearerQuery(t *testing.T) {
 }
 
 func TestMCPSwitchAndReadOnlyQueryTool(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	router := app.Router()
 	token := bearerTokenForInterfaceTest(t, app)
 	initialize := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}`
@@ -114,7 +115,7 @@ func TestMCPSwitchAndReadOnlyQueryTool(t *testing.T) {
 }
 
 func TestMCPRequiresBearerAuthentication(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.updateSettings(map[string]any{mcpEnabledSettingKey: true})
 	res := postMCPForInterfaceTest(t, app.Router(), "", `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`)
 	if res.Code != http.StatusUnauthorized {
@@ -123,7 +124,7 @@ func TestMCPRequiresBearerAuthentication(t *testing.T) {
 }
 
 func TestMCPClientLoginReturnsBearerToken(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	hash, err := HashPassword("admin")
 	if err != nil {
 		t.Fatalf("hash password: %v", err)
@@ -148,7 +149,7 @@ func TestMCPClientLoginReturnsBearerToken(t *testing.T) {
 }
 
 func TestMCPTokenDownloadCreatesMCPOnlyCredential(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.updateSettings(map[string]any{mcpEnabledSettingKey: true})
 	router := app.Router()
 	adminToken := bearerTokenForInterfaceTest(t, app)

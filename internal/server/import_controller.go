@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	importerpkg "fwlog/internal/importer"
@@ -144,14 +145,6 @@ func (a *App) currentStore() *ClickHouseStore {
 	return a.store
 }
 
-func (a *App) currentLogSource() LogSource {
-	sources := a.currentLogSources()
-	if len(sources) > 0 {
-		return sources[0]
-	}
-	return a.legacyLogSource()
-}
-
 func (a *App) currentLogSources() []LogSource {
 	a.mu.RLock()
 	settings := make(map[string]string, len(a.settings))
@@ -204,12 +197,6 @@ func (a *App) configuredDateStates(states []DateIngestState, displaySourceID str
 		configured = append(configured, state)
 	}
 	return configured
-}
-
-func (a *App) legacyLogSource() LogSource {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	return legacyLogSourceFromSettings(a.settings, a.cfg)
 }
 
 func legacyLogSourceFromSettings(settings map[string]string, cfg Config) LogSource {
@@ -398,10 +385,10 @@ func (a *App) startBackgroundImportSources(rebuild bool, targetDate importTarget
 			if a.importRunner != nil {
 				imported, skipped, err = a.importRunner(ctx, store, source, rebuild, archiveBefore)
 			} else {
-				imported, skipped, err = importArchivedDatesBefore(ctx, store, source, rebuild, archiveBefore, a.imports)
+				imported, skipped, err = importArchivedDatesBefore(ctx, store, source, rebuild, archiveBefore, a.imports, a.cfg.Workers)
 			}
 		} else {
-			imported, skipped, err = importSourceDates(ctx, store, source, rebuild, targetDate, a.importRunner, a.imports)
+			imported, skipped, err = importSourceDates(ctx, store, source, rebuild, targetDate, a.importRunner, a.imports, a.cfg.Workers)
 		}
 
 		duration := time.Since(start)
@@ -428,15 +415,15 @@ func (a *App) startBackgroundImportSources(rebuild bool, targetDate importTarget
 	})
 }
 
-func importSourceDates(ctx context.Context, store *ClickHouseStore, source LogSource, rebuild bool, targetDate importTargetDateRange, runner importRunnerFunc, gate batchWriteGate) ([]string, []string, error) {
+func importSourceDates(ctx context.Context, store *ClickHouseStore, source LogSource, rebuild bool, targetDate importTargetDateRange, runner importRunnerFunc, gate batchWriteGate, workers int) ([]string, []string, error) {
 	if targetDate.IsZero() {
 		if runner == nil {
-			return importArchivedDatesWithGate(ctx, store, source, rebuild, gate)
+			return importArchivedDatesBefore(ctx, store, source, rebuild, time.Time{}, gate, workers)
 		}
 		return runner(ctx, store, source, rebuild, time.Time{})
 	}
 
-	return runImportDates(targetDate.Dates(), func(date time.Time) ([]string, []string, error) {
+	return runImportDates(targetDate.Dates(), workers, func(date time.Time) ([]string, []string, error) {
 		return importSourceDate(ctx, store, source, rebuild, date, gate)
 	})
 }
@@ -467,15 +454,7 @@ func formatOptionalDate(date time.Time) string {
 	return date.Format("2006-01-02")
 }
 
-func importArchivedDates(ctx context.Context, store *ClickHouseStore, source LogSource, rebuild bool) ([]string, []string, error) {
-	return importArchivedDatesWithGate(ctx, store, source, rebuild, nil)
-}
-
-func importArchivedDatesWithGate(ctx context.Context, store *ClickHouseStore, source LogSource, rebuild bool, gate batchWriteGate) ([]string, []string, error) {
-	return importArchivedDatesBefore(ctx, store, source, rebuild, time.Time{}, gate)
-}
-
-func importArchivedDatesBefore(ctx context.Context, store *ClickHouseStore, source LogSource, rebuild bool, beforeDate time.Time, gate batchWriteGate) ([]string, []string, error) {
+func importArchivedDatesBefore(ctx context.Context, store *ClickHouseStore, source LogSource, rebuild bool, beforeDate time.Time, gate batchWriteGate, workers int) ([]string, []string, error) {
 	now := time.Now()
 	files, err := importerpkg.ScanArchivedLogFilesBefore(source.LogDir, now, beforeDate)
 	if err != nil {
@@ -497,7 +476,7 @@ func importArchivedDatesBefore(ctx context.Context, store *ClickHouseStore, sour
 
 	imp := importerpkg.NewImporter(store, gate)
 
-	return runImportDates(dates, func(date time.Time) ([]string, []string, error) {
+	return runImportDates(dates, workers, func(date time.Time) ([]string, []string, error) {
 		if !rebuild {
 			state, found, err := store.LatestDateState(ctx, source.SourceID, date)
 			if err != nil {
@@ -517,16 +496,48 @@ func importArchivedDatesBefore(ctx context.Context, store *ClickHouseStore, sour
 
 type importDateFunc func(time.Time) ([]string, []string, error)
 
-func runImportDates(dates []time.Time, importDate importDateFunc) ([]string, []string, error) {
+// runImportDates imports up to workers dates at once. Each date owns its own
+// (source_id, log_date) partitions and state rows, so dates never share writes.
+// Results and errors keep the input date order regardless of completion order.
+func runImportDates(dates []time.Time, workers int, importDate importDateFunc) ([]string, []string, error) {
+	if workers > len(dates) {
+		workers = len(dates)
+	}
+	if workers < 1 {
+		workers = 1
+	}
+	type dateResult struct {
+		imported []string
+		skipped  []string
+		err      error
+	}
+	results := make([]dateResult, len(dates))
+	next := make(chan int)
+	var wg sync.WaitGroup
+	for worker := 0; worker < workers; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for index := range next {
+				imported, skipped, err := importDate(dates[index])
+				results[index] = dateResult{imported: imported, skipped: skipped, err: err}
+			}
+		}()
+	}
+	for index := range dates {
+		next <- index
+	}
+	close(next)
+	wg.Wait()
+
 	imported := make([]string, 0, len(dates))
 	skipped := make([]string, 0)
 	dateErrors := make([]error, 0)
-	for _, date := range dates {
-		dateImported, dateSkipped, err := importDate(date)
-		imported = append(imported, dateImported...)
-		skipped = append(skipped, dateSkipped...)
-		if err != nil {
-			dateErrors = append(dateErrors, fmt.Errorf("%s: %w", formatDate(date), err))
+	for index, result := range results {
+		imported = append(imported, result.imported...)
+		skipped = append(skipped, result.skipped...)
+		if result.err != nil {
+			dateErrors = append(dateErrors, fmt.Errorf("%s: %w", formatDate(dates[index]), result.err))
 		}
 	}
 	return imported, skipped, errors.Join(dateErrors...)

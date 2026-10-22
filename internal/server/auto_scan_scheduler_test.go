@@ -4,10 +4,12 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"fwlog/internal/config"
 )
 
 func TestRunDueAutoScanStartsImportAtConfiguredTime(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.mu.Lock()
 	app.store = &ClickHouseStore{}
 	app.mu.Unlock()
@@ -55,7 +57,7 @@ func TestRunDueAutoScanStartsImportAtConfiguredTime(t *testing.T) {
 }
 
 func TestRunDueAutoScanDoesNotRecordBeforeAllSourcesComplete(t *testing.T) {
-	cfg := LoadConfig()
+	cfg := config.LoadConfig()
 	cfg.Workers = 2
 	app := NewApp(cfg)
 	app.mu.Lock()
@@ -103,8 +105,35 @@ func TestRunDueAutoScanDoesNotRecordBeforeAllSourcesComplete(t *testing.T) {
 	}
 }
 
+func TestRecordCompletedAutoScanDoesNotRecordFailedImport(t *testing.T) {
+	app := NewApp(config.LoadConfig())
+	app.updateSettings(map[string]any{
+		"auto_scan_enabled":  "true",
+		"auto_scan_mode":     "daily",
+		"auto_scan_times":    "01:00",
+		"auto_scan_timezone": "Asia/Shanghai",
+	})
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	scheduledAt := time.Date(2026, 7, 7, 1, 0, 0, 0, loc)
+	succeeded := make(chan bool, 1)
+	succeeded <- false
+	close(succeeded)
+
+	app.recordCompletedAutoScan(context.Background(), scheduledAt, true, succeeded)
+
+	if got := app.getSettings()["last_auto_scan_at"]; got != "" {
+		t.Fatalf("failed scan recorded last_auto_scan_at = %q", got)
+	}
+	if _, due := dueAutoScanTime(app.settingsSnapshot(), scheduledAt.Add(30*time.Second)); !due {
+		t.Fatal("failed scheduled scan must remain due for retry")
+	}
+}
+
 func TestRunDueAutoScanDoesNotStartTwiceForSameScheduledTime(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.mu.Lock()
 	app.store = &ClickHouseStore{}
 	app.mu.Unlock()
@@ -196,7 +225,7 @@ func TestDueAutoScanTimeDoesNotGoBackToEarlierDailySlot(t *testing.T) {
 }
 
 func TestRunDueAutoScanIgnoresDisabledPlan(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.mu.Lock()
 	app.store = &ClickHouseStore{}
 	app.mu.Unlock()
@@ -225,7 +254,7 @@ func TestRunDueAutoScanIgnoresDisabledPlan(t *testing.T) {
 }
 
 func TestDashboardAutoScanPlanIncludesLastAutoScanAt(t *testing.T) {
-	app := NewApp(LoadConfig())
+	app := NewApp(config.LoadConfig())
 	app.updateSettings(map[string]any{
 		"auto_scan_enabled":  "true",
 		"auto_scan_times":    "01:00",

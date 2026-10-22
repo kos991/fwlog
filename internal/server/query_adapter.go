@@ -52,6 +52,9 @@ func (s appQueryService) Query(r *http.Request) (QueryResponse, error) {
 	}
 
 	states = s.app.configuredDateStates(states, displaySourceID)
+	for index := range states {
+		states[index].SourceID = s.app.storageSourceID(states[index].SourceID)
+	}
 	visibility := query.BuildVisibleRanges(req.Start, req.End, states)
 	querySQL, args, err := query.BuildQuerySQL(req, visibility)
 	if err != nil {
